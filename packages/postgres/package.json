@@ -1,0 +1,26 @@
+{
+  "name": "@tasks/postgres",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && tsc -p tsconfig.json",
+    "check": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && tsc --noEmit -p tsconfig.json",
+    "test": "bun run build && cd ../.. && vitest run packages/postgres/test"
+  },
+  "dependencies": {
+    "@tasks/application": "workspace:*",
+    "@tasks/domain": "workspace:*",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.5"
+  }
+}

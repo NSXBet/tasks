@@ -20,14 +20,14 @@ push-state.json
 *.lock
 
 # Credential key (encryption key for federation peer auth — never commit)
-.beads-credential-key
+.tasks-credential-key
 
 # Local version tracking (prevents upgrade notification spam after git ops)
 .local_version
 
 proxied_server_client_info.json
 
-# Worktree redirect file (contains relative path to main repo's .beads/)
+# Worktree redirect file (contains relative path to main repo's .tasks/)
 # Must not be committed as paths would be wrong in other clones
 redirect
 

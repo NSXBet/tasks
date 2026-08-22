@@ -1,0 +1,19 @@
+{
+  "name": "@tasks/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "tk": "./src/tk.ts"
+  },
+  "scripts": {
+    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && tsc -p tsconfig.json",
+    "check": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && tsc --noEmit -p tsconfig.json",
+    "test": "bun run build && cd ../.. && bun test packages/cli/test"
+  },
+  "dependencies": {
+    "@tasks/application": "workspace:*",
+    "@tasks/domain": "workspace:*",
+    "@tasks/sqlite": "workspace:*"
+  }
+}

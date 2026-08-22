@@ -1,6 +1,14 @@
+# Dependencies and generated TypeScript output
+node_modules/
+**/dist/
+*.tsbuildinfo
+*.js
+*.js.map
+*.d.ts
+*.d.ts.map
 
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
-.beads-credential-key
-.beads/proxieddb/
+.tasks-credential-key
+.tasks/proxieddb/

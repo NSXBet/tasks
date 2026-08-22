@@ -1,0 +1,25 @@
+{
+  "name": "@tasks/file",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && tsc -p tsconfig.json",
+    "check": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && tsc --noEmit -p tsconfig.json",
+    "test": "bun run build && cd ../.. && vitest run packages/file/test/file.test.ts"
+  },
+  "dependencies": {
+    "@tasks/application": "workspace:*",
+    "@tasks/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}

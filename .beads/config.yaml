@@ -9,7 +9,7 @@
 # issue-prefix: ""
 
 # Use no-db mode: JSONL-only, no Dolt database
-# When true, .beads/issues.jsonl is the only local store
+# When true, .tasks/issues.jsonl is the only local store
 # no-db: false
 
 # Enable JSON output by default
@@ -23,7 +23,7 @@
 # Default actor for audit trails (overridden by BEADS_ACTOR or --actor)
 # actor: ""
 
-# Export events (audit trail) to .beads/events.jsonl on each flush/sync
+# Export events (audit trail) to .tasks/events.jsonl on each flush/sync
 # When enabled, new events are appended incrementally using a high-water mark.
 # Use 'bd export --events' to trigger manually regardless of this setting.
 # events-export: false
@@ -33,7 +33,7 @@
 # repos:
 #   primary: "."  # Primary repo (where this database lives)
 #   additional:   # Additional repos to hydrate from (read-only)
-#     - ~/beads-planning  # Personal planning repo
+#     - ~/tasks-planning  # Personal planning repo
 #     - ~/work-planning   # Work planning repo
 
 # Dolt-native backup (periodic backup for off-machine recovery)
@@ -45,8 +45,8 @@
 #   git-repo: ""       # Separate git repo for backups (default: project repo)
 
 # Optional JSONL auto-export for viewers, interchange, and issue-level migration.
-# Disabled by default; enable only when an integration needs fresh .beads/issues.jsonl.
-# Use relative paths under .beads/ for JSONL import/export filenames.
+# Disabled by default; enable only when an integration needs fresh .tasks/issues.jsonl.
+# Use relative paths under .tasks/ for JSONL import/export filenames.
 # export:
 #   auto: false
 #   path: issues.jsonl

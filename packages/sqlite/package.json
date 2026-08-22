@@ -1,0 +1,22 @@
+{
+  "name": "@tasks/sqlite",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && tsc -p tsconfig.json",
+    "check": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && tsc --noEmit -p tsconfig.json",
+    "test": "bun run build && cd ../.. && bun test packages/sqlite/test/sqlite.test.ts"
+  },
+  "dependencies": {
+    "@tasks/application": "workspace:*",
+    "@tasks/domain": "workspace:*"
+  }
+}

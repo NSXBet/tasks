@@ -1,0 +1,1 @@
+{"extends":"../../tsconfig.json","compilerOptions":{"rootDir":"src","outDir":"dist","noPropertyAccessFromIndexSignature":false},"include":["src"]}
