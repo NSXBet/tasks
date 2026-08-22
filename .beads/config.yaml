@@ -1,4 +1,4 @@
-# Beads Configuration File
+# Tasks Configuration File
 # This file configures default behavior for all bd commands in this repository
 # All settings can also be set via environment variables (BD_* prefix)
 # or overridden with command-line flags
@@ -20,7 +20,7 @@
 # output:
 #   title-length: 255
 
-# Default actor for audit trails (overridden by BEADS_ACTOR or --actor)
+# Default actor for audit trails (overridden by TASKS_ACTOR or --actor)
 # actor: ""
 
 # Export events (audit trail) to .tasks/events.jsonl on each flush/sync

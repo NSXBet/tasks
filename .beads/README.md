@@ -1,12 +1,12 @@
-# Beads - AI-Native Issue Tracking
+# Tasks - AI-Native Issue Tracking
 
-Welcome to Beads! This repository uses **Beads** for issue tracking - a modern, AI-native tool designed to live directly in your codebase alongside your code.
+Welcome to Tasks! This repository uses **Tasks** for issue tracking - a modern, AI-native tool designed to live directly in your codebase alongside your code.
 
-## What is Beads?
+## What is Tasks?
 
-Beads is issue tracking that lives in your repo, making it perfect for AI coding agents and developers who want their issues close to their code. No web UI required - everything works through the CLI and integrates seamlessly with git.
+Tasks is issue tracking that lives in your repo, making it perfect for AI coding agents and developers who want their issues close to their code. No web UI required - everything works through the CLI and integrates seamlessly with git.
 
-**Learn more:** [github.com/steveyegge/beads](https://github.com/steveyegge/beads)
+**Learn more:** [github.com/steveyegge/tasks](https://github.com/steveyegge/tasks)
 
 ## Quick Start
 
@@ -32,13 +32,13 @@ bd dolt push
 
 ### Working with Issues
 
-Issues in Beads are:
+Issues in Tasks are:
 - **Git-native**: Stored in Dolt database with version control and branching
 - **AI-friendly**: CLI-first design works perfectly with AI coding agents
 - **Branch-aware**: Issues can follow your branch workflow
 - **Sync-ready**: Uses Dolt remotes for backup and team sharing
 
-## Why Beads?
+## Why Tasks?
 
 ✨ **AI-Native Design**
 - Built specifically for AI-assisted development workflows
@@ -55,27 +55,27 @@ Issues in Beads are:
 - Branch-aware issue tracking
 - Dolt-native three-way merge resolution
 
-## Get Started with Beads
+## Get Started with Tasks
 
-Try Beads in your own projects:
+Try Tasks in your own projects:
 
 ```bash
-# Install Beads
-curl -sSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+# Install Tasks
+curl -sSL https://raw.githubusercontent.com/steveyegge/tasks/main/scripts/install.sh | bash
 
 # Initialize in your repo
 bd init
 
 # Create your first issue
-bd create "Try out Beads"
+bd create "Try out Tasks"
 ```
 
 ## Learn More
 
-- **Documentation**: [github.com/steveyegge/beads/docs](https://github.com/steveyegge/beads/tree/main/docs)
+- **Documentation**: [github.com/steveyegge/tasks/docs](https://github.com/steveyegge/tasks/tree/main/docs)
 - **Quick Start Guide**: Run `bd quickstart`
-- **Examples**: [github.com/steveyegge/beads/examples](https://github.com/steveyegge/beads/tree/main/examples)
+- **Examples**: [github.com/steveyegge/tasks/examples](https://github.com/steveyegge/tasks/tree/main/examples)
 
 ---
 
-*Beads: Issue tracking that moves at the speed of thought* ⚡
+*Tasks: Issue tracking that moves at the speed of thought* ⚡

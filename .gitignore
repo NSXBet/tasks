@@ -7,7 +7,7 @@ node_modules/
 *.d.ts
 *.d.ts.map
 
-# Beads / Dolt files (added by bd init)
+# Tasks / Dolt files
 .dolt/
 *.db
 .tasks-credential-key

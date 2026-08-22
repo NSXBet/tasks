@@ -1,8 +1,8 @@
 # Tasks
 
-Local-first issue tracker with dependency chains. A TypeScript port of [beads](https://github.com/steveyegge/beads) redesigned as a library with pluggable storage adapters (SQLite, PostgreSQL, file-based).
+Local-first issue tracker with dependency chains. Inspired by [beads](https://github.com/steveyegge/beads), redesigned as a TypeScript library with pluggable storage adapters (SQLite, PostgreSQL, file-based).
 
-## What's different from beads
+## What's different from the original
 
 - **Library-first**: clean hexagonal architecture — domain, application ports, and swappable adapters
 - **Multiple backends**: SQLite (default), PostgreSQL, and file-based (git-committable JSON per issue)
@@ -72,7 +72,7 @@ tk --help                     # Full command list
 
 `tk` discovers `.tasks/` by walking upward from cwd. Use `-C DIR` to override. `--json` for structured output. `--readonly` rejects mutations.
 
-### Migration from beads
+### Migration from legacy workspaces
 
 `tk` automatically detects `.beads/` directories and migrates them to `.tasks/` (renames directory and `beads.db` → `tasks.db`). Existing data is preserved.
 
@@ -105,4 +105,4 @@ npx vitest run packages/domain/test/issue.test.ts
 
 ## Credits
 
-Port of [beads](https://github.com/steveyegge/beads) by Steve Yegge. Restructured as a multi-adapter library for use in different storage contexts.
+Inspired by [beads](https://github.com/steveyegge/beads) by Steve Yegge. Restructured as a multi-adapter TypeScript library with pluggable storage.
