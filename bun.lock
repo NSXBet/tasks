@@ -17,6 +17,19 @@
         "@tasks/domain": "workspace:*",
       },
     },
+    "packages/beads": {
+      "name": "@tasks/beads",
+      "version": "0.0.0",
+      "dependencies": {
+        "@tasks/application": "workspace:*",
+        "@tasks/domain": "workspace:*",
+      },
+      "devDependencies": {
+        "@tasks/file": "workspace:*",
+        "@tasks/sqlite": "workspace:*",
+        "@types/node": "^22.0.0",
+      },
+    },
     "packages/cli": {
       "name": "@tasks/cli",
       "version": "0.0.0",
@@ -25,6 +38,7 @@
       },
       "dependencies": {
         "@tasks/application": "workspace:*",
+        "@tasks/beads": "workspace:*",
         "@tasks/domain": "workspace:*",
         "@tasks/sqlite": "workspace:*",
       },
@@ -108,6 +122,8 @@
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
     "@tasks/application": ["@tasks/application@workspace:packages/application"],
+
+    "@tasks/beads": ["@tasks/beads@workspace:packages/beads"],
 
     "@tasks/cli": ["@tasks/cli@workspace:packages/cli"],
 
