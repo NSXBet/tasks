@@ -12,3 +12,7 @@ node_modules/
 *.db
 .tasks-credential-key
 .tasks/proxieddb/
+
+# Beads / Dolt files (added by bd init)
+.beads-credential-key
+.beads/proxieddb/
