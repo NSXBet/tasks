@@ -245,9 +245,44 @@ export class FileAdapter implements UnitOfWork, MigrationPort {
   // Expose internals to UnitOfWork implementation
   /** @internal */ _readIssue(id: string) { return this.#readIssue(id); }
   /** @internal */ _writeIssue(issue: Issue) { this.#writeIssue(issue); }
+  /** @internal */ _deleteIssue(id: string): void {
+    fs.rmSync(this.#issuePath(id), { force: true });
+    fs.rmSync(this.#historyPath(id), { force: true });
+    // Clear parent pointers and dependency edges that referenced the deleted issue.
+    for (const otherId of this.#listAllIssueIds()) {
+      const other = this.#readIssue(otherId);
+      if (!other) continue;
+      const clearedParent = other.parentId === id;
+      const kept = other.dependencies.filter((edge) => edge.target !== id);
+      if (!clearedParent && kept.length === other.dependencies.length) continue;
+      this.#writeIssue(IssueSchema.parse({
+        ...other,
+        parentId: clearedParent ? null : other.parentId,
+        dependencies: kept,
+        dependencyCount: kept.length,
+        updatedAt: this.now(),
+      }));
+    }
+  }
   /** @internal */ _appendHistory(id: string, entry: { action: string; at: Date; actor: string | null; data: Record<string, unknown> }) { this.#appendHistory(id, entry); }
   /** @internal */ _readHistory(id: string) { return this.#readHistory(id); }
   /** @internal */ _listAllIssueIds() { return this.#listAllIssueIds(); }
+  /**
+   * @internal `dependentCount` has no dedicated store — file backend keeps one JSON
+   * document per issue with no cross-issue index, unlike sqlite/postgres which answer it
+   * with a live `WHERE target = ?` count. A single full scan here, shared across every
+   * issue returned from one call, keeps that field correct without adding a second
+   * per-issue index file to maintain.
+   */
+  _dependentCounts(): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const id of this.#listAllIssueIds()) {
+      const issue = this.#readIssue(id);
+      if (!issue) continue;
+      for (const edge of issue.dependencies) counts.set(edge.target, (counts.get(edge.target) ?? 0) + 1);
+    }
+    return counts;
+  }
 }
 
 // ─── UnitOfWork Implementation ────────────────────────────────────────────────
@@ -255,9 +290,16 @@ export class FileAdapter implements UnitOfWork, MigrationPort {
 class FileIssueUnitOfWork implements IssueUnitOfWork {
   constructor(private readonly adapter: FileAdapter) {}
 
+  /** Recomputes the field the file backend cannot store incrementally; see `_dependentCounts`. */
+  #withDependentCount(issue: Issue, counts: Map<string, number>): Issue {
+    const dependentCount = counts.get(issue.id) ?? 0;
+    return dependentCount === issue.dependentCount ? issue : { ...issue, dependentCount };
+  }
+
   async findById(id: IssueId): Promise<Result<Issue | null>> {
     try {
-      return ok(this.adapter._readIssue(id));
+      const issue = this.adapter._readIssue(id);
+      return ok(issue === null ? null : this.#withDependentCount(issue, this.adapter._dependentCounts()));
     } catch (cause) {
       return err({ kind: 'repository', operation: 'findById', cause });
     }
@@ -282,6 +324,7 @@ class FileIssueUnitOfWork implements IssueUnitOfWork {
   async list(query: IssueQuery): Promise<Result<IssuePage>> {
     try {
       const ids = this.adapter._listAllIssueIds();
+      const counts = this.adapter._dependentCounts();
       let items: Issue[] = [];
 
       for (const id of ids) {
@@ -289,7 +332,7 @@ class FileIssueUnitOfWork implements IssueUnitOfWork {
         const issue = this.adapter._readIssue(id);
         if (!issue) continue;
         if (query.status && issue.status !== query.status) continue;
-        items.push(issue);
+        items.push(this.#withDependentCount(issue, counts));
       }
 
       const limit = query.limit ?? 100;
@@ -401,6 +444,15 @@ class FileIssueUnitOfWork implements IssueUnitOfWork {
     }
   }
 
+  async delete(issueId: IssueId): Promise<Result<void>> {
+    try {
+      this.adapter._deleteIssue(issueId);
+      return ok(undefined);
+    } catch (cause) {
+      return err({ kind: 'repository', operation: 'delete', cause });
+    }
+  }
+
   async claimReady(id: IssueId, assignee: string, expectedUpdatedAt?: Date): Promise<Result<Issue>> {
     try {
       const issue = this.adapter._readIssue(id);
@@ -447,7 +499,7 @@ class FileIssueUnitOfWork implements IssueUnitOfWork {
         data: { assignee, status: policy.claimedStatus },
       });
 
-      return ok(claimed);
+      return ok(this.#withDependentCount(claimed, this.adapter._dependentCounts()));
     } catch (cause) {
       return err({ kind: 'repository', operation: 'claimReady', cause });
     }

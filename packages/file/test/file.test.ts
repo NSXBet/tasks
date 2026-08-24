@@ -140,6 +140,40 @@ describe('FileAdapter', () => {
     expect(found.ok && found.value!.dependencies.length).toBe(0);
   });
 
+  it('computes dependentCount on the target of a dependency, via both findById and list', async () => {
+    // File backend keeps one JSON document per issue with no cross-issue index, so
+    // dependentCount cannot be maintained incrementally on write like dependencyCount is —
+    // it must be recomputed on every read from the full set of dependency edges.
+    const adapter = await makeAdapter();
+    await adapter.withinTransaction(uow => uow.save(issue('tk-aaa111')));
+    await adapter.withinTransaction(uow => uow.save(issue('tk-bbb222')));
+    await adapter.withinTransaction(uow => uow.save(issue('tk-ccc333')));
+
+    const addBlock = (from: string) => adapter.withinTransaction(uow => uow.addDependency({
+      issueId: issueId(from),
+      target: dependencyTarget('tk-bbb222'),
+      type: 'blocks',
+      createdAt: now,
+      createdBy: 'test',
+      metadata: {},
+      wireUnknown: {},
+    }));
+    await addBlock('tk-aaa111');
+    await addBlock('tk-ccc333');
+
+    const bySingleRead = await adapter.withinTransaction(uow => uow.findById(issueId('tk-bbb222')));
+    expect(bySingleRead.ok && bySingleRead.value!.dependentCount).toBe(2);
+    expect(bySingleRead.ok && bySingleRead.value!.dependencyCount).toBe(0);
+
+    const listed = await adapter.withinTransaction(uow => uow.list({}));
+    const target = listed.ok ? listed.value.items.find(i => i.id === 'tk-bbb222') : undefined;
+    expect(target?.dependentCount).toBe(2);
+
+    await adapter.withinTransaction(uow => uow.removeDependency(issueId('tk-aaa111'), dependencyTarget('tk-bbb222'), 'blocks'));
+    const afterRemoval = await adapter.withinTransaction(uow => uow.findById(issueId('tk-bbb222')));
+    expect(afterRemoval.ok && afterRemoval.value!.dependentCount).toBe(1);
+  });
+
   it('adds comments', async () => {
     const adapter = await makeAdapter();
     await adapter.withinTransaction(uow => uow.save(issue('tk-aaa111')));

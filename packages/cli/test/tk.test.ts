@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -187,7 +187,142 @@ describe("tk executable", () => {
     json(directory, ["label", "remove", blocked.id, "red"]);
     const updated = json<Record<string, unknown>>(directory, ["update", blocked.id, "--add-label", "keep", "--remove-label", "red", "--set-metadata", "count=2", "--unset-metadata", "missing", "--assignee", "", "--parent", "", "--external-ref", ""]);
     expect(updated["labels"]).toEqual(["keep"]); expect(updated["metadata"]).toEqual({ count: 2 }); expect(updated["assignee"]).toBeNull(); expect(updated["parent"]).toBeNull(); expect(updated["external_ref"]).toBeNull(); expect(updated).toHaveProperty("estimated_minutes"); expect(updated).not.toHaveProperty("estimate");
-    expect(json<Record<string, unknown>>(directory, ["where"])).toMatchObject({ path: join(directory, ".tasks"), prefix: "tuicr", database_path: join(directory, ".tasks", "tasks.db"), schema_version: 1 });
+    expect(json<Record<string, unknown>>(directory, ["where"])).toMatchObject({ path: join(directory, ".tasks"), prefix: "tuicr", backend: "file", database_path: join(directory, ".tasks"), schema_version: 1 });
     expect(json<Record<string, unknown>>(directory, ["close", blocked.id, "--reason", "done"])["notes"]).toContain("done");
+  });
+
+  it("defaults a fresh init to the file backend with no CLI flag involved", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    expect(JSON.parse(readFileSync(join(directory, ".tasks", "config.json"), "utf8"))).toEqual({ prefix: "tk", storage: { backend: "file" } });
+    expect(json<Record<string, unknown>>(directory, ["where"])["backend"]).toBe("file");
+    const created = json<{ id: string }>(directory, ["create", "file backend issue"]);
+    expect(existsSync(join(directory, ".tasks", "issues", `${created.id}.json`))).toBe(true);
+  });
+
+  it("honors an explicit sqlite backend set in .tasks/config.json", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const configPath = join(directory, ".tasks", "config.json");
+    writeFileSync(configPath, JSON.stringify({ prefix: "tk", storage: { backend: "sqlite" } }));
+    expect(json<Record<string, unknown>>(directory, ["where"])["backend"]).toBe("sqlite");
+    json(directory, ["create", "sqlite backend issue"]);
+    expect(existsSync(join(directory, ".tasks", "tasks.db"))).toBe(true);
+  });
+
+  it("rejects an unknown backend in config.json rather than silently defaulting", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const configPath = join(directory, ".tasks", "config.json");
+    writeFileSync(configPath, JSON.stringify({ prefix: "tk", storage: { backend: "mongodb" } }));
+    const result = run(directory, ["list", "--json"]);
+    expect(result.status).not.toBe(0);
+  });
+
+  it("writes the sqlite backend chosen via tk init --backend, without any workspace pre-existing", () => {
+    const directory = workspace();
+    const init = json<Record<string, unknown>>(directory, ["init", "--backend", "sqlite", "--filename", "custom.db"]);
+    expect(init["backend"]).toBe("sqlite");
+    expect(JSON.parse(readFileSync(join(directory, ".tasks", "config.json"), "utf8"))).toEqual({ prefix: "tk", storage: { backend: "sqlite", filename: "custom.db" } });
+    expect(existsSync(join(directory, ".tasks", "custom.db"))).toBe(true);
+  });
+
+  it("rejects an unknown tk init --backend value without writing a workspace", () => {
+    const directory = workspace();
+    const result = run(directory, ["init", "--backend", "mongodb", "--json"]);
+    expect(result.status).not.toBe(0);
+    expect(existsSync(join(directory, ".tasks"))).toBe(false);
+  });
+
+  it("rejects --filename without --backend sqlite", () => {
+    const directory = workspace();
+    const result = run(directory, ["init", "--filename", "x.db", "--json"]);
+    expect(result.status).not.toBe(0);
+    expect(existsSync(join(directory, ".tasks"))).toBe(false);
+  });
+
+  it("prints dedicated init help via --help and via 'tk help init' without touching the filesystem", () => {
+    const directory = workspace();
+    const flagHelp = run(directory, ["init", "--help"]);
+    expect(flagHelp.status).toBe(0);
+    expect(flagHelp.stdout).toContain("tk init");
+    expect(flagHelp.stdout).toContain("--backend");
+    expect(flagHelp.stdout).toContain("--url-env");
+    expect(existsSync(join(directory, ".tasks"))).toBe(false);
+    const commandHelp = run(directory, ["help", "init"]);
+    expect(commandHelp.status).toBe(0);
+    expect(commandHelp.stdout).toBe(flagHelp.stdout);
+    expect(existsSync(join(directory, ".tasks"))).toBe(false);
+  });
+
+  it("round-trips export/import losslessly across backends: sqlite -> file -> sqlite", () => {
+    const sqliteSource = workspace();
+    json(sqliteSource, ["init", "--backend", "sqlite"]);
+    json(sqliteSource, ["create", "issue one", "--labels", "bug,urgent", "-p", "1"]);
+    const two = json<{ id: string }>(sqliteSource, ["create", "issue two"]);
+    const blocker = json<{ id: string }>(sqliteSource, ["create", "blocker for two"]);
+    json(sqliteSource, ["comment", two.id, "a comment on issue two"]);
+    json(sqliteSource, ["dep", two.id, "add", blocker.id]);
+    const sourceExport = run(sqliteSource, ["export"]);
+    expect(sourceExport.status, sourceExport.stderr).toBe(0);
+    const sortedIds = (jsonl: string): readonly string[] => jsonl.trim().split("\n").map((line) => (JSON.parse(line) as { id: string }).id).sort();
+
+    const fileTarget = workspace();
+    json(fileTarget, ["init", "--backend", "file"]);
+    const intoFile = json<{ imported: number }>(fileTarget, ["import"], sourceExport.stdout);
+    expect(intoFile.imported).toBe(3);
+    const fileExport = run(fileTarget, ["export"]);
+    expect(fileExport.status, fileExport.stderr).toBe(0);
+    expect(sortedIds(fileExport.stdout)).toEqual(sortedIds(sourceExport.stdout));
+    // Every field, not just IDs, must survive the sqlite -> file hop.
+    expect(JSON.parse(fileExport.stdout.trim().split("\n").find((line) => (JSON.parse(line) as { id: string }).id === two.id)!)).toMatchObject({
+      id: two.id, dependency_count: 1, comment_count: 1,
+      dependencies: [expect.objectContaining({ depends_on_id: blocker.id, type: "blocks" })],
+      comments: [expect.objectContaining({ text: "a comment on issue two" })],
+    });
+    // The dependency's target side (dependent_count) must also survive — the file backend has
+    // no cross-issue index and must recompute this on every read, not just carry it over.
+    expect(JSON.parse(fileExport.stdout.trim().split("\n").find((line) => (JSON.parse(line) as { id: string }).id === blocker.id)!)).toMatchObject({ id: blocker.id, dependent_count: 1 });
+
+    const sqliteTarget = workspace();
+    json(sqliteTarget, ["init", "--backend", "sqlite"]);
+    json<{ imported: number }>(sqliteTarget, ["import"], fileExport.stdout);
+    // Re-importing the same export must be idempotent, not duplicate issues.
+    const repeat = json<{ imported: number }>(sqliteTarget, ["import"], fileExport.stdout);
+    expect(repeat.imported).toBe(3);
+    const roundTripExport = run(sqliteTarget, ["export"]);
+    expect(roundTripExport.status, roundTripExport.stderr).toBe(0);
+    expect(sortedIds(roundTripExport.stdout)).toEqual(sortedIds(sourceExport.stdout));
+  });
+
+  it("switch-backend moves data to a new backend, flips config.json, and rejects switching to the current backend again", () => {
+    const directory = workspace();
+    json(directory, ["init", "--backend", "file"]);
+    json(directory, ["create", "issue one"]);
+    const two = json<{ id: string }>(directory, ["create", "issue two"]);
+    const blocker = json<{ id: string }>(directory, ["create", "blocker for two"]);
+    json(directory, ["dep", two.id, "add", blocker.id]);
+    const before = json<Array<Record<string, unknown>>>(directory, ["export"]).sort((a, b) => String(a["id"]).localeCompare(String(b["id"])));
+
+    const dryRun = json<Record<string, unknown>>(directory, ["switch-backend", "sqlite", "--dry-run"]);
+    expect(dryRun["dry_run"]).toBe(true);
+    expect(dryRun["issues"]).toBe(3);
+    expect(JSON.parse(readFileSync(join(directory, ".tasks", "config.json"), "utf8"))["storage"]).toEqual({ backend: "file" });
+    expect(existsSync(join(directory, ".tasks", "tasks.db"))).toBe(false);
+
+    const switched = json<Record<string, unknown>>(directory, ["switch-backend", "sqlite"]);
+    expect(switched["from"]).toBe("file");
+    expect(switched["to"]).toBe("sqlite");
+    expect(switched["issues"]).toBe(3);
+    expect(JSON.parse(readFileSync(join(directory, ".tasks", "config.json"), "utf8"))["storage"]).toEqual({ backend: "sqlite" });
+    expect(existsSync(join(directory, ".tasks", "tasks.db"))).toBe(true);
+    // The old file-backend data is left in place, never deleted by switch-backend.
+    expect(existsSync(join(directory, ".tasks", "issues"))).toBe(true);
+
+    const after = json<Array<Record<string, unknown>>>(directory, ["export"]).sort((a, b) => String(a["id"]).localeCompare(String(b["id"])));
+    expect(after.map((issue) => ({ ...issue, updated_at: undefined }))).toEqual(before.map((issue) => ({ ...issue, updated_at: undefined })));
+
+    const rejected = run(directory, ["switch-backend", "sqlite", "--json"]);
+    expect(rejected.status).not.toBe(0);
   });
 });

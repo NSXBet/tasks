@@ -1,0 +1,29 @@
+{
+  "name": "@tasks/workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/file build && bun run --filter @tasks/postgres build && tsc -p tsconfig.json",
+    "check": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/file build && bun run --filter @tasks/postgres build && tsc --noEmit -p tsconfig.json",
+    "test": "bun run build && cd ../.. && bun test packages/workspace/test/workspace.test.ts"
+  },
+  "dependencies": {
+    "@tasks/application": "workspace:*",
+    "@tasks/domain": "workspace:*",
+    "@tasks/file": "workspace:*",
+    "@tasks/postgres": "workspace:*",
+    "@tasks/sqlite": "workspace:*",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}

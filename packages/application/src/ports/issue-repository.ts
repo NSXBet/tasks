@@ -12,6 +12,8 @@ export interface IssueUnitOfWork {
   addDependency(edge: DependencyEdge): Promise<Result<void>>;
   removeDependency(issueId: IssueId, target: DependencyTarget, type?: DependencyType): Promise<Result<void>>;
   addComment(issueId: IssueId, author: string, text: string): Promise<Result<void>>;
+  /** Permanently remove an issue and its dependency edges/comments/history. */
+  delete(issueId: IssueId): Promise<Result<void>>;
   history(issueId: IssueId): Promise<Result<readonly AuditEntry[]>>;
   /** Atomically verify ready state and claim. `conflict` means lost race/not-ready. */
   claimReady(id: IssueId, assignee: string, expectedUpdatedAt?: Date): Promise<Result<Issue>>;

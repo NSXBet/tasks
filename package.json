@@ -8,8 +8,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/postgres build && bun run --filter @tasks/file build && bun run --filter @tasks/beads build && bun run --filter @tasks/cli build",
-    "check": "bun run --filter @tasks/domain check && bun run --filter @tasks/application check && bun run --filter @tasks/sqlite check && bun run --filter @tasks/postgres check && bun run --filter @tasks/file check && bun run --filter @tasks/beads check && bun run --filter @tasks/cli check",
+    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/postgres build && bun run --filter @tasks/file build && bun run --filter @tasks/workspace build && bun run --filter @tasks/beads build && bun run --filter @tasks/cli build",
+    "check": "bun run --filter @tasks/domain check && bun run --filter @tasks/application check && bun run --filter @tasks/sqlite check && bun run --filter @tasks/postgres check && bun run --filter @tasks/file check && bun run --filter @tasks/workspace check && bun run --filter @tasks/beads check && bun run --filter @tasks/cli check",
     "test": "bun test packages/*/test/*.test.ts",
     "test:sqlite": "bun run --filter @tasks/sqlite test",
     "test:cli": "bun run --filter @tasks/cli test",

@@ -40,7 +40,7 @@
         "@tasks/application": "workspace:*",
         "@tasks/beads": "workspace:*",
         "@tasks/domain": "workspace:*",
-        "@tasks/sqlite": "workspace:*",
+        "@tasks/workspace": "workspace:*",
       },
     },
     "packages/domain": {
@@ -79,6 +79,21 @@
       "dependencies": {
         "@tasks/application": "workspace:*",
         "@tasks/domain": "workspace:*",
+      },
+    },
+    "packages/workspace": {
+      "name": "@tasks/workspace",
+      "version": "0.0.0",
+      "dependencies": {
+        "@tasks/application": "workspace:*",
+        "@tasks/domain": "workspace:*",
+        "@tasks/file": "workspace:*",
+        "@tasks/postgres": "workspace:*",
+        "@tasks/sqlite": "workspace:*",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@types/node": "^22.0.0",
       },
     },
   },
@@ -134,6 +149,8 @@
     "@tasks/postgres": ["@tasks/postgres@workspace:packages/postgres"],
 
     "@tasks/sqlite": ["@tasks/sqlite@workspace:packages/sqlite"],
+
+    "@tasks/workspace": ["@tasks/workspace@workspace:packages/workspace"],
 
     "@types/chai": ["@types/chai@5.2.3", "", { "dependencies": { "@types/deep-eql": "4.0.2", "assertion-error": "2.0.1" } }, "sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA=="],
 

@@ -5,7 +5,7 @@ Local-first issue tracker with dependency chains. Inspired by [beads](https://gi
 ## What's different from the original
 
 - **Library-first**: clean hexagonal architecture — domain, application ports, and swappable adapters
-- **Multiple backends**: SQLite (default), PostgreSQL, and file-based (git-committable JSON per issue)
+- **Multiple backends**: file-based (default, git-committable JSON per issue), SQLite, and PostgreSQL
 - **Bun-native**: runs directly from TypeScript source via `bun`, no build step required for CLI
 - **Beads migration**: `tk migrate` imports a `.beads/` workspace issue-by-issue, non-destructively
 
@@ -40,13 +40,14 @@ end
 | `@tasks/sqlite` | SQLite adapter (Bun built-in `bun:sqlite`) |
 | `@tasks/postgres` | PostgreSQL adapter with migrations |
 | `@tasks/file` | File-based adapter — one JSON per issue, git-friendly |
+| `@tasks/workspace` | `.tasks/config.json` schema, backend resolution/inference, adapter lifecycle |
 | `@tasks/beads` | Beads migration: record decoding, parent ordering, transactional import |
 | `@tasks/cli` | `tk` CLI executable |
 
 ## Architecture
 
 ```
-CLI / adapters (sqlite, postgres, file)
+CLI / adapters (file, sqlite, postgres)
               ↓
       @tasks/application    ← ports define the contract
               ↓
@@ -58,7 +59,7 @@ Domain never imports application or adapters. Application coordinates domain typ
 ## CLI usage
 
 ```bash
-tk init [--prefix <p>]        # Initialize .tasks/ workspace (default prefix: tk)
+tk init [--prefix <p>] [--backend ...]  # Initialize .tasks/ workspace (default prefix: tk, backend: file)
 tk create <title> [opts]      # Create issue
 tk list [--status <s>]        # List issues
 tk ready [--claim]            # List unblocked issues
@@ -68,10 +69,42 @@ tk close <id>                 # Close issue
 tk dep <id> add <target>      # Add dependency
 tk search <text>              # Full-text search
 tk export                     # Export all as JSONL
+tk switch-backend <name>       # Move data to file/sqlite/postgres, then update config.json
 tk --help                     # Full command list
 ```
 
 `tk` discovers `.tasks/` by walking upward from cwd. Use `-C DIR` to override. `--json` for structured output. `--readonly` rejects mutations.
+
+### Storage backend
+
+The backend is a `.tasks/config.json` property, resolved once per workspace — no command reads a runtime `--backend` flag; the only place `--backend` exists is `tk init`, as a convenience for writing the config instead of hand-editing it:
+
+```bash
+tk init                                          # storage.backend: "file" (default)
+tk init --backend sqlite [--filename <name>]     # storage.backend: "sqlite"
+tk init --backend postgres [--url-env <VAR>]     # storage.backend: "postgres"
+tk init --help                                   # full flag reference and examples
+```
+
+Each of those writes into `.tasks/config.json`:
+
+```json
+{ "prefix": "tk", "storage": { "backend": "file" } }
+```
+
+`storage.backend` is one of:
+
+| Backend | Config | Notes |
+|---|---|---|
+| `file` | `{ "backend": "file" }` | Default. One JSON file per issue under `.tasks/issues/`, see below. |
+| `sqlite` | `{ "backend": "sqlite", "filename"?: string }` | `filename` is relative to `.tasks/`, defaults to `tasks.db`. |
+| `postgres` | `{ "backend": "postgres", "urlEnv"?: string, "url"?: string }` | Connects via env var indirection by default (`urlEnv`, default name `TASKS_DATABASE_URL`) so connection strings never need to live in committed config. `url` is a literal fallback, discouraged for anything with credentials — `tk init` has no `--url` flag on purpose, to avoid connection strings landing in shell history. |
+
+Switching backends on an existing workspace: use `tk switch-backend <file|sqlite|postgres>` (see `tk switch-backend --help`). It reads every issue from the current backend, writes them all into the target, and only then flips `storage.backend` in `.tasks/config.json` — the old backend's data is never deleted automatically, so verify with `tk doctor`/`tk list` before cleaning it up by hand. `--dry-run` reports what would move without writing anything. A workspace with an existing `.tasks/tasks.db` but no `storage` key is treated as `sqlite` (inferred from disk, not silently defaulted to `file`), so upgrading `tk` never orphans pre-existing data; every workspace `tk init` creates from here on writes an explicit `storage.backend`.
+
+`tk export`/`tk import` also move data between backends manually (and between two entirely separate workspaces) using the same beads-compatible JSONL format: `tk -C <source> export | tk -C <target> import`. `switch-backend` is exactly that sequence, wrapped into one step that also updates the target workspace's own config.
+
+`tk where` reports the resolved backend and location without opening a connection; `tk doctor` opens it and reports health.
 
 ### Migration from beads
 
@@ -111,7 +144,7 @@ moved beads database and tells you how to restore it before migrating.
 
 ## File backend
 
-The file adapter stores each issue as an individual JSON file:
+The file adapter (the default backend) stores each issue as an individual JSON file:
 
 ```
 .tasks/
@@ -131,6 +164,7 @@ Git-friendly: per-issue diffs, no binary DB files, merge conflicts scoped to ind
 ```bash
 # All tests (vitest + bun test)
 bun test packages/sqlite/test/sqlite.test.ts
+bun test packages/workspace/test/workspace.test.ts
 bun test packages/beads/test/beads.test.ts
 bun test packages/cli/test/tk.test.ts
 npx vitest run packages/file/test/file.test.ts

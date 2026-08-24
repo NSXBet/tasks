@@ -10,7 +10,10 @@ export interface MigrationFailure { readonly kind: 'migration'; readonly phase: 
 export interface MigrationPort {
   currentVersion(): Promise<Result<string | null>>;
   history(): Promise<Result<readonly MigrationHistoryEntry[]>>;
-  migrate(steps: readonly MigrationStep[]): Promise<Result<MigrationReport, MigrationFailure>>;
+  /** Each adapter defaults `steps` to its own declared migration set when omitted. */
+  migrate(steps?: readonly MigrationStep[]): Promise<Result<MigrationReport, MigrationFailure>>;
+  /** True when the declared migration set is ahead of what's durable. Every adapter implements this so `--readonly` can gate uniformly across backends. */
+  hasPendingMigrations(steps?: readonly MigrationStep[]): Promise<Result<boolean>>;
 }
 export interface ApplicationPorts {
   readonly clock: import('./clock.js').Clock;
