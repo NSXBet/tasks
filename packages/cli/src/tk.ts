@@ -14,7 +14,7 @@ import {
   formatDuplicates, formatEpic, formatGraph, formatHistory, formatLint, formatList, formatMigration, formatOrphans,
   formatReady, formatRenamePrefix, formatSearch, formatShow, formatStale, formatStats,
   formatStatus, formatStatuses, formatTodo, formatTypes, formatVersion, formatWhere, formatWorktreeInfo, formatWorktreeList,
-  HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, cyan, dim, green, issueWire, output,
+  HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, cyan, dim, formatError, green, issueWire, output,
 } from "./presentation.js";
 
 /** bd-style collision-resistant issue IDs: <prefix>-<base36 hash>, short like bd (bd-0t0, bd-45g). */
@@ -94,7 +94,24 @@ async function rootFrom(from: string): Promise<string | null> {
  * `bd` without migrating a single issue. Migration is explicit (`tk migrate`)
  * and leaves the source untouched.
  */
-async function beadsHint(from: string): Promise<string> { const found = await findBeadsWorkspace(from); return found === null ? "no .tasks workspace found; run tk init" : `no .tasks workspace found; found beads data at ${found.directory} — run 'tk migrate' to import it, or 'tk init' for an empty workspace`; }
+/** No .tasks workspace on the way up from `from` — explain what's missing and give a concrete next step, plus a beads-migration path when we spot leftover beads data. */
+async function beadsHint(from: string): Promise<string> {
+  const found = await findBeadsWorkspace(from);
+  if (found === null) {
+    return [
+      `No ${cyan(".tasks")} workspace found searching up from ${dim(from)}.`,
+      "",
+      `Run ${cyan("tk init")} to create one here.`,
+    ].join("\n");
+  }
+  return [
+    `No ${cyan(".tasks")} workspace found searching up from ${dim(from)}.`,
+    `Found existing beads data instead at ${cyan(found.directory)}.`,
+    "",
+    `Run ${cyan("tk migrate")} to import it into a new .tasks workspace,`,
+    `or ${cyan("tk init")} to start fresh with an empty one.`,
+  ].join("\n");
+}
 /** State of a `.tasks/` workspace relative to one worktree, for `tk worktree list/info`. */
 async function worktreeTasksState(worktreePath: string, mainRoot: string | null): Promise<{ readonly state: "shared" | "redirect" | "none"; readonly tasksDir: string | null }> {
   const own = join(worktreePath, ".tasks");
@@ -561,4 +578,4 @@ async function main(): Promise<void> { const args = parseArgs(process.argv.slice
     else if (["update", "close", "reopen", "defer", "undefer", "label", "set-state"].includes(command)) { const issue = await service.mutate(args, command); value = issueWire(issue); const verbs: Readonly<Record<string, string>> = { update: "Updated issue", close: "Closed", reopen: "Reopened", defer: "Deferred", undefer: "Restored", label: "Labels updated on", "set-state": "State changed on" }; human = () => confirmation(verbs[command] ?? "Updated", issue, command === "close" && stringFlag(args, "reason") !== undefined ? `: ${stringFlag(args, "reason")}` : ""); }
     else fail(`unknown command: ${command}`);
     if (command === "export" && !json) for (const record of value as readonly unknown[]) console.log(JSON.stringify(record)); else if (!json && human !== null) console.log(human()); else output(value, json); } finally { await storage.close(); } }
-main().catch((error: unknown) => { const message = error instanceof Error ? error.message : String(error); if (process.argv.includes("--json")) { const kind: JsonError["error"]["kind"] = error instanceof ArgumentParseError ? "parse" : message.startsWith("readonly") ? "readonly" : message.includes("invalid") || message.startsWith("import line") ? "validation" : "runtime"; console.error(JSON.stringify({ error: { kind, message } } satisfies JsonError)); } else console.error(message); exit(1); });
+main().catch((error: unknown) => { const message = error instanceof Error ? error.message : String(error); if (process.argv.includes("--json")) { const kind: JsonError["error"]["kind"] = error instanceof ArgumentParseError ? "parse" : message.startsWith("readonly") ? "readonly" : message.includes("invalid") || message.startsWith("import line") ? "validation" : "runtime"; console.error(JSON.stringify({ error: { kind, message } } satisfies JsonError)); } else console.error(formatError(message)); exit(1); });

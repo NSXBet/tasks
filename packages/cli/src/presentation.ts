@@ -96,6 +96,13 @@ export const LEGEND = dim(`Status: ${statusIcon("open")} open  ${statusIcon("in_
 const indent = (text: string, pad = "  "): string => text.split("\n").map((line) => (line === "" ? "" : pad + line)).join("\n");
 const field = (name: string, value: string): string => `${dim(name.padEnd(12))} ${value}`;
 
+/** Top-level CLI error: red ✗ header on the first line, remaining lines (hints, next steps) indented and left plain so embedded color codes still line up. */
+export function formatError(message: string): string {
+  const [head, ...rest] = message.split("\n");
+  const body = rest.join("\n");
+  return rest.length === 0 ? `${red(bold("✗"))} ${head}` : `${red(bold("✗"))} ${head}\n${indent(body)}`;
+}
+
 /** One issue per line: icon + id + priority + [type] + title, with summary + legend. */
 function formatIssueList(issues: readonly Issue[], summary: (issues: readonly Issue[]) => string): string {
   const lines = issues.map((issue) => {
