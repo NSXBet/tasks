@@ -19,5 +19,27 @@
     "bun-types": "^1.4.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16"
+  },
+  "exports": {
+    ".": "./package.json",
+    "./domain": {
+      "bun": "./packages/domain/src/index.ts",
+      "types": "./packages/domain/dist/index.d.ts",
+      "default": "./packages/domain/dist/index.js"
+    },
+    "./workspace": {
+      "bun": "./packages/workspace/src/index.ts",
+      "types": "./packages/workspace/dist/index.d.ts",
+      "default": "./packages/workspace/dist/index.js"
+    },
+    "./application": {
+      "bun": "./packages/application/src/index.ts",
+      "types": "./packages/application/dist/index.d.ts",
+      "default": "./packages/application/dist/index.js"
+    },
+    "./cli": "./packages/cli/src/tk.ts"
+  },
+  "dependencies": {
+    "zod": "^4.2.1"
   }
 }
