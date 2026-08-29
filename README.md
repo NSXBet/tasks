@@ -24,13 +24,6 @@ bun packages/cli/src/tk.ts create "Fix login bug"
 bun packages/cli/src/tk.ts ready --claim --json
 ```
 
-Or install the fish alias:
-```fish
-function tk --description 'Run Tasks CLI from source via bun'
-    bun /path/to/tasks/packages/cli/src/tk.ts $argv
-end
-```
-
 ## Packages
 
 | Package | Description |
