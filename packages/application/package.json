@@ -15,6 +15,6 @@
     "check": "bun run --filter @tasks/domain build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@tasks/domain": "workspace:*"
+    "@tasks/domain": "file:../domain"
   }
 }

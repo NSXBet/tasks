@@ -16,11 +16,11 @@
     "test": "bun run build && cd ../.. && bun test packages/workspace/test/workspace.test.ts"
   },
   "dependencies": {
-    "@tasks/application": "workspace:*",
-    "@tasks/domain": "workspace:*",
-    "@tasks/file": "workspace:*",
-    "@tasks/postgres": "workspace:*",
-    "@tasks/sqlite": "workspace:*",
+    "@tasks/application": "file:../application",
+    "@tasks/domain": "file:../domain",
+    "@tasks/file": "file:../file",
+    "@tasks/postgres": "file:../postgres",
+    "@tasks/sqlite": "file:../sqlite",
     "zod": "^4.2.1"
   },
   "devDependencies": {

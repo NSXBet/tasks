@@ -16,8 +16,8 @@
     "test": "bun run build && cd ../.. && vitest run packages/postgres/test"
   },
   "dependencies": {
-    "@tasks/application": "workspace:*",
-    "@tasks/domain": "workspace:*",
+    "@tasks/application": "file:../application",
+    "@tasks/domain": "file:../domain",
     "pg": "^8.16.3"
   },
   "devDependencies": {
