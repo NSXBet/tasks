@@ -1,17 +1,17 @@
-import { canonicalTimestampCodec, err, ok } from '@tasks/application';
+import { canonicalTimestampCodec, err, ok } from '../../application/src/index.ts';
 import type {
   AuditEntry, IssueUnitOfWork, IssueQuery, IssuePage,
   MigrationFailure, MigrationHistoryEntry, MigrationPort, MigrationReport, MigrationStep,
   Result, TimestampCodec, UnitOfWork,
-} from '@tasks/application';
-import type { DependencyEdge, Issue, IssueId, Metadata } from '@tasks/domain';
-import { IssueSchema, issueFromBdWire, issueToBdWire } from '@tasks/domain';
-import type { BdWireEnvelope } from '@tasks/domain';
+} from '../../application/src/index.ts';
+import type { DependencyEdge, Issue, IssueId, Metadata } from '../../domain/src/index.ts';
+import { IssueSchema, issueFromBdWire, issueToBdWire } from '../../domain/src/index.ts';
+import type { BdWireEnvelope } from '../../domain/src/index.ts';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export { canonicalTimestampCodec } from '@tasks/application';
-export type { TimestampCodec } from '@tasks/application';
+export { canonicalTimestampCodec } from '../../application/src/index.ts';
+export type { TimestampCodec } from '../../application/src/index.ts';
 
 // ─── Policy ───────────────────────────────────────────────────────────────────
 
