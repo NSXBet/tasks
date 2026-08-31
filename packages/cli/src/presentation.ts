@@ -1,4 +1,5 @@
 import type { Issue } from "@tasks/domain";
+import type { IssueTree, TreeNode } from "./tree.js";
 
 const iso = (value: Date | null): string | null => value?.toISOString() ?? null;
 
@@ -27,8 +28,10 @@ export const white = wrap("[37m");
 const STATUS_ICON: Readonly<Record<string, string>> = {
   open: "○",
   in_progress: "◐",
+  "ready-to-review": "🔍",
+  approved: "✓",
+  rejected: "✗",
   blocked: "●",
-  deferred: "❄",
   closed: "✓",
   pinned: "📌",
   hooked: "◇",
@@ -37,8 +40,9 @@ const statusIcon = (status: string): string => STATUS_ICON[status] ?? "○";
 const statusColored = (status: string): string => {
   const icon = statusIcon(status);
   if (status === "closed") return green(icon);
-  if (status === "in_progress") return yellow(icon);
-  if (status === "blocked") return red(icon);
+  if (status === "ready-to-review") return magenta(icon);
+  if (status === "approved") return green(icon);
+  if (status === "rejected") return red(icon);
   if (status === "deferred") return cyan(icon);
   return icon;
 };
@@ -75,7 +79,7 @@ export function issueWire(issue: Issue): Record<string, unknown> {
     updated_at: issue.updatedAt.toISOString(), started_at: iso(issue.startedAt), closed_at: iso(issue.closedAt),
     due_at: iso(issue.dueAt), defer_until: iso(issue.deferUntil), parent: issue.parentId, labels: [...issue.labels],
     notes: issue.notes, design: issue.design, acceptance_criteria: issue.acceptanceCriteria, estimated_minutes: issue.estimate,
-    spec_id: issue.specId, external_ref: issue.externalRef, metadata: issue.metadata,
+    spec_id: issue.specId, external_ref: issue.externalRef, branch: issue.branch, metadata: issue.metadata,
     dependencies: issue.dependencies.map((edge) => ({ issue_id: edge.issueId, depends_on_id: edge.target, type: edge.type, created_at: edge.createdAt.toISOString(), created_by: edge.createdBy, metadata: edge.metadata })),
     dependency_count: issue.dependencyCount, dependent_count: issue.dependentCount,
     comments: issue.comments.map((comment) => ({ id: comment.id, issue_id: comment.issueId, author: comment.author, text: comment.text, created_at: comment.createdAt.toISOString() })),
@@ -153,6 +157,7 @@ export function formatShow(issue: Issue): string {
   if (issue.design !== null) sections.push(formatSection("DESIGN", issue.design.trimEnd()));
   if (issue.acceptanceCriteria !== null) sections.push(formatSection("ACCEPTANCE CRITERIA", issue.acceptanceCriteria.trimEnd()));
   if (issue.notes !== null) sections.push(formatSection("NOTES", issue.notes.trimEnd()));
+  if (issue.branch !== null) sections.push(`${bold("BRANCH:")} ${cyan(issue.branch)}`);
   if (issue.dependencies.length > 0) sections.push(formatSection("DEPENDENCIES", issue.dependencies.map((edge) => `→ ${cyan(edge.target)} (${edge.type})`).join("\n")));
   if (issue.parentId !== null) sections.push(`${bold("PARENT:")} ${cyan(issue.parentId)}`);
   if (issue.comments.length > 0) sections.push(formatSection(`COMMENTS (${issue.comments.length})`, issue.comments.map((comment) => `${dim(datetime(comment.createdAt))} ${green(comment.author)}\n${indent(comment.text.trimEnd())}`).join("\n\n")));
@@ -187,9 +192,9 @@ export function formatStatus(counts: Record<string, number>): string {
   return [`📊 ${bold("Issue Database Status")}`, "", ...lines].join("\n");
 }
 
-export function formatStats(stats: { readonly total: number; readonly open: number; readonly in_progress: number; readonly blocked: number; readonly closed: number; readonly deferred: number; readonly ready: number }): string {
+export function formatStats(stats: { readonly total: number; readonly open: number; readonly in_progress: number; readonly ready_to_review: number; readonly approved: number; readonly rejected: number; readonly blocked: number; readonly closed: number; readonly deferred: number; readonly ready: number }): string {
   const row = (name: string, value: number): string => `  ${name.padEnd(22)}${value}`;
-  return ["", `📊 ${bold("Issue Database Status")}`, "", bold("Summary:"), row("Total Issues:", stats.total), row("Open:", stats.open), row("In Progress:", stats.in_progress), row("Blocked:", stats.blocked), row("Closed:", stats.closed), row("Deferred:", stats.deferred), green(row("Ready to Work:", stats.ready)), "", dim("For more details, use 'tk list' to see individual issues.")].join("\n");
+  return ["", `📊 ${bold("Issue Database Status")}`, "", bold("Summary:"), row("Total Issues:", stats.total), row("Open:", stats.open), row("In Progress:", stats.in_progress), row("Ready to Review:", stats.ready_to_review), row("Approved:", stats.approved), row("Rejected:", stats.rejected), row("Blocked:", stats.blocked), row("Closed:", stats.closed), row("Deferred:", stats.deferred), green(row("Ready to Work:", stats.ready)), "", dim("For more details, use 'tk list' to see individual issues.")].join("\n");
 }
 
 export function formatTypes(used: readonly string[]): string {
@@ -200,7 +205,7 @@ export function formatTypes(used: readonly string[]): string {
 }
 
 export function formatStatuses(used: readonly string[]): string {
-  const core: ReadonlyArray<readonly [string, string, string]> = [["open", "active", "Available to work (default)"], ["in_progress", "wip", "Actively being worked on"], ["blocked", "wip", "Blocked by a dependency"], ["deferred", "frozen", "Deliberately put on ice for later"], ["closed", "done", "Completed"]];
+  const core: ReadonlyArray<readonly [string, string, string]> = [["open", "active", "Available to work (default)"], ["in_progress", "wip", "Actively being worked on"], ["ready-to-review", "wip", "Work committed, awaiting review"], ["approved", "done", "Review passed; ready to close or merge"], ["rejected", "wip", "Review failed; needs rework"], ["blocked", "wip", "Blocked by a dependency"], ["deferred", "frozen", "Deliberately put on ice for later"], ["closed", "done", "Completed"]];
   const rows = core.map(([status, category, description]) => `  ${statusColored(status!)} ${status!.padEnd(12)} ${dim(`[${(category ?? "").padEnd(6)}]`)} ${dim(description ?? "")}`);
   const custom = used.filter((status) => !core.some(([name]) => name === status));
   return [bold("Built-in statuses:"), ...rows, ...(custom.length === 0 ? [] : ["", bold("In use (custom):"), ...custom.map((status) => `  ${statusColored(status)} ${status}`)])].join("\n");
@@ -252,6 +257,41 @@ export function formatDuplicates(clusters: ReadonlyArray<readonly [Issue, Issue,
 export function formatOrphans(issues: readonly Issue[]): string {
   if (issues.length === 0) return green("No orphaned issues 🎉");
   return [`🏝️  ${bold(`Orphaned issues (${issues.length})`)} — open, unassigned, no labels, no dependencies`, "", ...issues.map((issue) => `${statusColored(issue.status)} ${priorityBadge(issue.priority)} ${cyan(issue.id)}: ${issue.title}  ${dim(`(created ${date(issue.createdAt)})`)}`)].join("\n");
+}
+
+/** JSON-safe nested tree node used by `tk tree --json`. */
+export function treeNodeWire(node: TreeNode): Record<string, unknown> {
+  return {
+    ...issueWire(node.issue),
+    via: node.via,
+    ...(node.duplicateOf === null ? {} : { duplicate_of: node.duplicateOf }),
+    blocked_by: [...node.blockedBy],
+    ...(node.progress === null ? {} : { progress: node.progress }),
+    hidden_children: node.hiddenChildren,
+    children: node.children.map(treeNodeWire),
+  };
+}
+
+/** Hierarchical board: parent links use normal branches; blocker fan-out uses ▸. */
+export function formatTree(tree: IssueTree): string {
+  if (tree.visible === 0) return dim(tree.hidden === 0 ? "No issues" : `No issues (${tree.hidden} closed hidden)`);
+  const lines: string[] = [];
+  const walk = (node: TreeNode, prefix: string, root: boolean, last: boolean): void => {
+    const issue = node.issue;
+    const connector = root ? "" : `${last ? "└" : "├"}─${node.via === "blocks" ? "▸" : "─"} `;
+    const type = issue.type === "task" ? "" : ` ${typeBadge(issue.type)}`;
+    const labels = issue.labels.length === 0 ? "" : dim(`  ${issue.labels.map((label) => `#${label}`).join(" ")}`);
+    const progress = node.progress === null ? "" : dim(`  ${node.progress.closed}/${node.progress.total} closed`);
+    const blocked = node.blockedBy.length === 0 ? "" : dim(`  ← ${node.blockedBy.join(", ")}`);
+    const hidden = node.hiddenChildren === 0 ? "" : dim(`  (+${node.hiddenChildren})`);
+    const duplicate = node.duplicateOf === null ? "" : dim("  ↩ shown above");
+    lines.push(prefix + connector + `${statusColored(issue.status)} ${cyan(issue.id)} ${priorityBadge(issue.priority)}${type} ${issue.title}${labels}${progress}${blocked}${hidden}${duplicate}`);
+    const childPrefix = root ? "" : prefix + (last ? "    " : "│   ");
+    node.children.forEach((child, index) => walk(child, childPrefix, false, index === node.children.length - 1));
+  };
+  tree.roots.forEach((root, index) => walk(root, "", true, index === tree.roots.length - 1));
+  const hidden = tree.hidden === 0 ? "" : ` (${tree.hidden} closed hidden)`;
+  return [...lines, "", RULE, dim(`${tree.visible} issue(s)${hidden}`), dim("▸ dependency fan-out   ← blocked by   (+n) truncated   ↩ shown above"), "", LEGEND].join("\n");
 }
 
 /** ASCII dependency tree, bd-graph style: blocker → dependent, colored by status. */
@@ -393,7 +433,8 @@ export const PRIME = `# tk workflow context
 - Use ${cyan("--json")} for machine-readable output; omit it for colored human output.
 - IDs are short random hashes (${cyan("<prefix>-xyz")}), not sequential — never assume ordering.
 - Typical loop: ${cyan("tk ready")} → ${cyan("tk show <id>")} → ${cyan("tk update <id> --status in_progress")} → ${cyan("tk comment <id> ...")} → ${cyan("tk close <id>")}.
-- Use ${cyan("tk dep add <id> <blocker>")} to record blockers; ${cyan("tk graph")} renders the tree; ${cyan("tk stale")}/${cyan("tk orphans")}/${cyan("tk duplicates")}/${cyan("tk lint")} for hygiene.
+- Use ${cyan("tk dep add <id> <blocker>")} to record blockers; ${cyan("tk tree")} renders the tree; ${cyan("tk stale")}/${cyan("tk orphans")}/${cyan("tk duplicates")}/${cyan("tk lint")} for hygiene.
+- Review changes with Hunk: link its branch via ${cyan("tk update <id> --branch <name>")}, open the review with ${cyan("tk hunk <id>")}, pull reviewer comments back with ${cyan("tk hunk <id> sync")}.
 - Run ${cyan("tk help")} for the full command list.
 `;
 
@@ -422,6 +463,7 @@ export const HUMAN_HELP = `${bold("tk — essentials")}
   tk blocked              What's stuck
   tk search <text>        Find something
   tk stats                Board overview
+  tk tree                 Tree of epics, tasks and dependencies
 
 Full list: ${cyan("tk help")}
 `;

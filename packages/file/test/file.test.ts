@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { IssueSchema, dependencyTarget, issueId, type Issue } from '@tasks/domain';
 import { FileAdapter } from '../dist/index.js';
 
@@ -11,12 +11,12 @@ const createdAt = new Date('2025-01-01T00:00:00.000Z');
 const initialUpdatedAt = new Date('2025-01-01T00:01:00.000Z');
 const now = new Date('2025-01-02T00:00:00.000Z');
 
-async function makeAdapter() {
+async function makeAdapter(): Promise<{ adapter: FileAdapter; dir: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'tasks-file-test-'));
   dirs.push(dir);
   const adapter = new FileAdapter({ dir, now: () => now });
   await adapter.migrate();
-  return adapter;
+  return { adapter, dir };
 }
 
 function issue(id: string, patch: Partial<Issue> = {}): Issue {
@@ -74,7 +74,7 @@ describe('FileAdapter', () => {
   });
 
   it('saves and retrieves an issue', async () => {
-    const adapter = await makeAdapter();
+    const { adapter } = await makeAdapter();
     const i = issue('tk-abc123');
     const saveResult = await adapter.withinTransaction(uow => uow.save(i));
     expect(saveResult.ok).toBe(true);
@@ -91,7 +91,7 @@ describe('FileAdapter', () => {
   });
 
   it('writes issue as JSON file', async () => {
-    const adapter = await makeAdapter();
+    const { adapter } = await makeAdapter();
     await adapter.withinTransaction(uow => uow.save(issue('tk-abc123')));
     const filePath = join(dirs[0]!, 'issues', 'tk-abc123.json');
     expect(existsSync(filePath)).toBe(true);
@@ -101,7 +101,7 @@ describe('FileAdapter', () => {
   });
 
   it('lists issues with status filter', async () => {
-    const adapter = await makeAdapter();
+    const { adapter } = await makeAdapter();
     await adapter.withinTransaction(async uow => {
       await uow.save(issue('tk-aaa111'));
       await uow.save(issue('tk-bbb222', { status: 'closed' as Issue['status'] }));
@@ -118,7 +118,7 @@ describe('FileAdapter', () => {
   });
 
   it('adds and removes dependencies', async () => {
-    const adapter = await makeAdapter();
+    const { adapter } = await makeAdapter();
     await adapter.withinTransaction(uow => uow.save(issue('tk-aaa111')));
     await adapter.withinTransaction(uow => uow.save(issue('tk-bbb222')));
 
@@ -144,7 +144,7 @@ describe('FileAdapter', () => {
     // File backend keeps one JSON document per issue with no cross-issue index, so
     // dependentCount cannot be maintained incrementally on write like dependencyCount is —
     // it must be recomputed on every read from the full set of dependency edges.
-    const adapter = await makeAdapter();
+    const { adapter } = await makeAdapter();
     await adapter.withinTransaction(uow => uow.save(issue('tk-aaa111')));
     await adapter.withinTransaction(uow => uow.save(issue('tk-bbb222')));
     await adapter.withinTransaction(uow => uow.save(issue('tk-ccc333')));
@@ -175,7 +175,7 @@ describe('FileAdapter', () => {
   });
 
   it('adds comments', async () => {
-    const adapter = await makeAdapter();
+    const { adapter } = await makeAdapter();
     await adapter.withinTransaction(uow => uow.save(issue('tk-aaa111')));
     await adapter.withinTransaction(uow => uow.addComment(issueId('tk-aaa111'), 'alice', 'hello'));
 
@@ -184,8 +184,29 @@ describe('FileAdapter', () => {
     expect(found.ok && found.value!.comments[0]!.text).toBe('hello');
   });
 
+  it('heals a hand-edited undershooting comment_count instead of rejecting the issue', async () => {
+    // A hand edit appended a comment without bumping comment_count; the stored count
+    // undershot loaded comments. max(stored, loaded) at wire decode keeps the store
+    // readable and the next write persists the healed value.
+    const { adapter, dir } = await makeAdapter();
+    await adapter.withinTransaction(uow => uow.save(issue('tk-aaa111')));
+    const issuePath = join(dir, 'issues', 'tk-aaa111.json');
+    const document = JSON.parse(readFileSync(issuePath, 'utf-8')) as Record<string, unknown>;
+    document['comments'] = [...(document['comments'] as readonly unknown[]), { id: 'comment-1', issue_id: 'tk-aaa111', author: 'alice', text: 'hello', created_at: '2025-01-02T00:00:00.000Z' }];
+    document['comment_count'] = 0;
+    writeFileSync(issuePath, JSON.stringify(document));
+
+    const found = await adapter.withinTransaction(uow => uow.findById(issueId('tk-aaa111')));
+    expect(found.ok).toBe(true);
+    if (found.ok) expect(found.value!.commentCount).toBe(1);
+
+    await adapter.withinTransaction(uow => uow.addComment(issueId('tk-aaa111'), 'bob', 'second'));
+    const reread = JSON.parse(readFileSync(issuePath, 'utf-8')) as { comment_count: number };
+    expect(reread.comment_count).toBe(2);
+  });
+
   it('records audit history', async () => {
-    const adapter = await makeAdapter();
+    const { adapter } = await makeAdapter();
     await adapter.withinTransaction(uow => uow.save(issue('tk-aaa111')));
 
     const histResult = await adapter.withinTransaction(uow => uow.history(issueId('tk-aaa111')));
@@ -197,7 +218,7 @@ describe('FileAdapter', () => {
   });
 
   it('claimReady succeeds for open unblocked issue', async () => {
-    const adapter = await makeAdapter();
+    const { adapter } = await makeAdapter();
     await adapter.withinTransaction(uow => uow.save(issue('tk-aaa111')));
 
     const result = await adapter.withinTransaction(uow => uow.claimReady(issueId('tk-aaa111'), 'bob'));
@@ -209,7 +230,7 @@ describe('FileAdapter', () => {
   });
 
   it('claimReady fails for blocked issue', async () => {
-    const adapter = await makeAdapter();
+    const { adapter } = await makeAdapter();
     const blocker = issue('tk-bbb222');
     await adapter.withinTransaction(uow => uow.save(blocker));
     await adapter.withinTransaction(uow => uow.save(issue('tk-aaa111', {
@@ -231,7 +252,7 @@ describe('FileAdapter', () => {
   });
 
   it('pagination works with cursor', async () => {
-    const adapter = await makeAdapter();
+    const { adapter } = await makeAdapter();
     await adapter.withinTransaction(async uow => {
       for (let i = 1; i <= 5; i++) {
         await uow.save(issue(`tk-item${String(i).padStart(2, '0')}`));

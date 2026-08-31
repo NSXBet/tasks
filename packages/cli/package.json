@@ -15,6 +15,7 @@
     "@tasks/application": "file:../application",
     "@tasks/beads": "file:../beads",
     "@tasks/domain": "file:../domain",
-    "@tasks/workspace": "file:../workspace"
+    "@tasks/workspace": "file:../workspace",
+    "@tasks/surface": "file:../surface"
   }
 }

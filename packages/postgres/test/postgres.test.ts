@@ -19,7 +19,7 @@ class MockClient {
 }
 const digest = (sql: string) => createHash('sha256').update(sql).digest('hex');
 const at = new Date('2025-01-02T00:00:00.000Z');
-const baseRow = { id: 'tk-1', title: 'Task', description: '', status: 'in_progress', priority: 2, type: 'task', owner: null, assignee: 'worker', created_by: 'test', created_at: 1735689600000, updated_at: at.getTime(), started_at: at.getTime(), closed_at: null, due_at: null, defer_until: null, parent_id: null, labels_json: '["x"]', notes: null, design: null, acceptance_criteria: null, estimate: null, spec_id: null, external_ref: null, metadata_json: '{"a":true}', wire_unknown_json: '{"future":1}' };
+const baseRow = { id: 'tk-1', title: 'Task', description: '', status: 'in_progress', priority: 2, type: 'task', owner: null, assignee: 'worker', created_by: 'test', created_at: 1735689600000, updated_at: at.getTime(), started_at: at.getTime(), closed_at: null, due_at: null, defer_until: null, parent_id: null, labels_json: '["x"]', notes: null, design: null, acceptance_criteria: null, estimate: null, spec_id: null, external_ref: null, branch: 'feature/hunk', metadata_json: '{"a":true}', wire_unknown_json: '{"future":1}' };
 const text = (client: MockClient) => client.calls.map(x => x.text).join('\n');
 const call = (client: MockClient, needle: string) => client.calls.find(x => x.text.includes(needle));
 
@@ -27,14 +27,14 @@ function adapter(client: MockClient) { return new PostgresAdapter({ client: clie
 
 describe('@tasks/postgres contract surface', () => {
   it('uses public schema in DDL and migration history reads/writes', async () => {
-    expect(postgresMigrations).toHaveLength(1);
+    expect(postgresMigrations).toHaveLength(3);
     expect(postgresMigrations[0]?.sql).toContain('CREATE TABLE public.schema_migrations');
     expect(postgresMigrations[0]?.sql).toContain('CREATE TABLE public.issues');
     expect(postgresMigrations[0]?.sql).toContain('REFERENCES public.issues');
-    const client = new MockClient(c => c.text.includes('to_regclass') ? { rows: [{ name: 'public.schema_migrations' }] } : { rows: [{ id: '001-initial', migration_order: 1, checksum: 'x', applied_at: at.getTime() }] });
+    const client = new MockClient(c => c.text.includes('to_regclass') ? { rows: [{ name: 'public.schema_migrations' }] } : { rows: [{ id: '003-issue-branch', migration_order: 3, checksum: 'x', applied_at: at.getTime() }] });
     const store = adapter(client);
-    expect(await store.currentVersion()).toEqual({ ok: true, value: '001-initial' });
-    expect(await store.history()).toMatchObject({ ok: true, value: [{ id: '001-initial', appliedAt: at }] });
+    expect(await store.currentVersion()).toEqual({ ok: true, value: '003-issue-branch' });
+    expect(await store.history()).toMatchObject({ ok: true, value: [{ id: '003-issue-branch', appliedAt: at }] });
     expect(text(client)).toContain('FROM public.schema_migrations');
     expect(text(client)).not.toMatch(/FROM schema_migrations/);
   });
@@ -54,7 +54,7 @@ describe('@tasks/postgres contract surface', () => {
     const client = new MockClient(c => c.text.includes('to_regclass') ? { rows: [{ name: null }] } : { rows: [] });
     const pool = { connect: async () => client };
     const result = await new PostgresAdapter({ pool: pool as never, now: () => at }).migrate();
-    expect(result).toMatchObject({ ok: true, value: { currentVersion: '001-initial' } });
+    expect(result).toMatchObject({ ok: true, value: { currentVersion: '003-issue-branch' } });
     expect(text(client)).toContain('INSERT INTO public.schema_migrations');
     expect(text(client)).toContain('COMMIT');
     expect(client.released).toBe(1);
@@ -63,7 +63,7 @@ describe('@tasks/postgres contract surface', () => {
   it('hydrates aggregate JSONB and epoch fields through actual find adapter method', async () => {
     const client = new MockClient(c => c.text.includes('FROM public.issues WHERE') ? { rows: [baseRow] } : c.text.includes('count(*)') ? { rows: [{ count: '2' }] } : c.text.includes('FROM public.issue_dependencies WHERE') ? { rows: [{ issue_id: 'tk-1', target: 'tk-blocker', type: 'blocks', created_at: at.getTime(), created_by: null, metadata_json: '{"edge":true}', wire_unknown_json: '{}' }] } : c.text.includes('FROM public.issue_comments') ? { rows: [{ id: 'c1', issue_id: 'tk-1', author: 'me', text: 'hi', created_at: at.getTime(), wire_unknown_json: '{"x":1}' }] } : { rows: [] });
     const result = await adapter(client).withinTransaction(uow => uow.findById(issueId('tk-1')));
-    expect(result).toMatchObject({ ok: true, value: { createdAt: new Date(1735689600000), updatedAt: at, labels: ['x'], metadata: { a: true }, dependencies: [{ metadata: { edge: true } }], comments: [{ wireUnknown: { x: 1 } }], dependentCount: 2 } });
+    expect(result).toMatchObject({ ok: true, value: { createdAt: new Date(1735689600000), updatedAt: at, labels: ['x'], branch: 'feature/hunk', metadata: { a: true }, dependencies: [{ metadata: { edge: true } }], comments: [{ wireUnknown: { x: 1 } }], dependentCount: 2 } });
     expect(text(client)).toContain('BEGIN'); expect(text(client)).toContain('COMMIT');
   });
 

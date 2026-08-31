@@ -1,17 +1,17 @@
-import { canonicalTimestampCodec, err, ok } from '../../application/src/index.ts';
+import { canonicalTimestampCodec, err, ok } from '@tasks/application';
 import type {
   AuditEntry, IssueUnitOfWork, IssueQuery, IssuePage,
   MigrationFailure, MigrationHistoryEntry, MigrationPort, MigrationReport, MigrationStep,
   Result, TimestampCodec, UnitOfWork,
-} from '../../application/src/index.ts';
-import type { DependencyEdge, Issue, IssueId, Metadata } from '../../domain/src/index.ts';
-import { IssueSchema, issueFromBdWire, issueToBdWire } from '../../domain/src/index.ts';
-import type { BdWireEnvelope } from '../../domain/src/index.ts';
+} from '@tasks/application';
+import type { DependencyEdge, Issue, IssueId, Metadata } from '@tasks/domain';
+import { IssueSchema, issueFromBdWire, issueToBdWire } from '@tasks/domain';
+import type { BdWireEnvelope } from '@tasks/domain';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export { canonicalTimestampCodec } from '../../application/src/index.ts';
-export type { TimestampCodec } from '../../application/src/index.ts';
+export { canonicalTimestampCodec } from '@tasks/application';
+export type { TimestampCodec } from '@tasks/application';
 
 // ─── Policy ───────────────────────────────────────────────────────────────────
 
@@ -243,7 +243,7 @@ export class FileAdapter implements UnitOfWork, MigrationPort {
   }
 
   // Expose internals to UnitOfWork implementation
-  /** @internal */ _readIssue(id: string) { return this.#readIssue(id); }
+  /** @internal */ _readIssue(id: string): Issue | null { return this.#readIssue(id); }
   /** @internal */ _writeIssue(issue: Issue) { this.#writeIssue(issue); }
   /** @internal */ _deleteIssue(id: string): void {
     fs.rmSync(this.#issuePath(id), { force: true });
@@ -307,8 +307,8 @@ class FileIssueUnitOfWork implements IssueUnitOfWork {
 
   async save(issue: Issue): Promise<Result<void>> {
     try {
-      IssueSchema.parse(issue);
-      this.adapter._writeIssue(issue);
+      const parsed = IssueSchema.parse(issue);
+      this.adapter._writeIssue(parsed);
       this.adapter._appendHistory(issue.id, {
         action: 'save',
         at: this.adapter.now(),

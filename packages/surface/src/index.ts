@@ -1,0 +1,14 @@
+export * from './errors.js';
+export { rootFrom } from './discover.js';
+export * from './store.js';
+export * from './envelope.js';
+export * from './tree.js';
+export type { CreateInput } from './operations/create.js';
+export * from './operations/query.js';
+export * from './operations/mutate.js';
+export * from './operations/deps.js';
+export * from './operations/comments.js';
+export * from './operations/views.js';
+export * from './watch/protocol.js';
+export * from './watch/core.js';
+export { createSurface, type TasksSurface } from './surface.js';

@@ -21,9 +21,14 @@ export interface ProcessRunner {
 
 export const bunRunner: ProcessRunner = {
   async run(command, cwd) {
-    const spawned = Bun.spawn([...command], { cwd, stdout: "pipe", stderr: "pipe" });
-    const [stdout, stderr, code] = await Promise.all([new Response(spawned.stdout).text(), new Response(spawned.stderr).text(), spawned.exited]);
-    return { stdout: stdout.trim(), stderr: stderr.trim(), code };
+    try {
+      const spawned = Bun.spawn([...command], { cwd, stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr, code] = await Promise.all([new Response(spawned.stdout).text(), new Response(spawned.stderr).text(), spawned.exited]);
+      return { stdout: stdout.trim(), stderr: stderr.trim(), code };
+    } catch (cause) {
+      // ENOENT (e.g. no git on PATH) behaves like a failed probe, not a crash.
+      return { stdout: "", stderr: cause instanceof Error ? cause.message : String(cause), code: 127 };
+    }
   },
 };
 

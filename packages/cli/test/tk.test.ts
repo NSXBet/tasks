@@ -156,7 +156,7 @@ describe("tk executable", () => {
     mkdirSync(join(inner, ".git"), { recursive: true });
     const result = run(inner, ["list", "--json"]);
     expect(result.status).not.toBe(0);
-    expect(JSON.parse(result.stderr).error.message).toContain("run tk init");
+    expect(JSON.parse(result.stderr).error.message.toLowerCase()).toContain("run tk init");
   });
 
   it("still finds a workspace at the repository root from a nested directory", () => {
@@ -324,5 +324,121 @@ describe("tk executable", () => {
 
     const rejected = run(directory, ["switch-backend", "sqlite", "--json"]);
     expect(rejected.status).not.toBe(0);
+  });
+
+  it("stores a task branch and round-trips it through export", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const created = json<{ id: string; branch: string | null }>(directory, ["create", "branch work", "--branch", "feature/hunk"]);
+    expect(created.branch).toBe("feature/hunk");
+    const updated = json<{ branch: string | null }>(directory, ["update", created.id, "--branch", "feature/review"]);
+    expect(updated.branch).toBe("feature/review");
+    const target = workspace(); json(target, ["init"]);
+    json<{ imported: number }>(target, ["import"], run(directory, ["export"]).stdout);
+    expect(json<readonly { branch: string | null }[]>(target, ["show", created.id])[0]!.branch).toBe("feature/review");
+  });
+
+  it("hunk --print derives the hunk command from the issue's branch and hunk sync requires a session", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const created = json<{ id: string }>(directory, ["create", "hunk review me"]);
+    // No branch linked: the plan is a plain working-tree diff.
+    const bare = json<{ argv: string[]; cwd: string; mode: string }>(directory, ["hunk", created.id, "--print"]);
+    expect(bare.argv).toEqual(["hunk", "diff", "--agent-context", expect.any(String)]);
+    expect(bare.mode).toBe("diff-worktree");
+    expect(bare.cwd).toBe(directory);
+    // A missing linked branch fails before launching Hunk.
+    json(directory, ["update", created.id, "--branch", "feature/hunk"]);
+    const missing = run(directory, ["hunk", created.id, "--print", "--json"]);
+    expect(missing.status).not.toBe(0);
+    expect(JSON.parse(missing.stderr).error.message).toContain("branch feature/hunk is not checked out");
+    // Sync without a live Hunk session fails with the daemon's message.
+    const failed = run(directory, ["hunk", created.id, "sync", "--json"]);
+    expect(failed.status).not.toBe(0);
+    const message = JSON.parse(failed.stderr).error.message as string;
+    expect(message === "hunk sync requires a git repository" || message.startsWith("hunk session comment list failed") || message.includes("branch feature/hunk is not checked out")).toBe(true);
+  });
+  it("renders epics first with priority-ordered children and dependency fan-out", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const epic = json<{ id: string }>(directory, ["create", "account work", "--type", "epic", "--priority", "3"]);
+    const loose = json<{ id: string }>(directory, ["create", "loose work", "--priority", "0"]);
+    const later = json<{ id: string }>(directory, ["create", "later child", "--parent", epic.id, "--priority", "2"]);
+    const first = json<{ id: string }>(directory, ["create", "first child", "--parent", epic.id, "--priority", "0"]);
+    const dependent = json<{ id: string }>(directory, ["create", "dependent", "--priority", "1"]);
+    json(directory, ["dep", dependent.id, "add", first.id]);
+    const tree = json<{ roots: Array<{ id: string; children: Array<{ id: string; via: string; children: Array<{ id: string }> }> }> }>(directory, ["tree"]);
+    expect(tree.roots.map((node) => node.id)).toEqual([epic.id, loose.id]);
+    expect(tree.roots[0]!.children.map((node) => node.id)).toEqual([first.id, later.id]);
+    expect(tree.roots[0]!.children[0]!.children).toMatchObject([{ id: dependent.id, via: "blocks" }]);
+    const human = run(directory, ["tree"]);
+    expect(human.status, human.stderr).toBe(0);
+    expect(human.stdout).toContain("▸");
+  });
+
+  it("hides closed tasks by default and keeps their epic progress", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const epic = json<{ id: string }>(directory, ["create", "release", "--type", "epic"]);
+    const open = json<{ id: string }>(directory, ["create", "open child", "--parent", epic.id, "--priority", "0"]);
+    const closed = json<{ id: string }>(directory, ["create", "closed child", "--parent", epic.id, "--priority", "1"]);
+    json(directory, ["close", closed.id]);
+    const standard = json<{ roots: Array<{ progress: { closed: number; total: number }; children: Array<{ id: string }> }> }>(directory, ["tree"]);
+    expect(standard.roots[0]!.progress).toEqual({ closed: 1, total: 2 });
+    expect(standard.roots[0]!.children.map((node) => node.id)).toEqual([open.id]);
+    const all = json<{ roots: Array<{ children: Array<{ id: string }> }> }>(directory, ["tree", "--all"]);
+    expect(all.roots[0]!.children.map((node) => node.id)).toEqual([open.id, closed.id]);
+  });
+
+  it("terminates cyclic dependencies and validates depth", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const first = json<{ id: string }>(directory, ["create", "first"]);
+    const second = json<{ id: string }>(directory, ["create", "second"]);
+    json(directory, ["dep", first.id, "add", second.id]);
+    json(directory, ["dep", second.id, "add", first.id]);
+    const result = run(directory, ["tree"]);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("↩ shown above");
+    expect(run(directory, ["tree", "--depth", "0"]).status).not.toBe(0);
+  });
+  it("filters list/tree/lint through status shorthands and the review lifecycle", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const open = json<{ id: string }>(directory, ["create", "open work"]);
+    const wip = json<{ id: string }>(directory, ["create", "wip work"]);
+    json(directory, ["update", wip.id, "--status", "in_progress"]);
+    const review = json<{ id: string }>(directory, ["create", "review work"]);
+    json(directory, ["update", review.id, "--status", "ready-to-review"]);
+    const approved = json<{ id: string }>(directory, ["create", "approved work"]);
+    json(directory, ["update", approved.id, "--status", "approved"]);
+    const rejected = json<{ id: string }>(directory, ["create", "rejected work"]);
+    json(directory, ["update", rejected.id, "--status", "rejected"]);
+    const closed = json<{ id: string }>(directory, ["create", "closed work"]);
+    json(directory, ["close", closed.id]);
+    const ids = (args: readonly string[]) => new Set(json<readonly { id: string }[]>(directory, args).map((issue) => issue.id));
+    expect(ids(["list", "--open"])).toEqual(new Set([open.id]));
+    expect(ids(["list", "--closed"])).toEqual(new Set([closed.id]));
+    expect(ids(["list", "--all"])).toEqual(new Set([open.id, wip.id, review.id, approved.id, rejected.id, closed.id]));
+    expect(ids(["list", "--ready-to-review"])).toEqual(new Set([review.id]));
+    expect(ids(["list", "--approved"])).toEqual(new Set([approved.id]));
+    expect(ids(["list", "--rejected"])).toEqual(new Set([rejected.id]));
+    expect(ids(["list", "--status", "approved"])).toEqual(new Set([approved.id]));
+    // Shorthands never combine with each other or with --status.
+    expect(run(directory, ["list", "--open", "--closed", "--json"]).status).not.toBe(0);
+    expect(run(directory, ["list", "--open", "--status", "open", "--json"]).status).not.toBe(0);
+    // tree honors the same shorthand vocabulary.
+    expect(json<{ roots: Array<{ id: string }> }>(directory, ["tree", "--ready-to-review"]).roots.map((node) => node.id)).toEqual([review.id]);
+    expect(json<{ visible: number }>(directory, ["tree", "--all"]).visible).toBe(6);
+    // lint defaults to open scope (missing-section tasks only); --all widens it.
+    const openLint = json<readonly unknown[]>(directory, ["lint"]);
+    const allLint = json<readonly { id: string }[]>(directory, ["lint", "--all"]);
+    expect(allLint.length).toBeGreaterThanOrEqual(openLint.length);
+    expect(allLint.length).toBeGreaterThanOrEqual(5);
+    // New lifecycle statuses surface as built-ins and in stats.
+    const statuses = json<readonly string[]>(directory, ["statuses"]);
+    for (const status of ["ready-to-review", "approved", "rejected"]) expect(statuses).toContain(status);
+    const stats = json<{ ready_to_review: number; approved: number; rejected: number }>(directory, ["stats"]);
+    expect(stats).toMatchObject({ ready_to_review: 1, approved: 1, rejected: 1 });
   });
 });

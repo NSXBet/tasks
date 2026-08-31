@@ -1,0 +1,27 @@
+{
+  "name": "@tasks/surface",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/workspace build && tsc -p tsconfig.json",
+    "check": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/workspace build && tsc --noEmit -p tsconfig.json",
+    "test": "bun run build && cd ../.. && bun test packages/surface/test"
+  },
+  "dependencies": {
+    "@tasks/application": "workspace:*",
+    "@tasks/beads": "workspace:*",
+    "@tasks/domain": "workspace:*",
+    "@tasks/workspace": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}

@@ -36,6 +36,8 @@ bun packages/cli/src/tk.ts ready --claim --json
 | `@tasks/workspace` | `.tasks/config.json` schema, backend resolution/inference, adapter lifecycle |
 | `@tasks/beads` | Beads migration: record decoding, parent ordering, transactional import |
 | `@tasks/cli` | `tk` CLI executable |
+| `@tasks/surface` | Host-agnostic typed command surface: JSON-in/JSON-out operations shared by the CLI and the pi/omp extension |
+| `@tasks/extension` | Installable pi/omp extension: `tasks`/`tasks_watch_*` tools, skill injection, and the tk-watch child process |
 
 ## Architecture
 
@@ -54,19 +56,39 @@ Domain never imports application or adapters. Application coordinates domain typ
 ```bash
 tk init [--prefix <p>] [--backend ...]  # Initialize .tasks/ workspace (default prefix: tk, backend: file)
 tk create <title> [opts]      # Create issue
-tk list [--status <s>]        # List issues
+tk list [--status <s>]        # List issues; shorthands: --open --closed --all --ready-to-review --approved --rejected
 tk ready [--claim]            # List unblocked issues
 tk show <id>                  # Show issue details
-tk update <id> [--field val]  # Update fields
 tk close <id>                 # Close issue
+tk update <id> [--branch <name>]  # Update fields; link the issue branch
 tk dep <id> add <target>      # Add dependency
+tk tree [--all] [--depth N]  # Tree view: epics, subtasks, dependency fan-out
 tk search <text>              # Full-text search
+tk hunk <id> [--print]        # Open a Hunk review of the issue's branch/WIP
+tk hunk <id> sync             # Import live Hunk review comments into the issue
 tk export                     # Export all as JSONL
 tk switch-backend <name>       # Move data to file/sqlite/postgres, then update config.json
 tk --help                     # Full command list
 ```
 
 `tk` discovers `.tasks/` by walking upward from cwd. Use `-C DIR` to override. `--json` for structured output. `--readonly` rejects mutations.
+
+### Hunk integration
+
+[Hunk](https://github.com/modem-dev/hunk) is a review-first terminal diff viewer. Link the
+issue branch and review it in one command:
+
+```bash
+tk update tk-abc --branch feature/auth     # link the issue branch
+tk hunk tk-abc                            # opens Hunk in that branch's worktree, diffed from its merge base
+tk hunk tk-abc --print                    # print the underlying Hunk command instead of launching it
+tk hunk tk-abc -- --mode split            # forward extra flags to Hunk after `--`
+```
+
+The issue's title and description are injected as a Hunk `--agent-context` sidecar, so they render beside
+the diff. With a live Hunk session open on the repo, `tk hunk tk-abc sync` imports the review comments as
+task comments (`[hunk file:line] summary`); a `hunkComments` list in the issue's metadata keeps repeated
+syncs idempotent.
 
 ### Storage backend
 

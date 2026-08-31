@@ -8,14 +8,17 @@ import { dependencyTarget, issueDescription, issueFromBdWire, issueId, issuePrio
 import { canonicalTimestampCodec, err, ok, type IssueUnitOfWork, type Result } from "@tasks/application";
 import { DEFAULT_STORAGE, describeStorage, openEphemeralScratch, openStorage, readWorkspaceConfig, resolveStorageConfig, writeWorkspaceConfig, type StorageAdapter, type StorageConfig, type WorkspaceConfig } from "@tasks/workspace";
 import { booleanFlag, directory, parseArgs, stringFlag, ArgumentParseError, type ParsedArgs } from "./args.js";
-import { gitCommonDir, gitCurrentBranch, gitHasUncommittedChanges, gitHasUnpushedCommits, gitStashCount, gitToplevel, gitWorktreeAdd, gitWorktreeList, gitWorktreeRemove, mainWorktreeRoot } from "./git.js";
+import { gitCommonDir, gitCurrentBranch, gitDefaultBranch, gitHasUncommittedChanges, gitHasUnpushedCommits, gitStashCount, gitToplevel, gitWorktreeAdd, gitWorktreeList, gitWorktreeRemove, mainWorktreeRoot } from "./git.js";
 import {
   commentWire, confirmation, formatBackup, formatBlocked, formatComments, formatCount, formatDepList, formatDoctor,
   formatDuplicates, formatEpic, formatGraph, formatHistory, formatLint, formatList, formatMigration, formatOrphans,
   formatReady, formatRenamePrefix, formatSearch, formatShow, formatStale, formatStats,
-  formatStatus, formatStatuses, formatTodo, formatTypes, formatVersion, formatWhere, formatWorktreeInfo, formatWorktreeList,
-  HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, cyan, dim, formatError, green, issueWire, output,
+  formatStatus, formatStatuses, formatTodo, formatTree, formatTypes, formatVersion, formatWhere, formatWorktreeInfo, formatWorktreeList,
+  HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, cyan, dim, formatError, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
+import { bunRunner } from "./git.js";
+import { formatHunkComment, hunkCommentMetaKey, parseHunkComments, pendingHunkComments, planHunk, scratchDirectory, writeAgentContext } from "./hunk.js";
+import { buildTree, type TreeOptions } from "./tree.js";
 
 /** bd-style collision-resistant issue IDs: <prefix>-<base36 hash>, short like bd (bd-0t0, bd-45g). */
 const generateId = (): string => randomBytes(6).toString("base64url").toLowerCase().replace(/[^a-z0-9]/g, "x");
@@ -27,13 +30,29 @@ const writers = new Set(["init", "create", "q", "update", "close", "reopen", "de
 type JsonError = { readonly error: { readonly kind: "parse" | "validation" | "readonly" | "runtime"; readonly message: string } };
 type Config = WorkspaceConfig;
 const fail = (message: string): never => { throw new Error(message); };
-const unwrap = <T, E>(result: Result<T, E>): T => { if (result.ok) return result.value; const error = result.error; const message = typeof error === "object" && error !== null && "message" in error && typeof error.message === "string" ? error.message : JSON.stringify(error); return fail(message); };
+const errorWire = (_key: string, value: unknown): unknown => value instanceof Error ? { name: value.name, message: value.message } : value;
+const unwrap = <T, E>(result: Result<T, E>): T => { if (result.ok) return result.value; const error = result.error; const message = typeof error === "object" && error !== null && "message" in error && typeof error.message === "string" ? error.message : JSON.stringify(error, errorWire); return fail(message); };
 /** Bun.stdin reads both pipes and file redirects; async-iterating `stdin` misses redirects. */
 const readInput = async (): Promise<string> => (await Bun.stdin.text()).trimEnd();
 const timeFrom = (value: unknown, fallback: Date): Date => { const parsed = new Date(String(value)); return Number.isNaN(parsed.valueOf()) ? fallback : parsed; };
 const parseDate = (value: string | undefined): Date | null | undefined => { if (value === undefined) return undefined; if (value === "" || value === "null") return null; const date = new Date(value); if (Number.isNaN(date.valueOf())) fail(`invalid date: ${value}`); return date; };
 const parseMetadata = (value: string | undefined): Metadata | undefined => { if (value === undefined) return undefined; const parsed: unknown = JSON.parse(value); if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") fail("metadata must be JSON object"); return parsed as Metadata; };
 const metadataEntry = (value: string): readonly [string, Metadata[string]] => { const separator = value.indexOf("="); if (separator <= 0) fail("metadata entry must be key=value"); const key = value.slice(0, separator); const raw = value.slice(separator + 1); try { return [key, JSON.parse(raw) as Metadata[string]]; } catch { return [key, raw]; } };
+/**
+ * Resolves `--status <s>` or its boolean shorthands (`--open`, `--closed`,
+ * `--all`, `--ready-to-review`, `--approved`, `--rejected`) to a status value,
+ * the `"all"` sentinel, or undefined. Shorthands and `--status` are mutually
+ * exclusive; conflicting shorthands fail rather than silently winning.
+ */
+const statusFilter = (args: ParsedArgs): string | undefined => {
+  const shorthands = (["open", "closed", "ready-to-review", "approved", "rejected", "all"] as const).filter((name) => booleanFlag(args, name));
+  const explicit = stringFlag(args, "status");
+  if (explicit !== undefined && shorthands.length > 0) fail(`--status cannot be combined with --${shorthands[0]}`);
+  if (shorthands.length > 1) fail(`--${shorthands[0]} and --${shorthands[1]} are mutually exclusive`);
+  return explicit ?? shorthands[0];
+};
+/** Statuses the CLI treats as first-class lifecycle values, in workflow order. */
+const KNOWN_STATUSES: readonly string[] = ["open", "in_progress", "ready-to-review", "approved", "rejected", "closed"];
 /**
  * `tk init --backend/--filename/--url-env` only ever produce a `StorageConfig`
  * written into `.tasks/config.json` — no other command reads these flags, and
@@ -187,8 +206,8 @@ async function du(path: string): Promise<number> {
 class CommandService {
   constructor(private readonly database: StorageAdapter, private readonly root: string, private readonly config: Config, private readonly actor: string, private readonly backend: string, private readonly databasePath: string | null) {}
   private async currentId(): Promise<string> { const value = await readFile(join(this.root, ".tasks", "current"), "utf8").catch(() => ""); return value.trim() || fail("no current issue selected"); }
-  private async selected(args: ParsedArgs): Promise<string> { return args.positionals[1] ?? (booleanFlag(args, "current") ? this.currentId() : fail("issue id required")); }
   private async setCurrent(id: IssueId): Promise<void> { await writeFile(join(this.root, ".tasks", "current"), `${id}\n`); }
+  private async selected(args: ParsedArgs): Promise<string> { return args.positionals[1] ?? (booleanFlag(args, "current") ? this.currentId() : fail("issue id required")); }
   private prefix(): string { return this.config.prefix ?? "tk"; }
   async create(args: ParsedArgs): Promise<Issue> {
     const title = stringFlag(args, "title") ?? args.positionals[1] ?? fail("create requires title"); let description = stringFlag(args, "description") ?? ""; if (booleanFlag(args, "stdin")) description = await readInput();
@@ -200,7 +219,7 @@ class CommandService {
       let attempts = 0;
       while (existing.has(candidate)) { attempts += 1; if (attempts > 20) fail("could not allocate unique issue id"); candidate = `${this.prefix()}-${generateId().slice(0, length)}`; }
       const now = new Date(); const parent = stringFlag(args, "parent"); const estimate = stringFlag(args, "estimate");
-      const issue: Issue = { id: issueId(candidate), title: issueTitle(title), description: issueDescription(description), status: stringFlag(args, "status") ?? "open", priority: issuePriority(Number(stringFlag(args, "priority") ?? 2)), type: stringFlag(args, "type") ?? "task", owner: stringFlag(args, "owner") ?? null, assignee: stringFlag(args, "assignee") ?? null, createdBy: this.actor, createdAt: now, updatedAt: now, startedAt: null, closedAt: null, dueAt: parseDate(stringFlag(args, "due")) ?? null, deferUntil: parseDate(stringFlag(args, "defer-until")) ?? null, parentId: parent === undefined ? null : issueId(parent), labels: (stringFlag(args, "labels") ?? stringFlag(args, "label") ?? "").split(",").filter(Boolean), notes: stringFlag(args, "notes") ?? null, design: stringFlag(args, "design") ?? null, acceptanceCriteria: stringFlag(args, "acceptance") ?? null, estimate: estimate === undefined ? null : Number(estimate), specId: stringFlag(args, "spec-id") ?? null, externalRef: stringFlag(args, "external-ref") ?? null, metadata: parseMetadata(stringFlag(args, "metadata")) ?? {}, wireUnknown: {}, dependencies: [], dependencyCount: 0, dependentCount: 0, comments: [], commentCount: 0 };
+      const issue: Issue = { id: issueId(candidate), title: issueTitle(title), description: issueDescription(description), status: stringFlag(args, "status") ?? "open", priority: issuePriority(Number(stringFlag(args, "priority") ?? 2)), type: stringFlag(args, "type") ?? "task", owner: stringFlag(args, "owner") ?? null, assignee: stringFlag(args, "assignee") ?? null, createdBy: this.actor, createdAt: now, updatedAt: now, startedAt: null, closedAt: null, dueAt: parseDate(stringFlag(args, "due")) ?? null, deferUntil: parseDate(stringFlag(args, "defer-until")) ?? null, parentId: parent === undefined ? null : issueId(parent), labels: (stringFlag(args, "labels") ?? stringFlag(args, "label") ?? "").split(",").filter(Boolean), notes: stringFlag(args, "notes") ?? null, design: stringFlag(args, "design") ?? null, acceptanceCriteria: stringFlag(args, "acceptance") ?? null, estimate: estimate === undefined ? null : Number(estimate), specId: stringFlag(args, "spec-id") ?? null, externalRef: stringFlag(args, "external-ref") ?? null, branch: stringFlag(args, "branch") ?? null, metadata: parseMetadata(stringFlag(args, "metadata")) ?? {}, wireUnknown: {}, dependencies: [], dependencyCount: 0, dependentCount: 0, comments: [], commentCount: 0 };
       unwrap(await uow.save(issue)); for (const entry of (stringFlag(args, "deps") ?? "").split(",").filter(Boolean)) { const [kind, target] = entry.includes(":") ? entry.split(/:(.*)/s) : ["blocks", entry]; unwrap(await uow.addDependency({ issueId: issue.id, target: dependencyTarget(target!), type: kind!, createdAt: now, createdBy: this.actor, metadata: {}, wireUnknown: {} })); }
       const made = await get(uow, issue.id); await this.setCurrent(made.id); return made;
     });
@@ -233,7 +252,7 @@ class CommandService {
     await writeWorkspaceConfig(tasksDir, { ...current, prefix: adopted });
     return { ...report, prefix: adopted };
   }
-  async list(args: ParsedArgs, ready: boolean): Promise<readonly Issue[]> { return transaction(this.database, async (uow) => { const query = stringFlag(args, "status"); const page = unwrap(await uow.list({ ...(query === undefined ? {} : { status: query }), limit: Number(stringFlag(args, "limit") ?? 1000) })); let items = page.items.filter((issue) => (stringFlag(args, "parent") === undefined || issue.parentId === stringFlag(args, "parent")) && (stringFlag(args, "assignee") === undefined || issue.assignee === stringFlag(args, "assignee")) && (stringFlag(args, "type") === undefined || issue.type === stringFlag(args, "type")) && (stringFlag(args, "priority") === undefined || issue.priority === Number(stringFlag(args, "priority"))) && (stringFlag(args, "label") === undefined || issue.labels.includes(stringFlag(args, "label")!)));
+  async list(args: ParsedArgs, ready: boolean): Promise<readonly Issue[]> { const query = statusFilter(args); return transaction(this.database, async (uow) => { const page = unwrap(await uow.list({ ...(query === undefined || query === "all" ? {} : { status: query }), limit: Number(stringFlag(args, "limit") ?? 1000) })); let items = page.items.filter((issue) => (stringFlag(args, "parent") === undefined || issue.parentId === stringFlag(args, "parent")) && (stringFlag(args, "assignee") === undefined || issue.assignee === stringFlag(args, "assignee")) && (stringFlag(args, "type") === undefined || issue.type === stringFlag(args, "type")) && (stringFlag(args, "priority") === undefined || issue.priority === Number(stringFlag(args, "priority"))) && (stringFlag(args, "label") === undefined || issue.labels.includes(stringFlag(args, "label")!)));
     if (!ready) return items; const now = new Date(); items = items.filter((issue) => issue.status === "open" && (issue.deferUntil === null || issue.deferUntil <= now) && !issue.dependencies.some((edge) => edge.type === "blocks" && page.items.some((candidate) => candidate.id === edge.target && candidate.status !== "closed")));
     if (!booleanFlag(args, "claim")) return items; const pick = items[0] ?? fail("no ready issue to claim"); const claimed = unwrap(await uow.claimReady(pick.id, this.actor)); await this.setCurrent(claimed.id); return [claimed]; }); }
   async comment(args: ParsedArgs): Promise<Issue> { const id = await this.selected(args); let body = args.positionals.slice(2).join(" ") || stringFlag(args, "body") || ""; if (booleanFlag(args, "stdin")) body = await readInput(); if (!body) fail("comment requires body"); return transaction(this.database, async (uow) => { unwrap(await uow.addComment(issueId(id), this.actor, body)); return get(uow, id); }); }
@@ -277,7 +296,8 @@ class CommandService {
     if (["close", "reopen", "set-state"].includes(command)) { const status = command === "close" ? "closed" : command === "reopen" ? "open" : args.positionals[2] ?? fail("set-state requires state"); patch = { status, closedAt: status === "closed" ? new Date() : null, startedAt: status === "in_progress" ? issue.startedAt ?? new Date() : issue.startedAt }; const reason = stringFlag(args, "reason"); if (reason !== undefined) patch = { ...patch, notes: [issue.notes, reason].filter(Boolean).join("\n") }; }
     else if (command === "defer") patch = { deferUntil: parseDate(args.positionals[2] ?? stringFlag(args, "until")) ?? new Date(Date.now() + 86_400_000) }; else if (command === "undefer") patch = { deferUntil: null };
     else if (command === "label") { const label = args.positionals[3] ?? fail("label requires value"); patch = { labels: (tuicrLabel ? args.positionals[1] : args.positionals[2]) === "add" ? [...new Set([...issue.labels, label])] : issue.labels.filter((value) => value !== label) }; }
-    else if (command === "update") { const fields: ReadonlyArray<readonly [string, keyof Issue, (value: string) => Issue[keyof Issue]]> = [["title", "title", issueTitle], ["description", "description", issueDescription], ["priority", "priority", (value) => issuePriority(Number(value))], ["type", "type", (value) => value], ["assignee", "assignee", (value) => value === "" ? null : value], ["owner", "owner", (value) => value], ["acceptance", "acceptanceCriteria", (value) => value], ["design", "design", (value) => value], ["spec-id", "specId", (value) => value], ["estimate", "estimate", (value) => Number(value)], ["external-ref", "externalRef", (value) => value === "" ? null : value], ["parent", "parentId", (value) => value === "" ? null : issueId(value)]]; for (const [flagName, key, convert] of fields) { const value = stringFlag(args, flagName); if (value !== undefined) patch = { ...patch, [key]: convert(value) }; } const status = stringFlag(args, "status"); if (status !== undefined) patch = { ...patch, status }; const due = parseDate(stringFlag(args, "due")); if (due !== undefined) patch = { ...patch, dueAt: due }; const defer = parseDate(stringFlag(args, "defer-until")); if (defer !== undefined) patch = { ...patch, deferUntil: defer }; const metadata = parseMetadata(stringFlag(args, "metadata")); if (metadata !== undefined) patch = { ...patch, metadata }; const setMetadata = stringFlag(args, "set-metadata"); if (setMetadata !== undefined) { const [key, value] = metadataEntry(setMetadata); patch = { ...patch, metadata: { ...issue.metadata, ...(patch.metadata ?? {}), [key]: value } }; } const unsetMetadata = stringFlag(args, "unset-metadata"); if (unsetMetadata !== undefined) { const next = { ...issue.metadata, ...(patch.metadata ?? {}) }; delete next[unsetMetadata]; patch = { ...patch, metadata: next }; } const labels = stringFlag(args, "label"); if (labels !== undefined) patch = { ...patch, labels: [...new Set([...issue.labels, ...labels.split(",")])] }; const addLabel = stringFlag(args, "add-label"); if (addLabel !== undefined) patch = { ...patch, labels: [...new Set([...(patch.labels ?? issue.labels), ...addLabel.split(",").filter(Boolean)])] }; const removeLabel = stringFlag(args, "remove-label"); if (removeLabel !== undefined) { const removed = new Set(removeLabel.split(",")); patch = { ...patch, labels: (patch.labels ?? issue.labels).filter((label) => !removed.has(label)) }; } let body = stringFlag(args, "body"); if (booleanFlag(args, "stdin")) body = await readInput(); if (body !== undefined) patch = { ...patch, description: issueDescription(body) }; const notes = stringFlag(args, "append-notes"); if (notes !== undefined) patch = { ...patch, notes: [issue.notes, notes].filter(Boolean).join("\n") }; } else fail(`unknown command: ${command}`);
+    else if (command === "update") { const fields: ReadonlyArray<readonly [string, keyof Issue, (value: string) => Issue[keyof Issue]]> = [["title", "title", issueTitle], ["description", "description", issueDescription], ["priority", "priority", (value) => issuePriority(Number(value))], ["type", "type", (value) => value], ["assignee", "assignee", (value) => value === "" ? null : value], ["owner", "owner", (value) => value], ["acceptance", "acceptanceCriteria", (value) => value], ["design", "design", (value) => value], ["spec-id", "specId", (value) => value], ["estimate", "estimate", (value) => Number(value)], ["external-ref", "externalRef", (value) => value === "" ? null : value], ["branch", "branch", (value) => value === "" ? null : value], ["parent", "parentId", (value) => value === "" ? null : issueId(value)]]; for (const [flagName, key, parse] of fields) { const raw = stringFlag(args, flagName); if (raw !== undefined) (patch as Record<string, unknown>)[key] = parse(raw); } const metadata = stringFlag(args, "metadata"); if (metadata !== undefined) { const parsed: Metadata = JSON.parse(metadata); patch = { ...patch, metadata: parsed }; } const setMetadata = stringFlag(args, "set-metadata"); if (setMetadata !== undefined) { const [key, value] = metadataEntry(setMetadata); patch = { ...patch, metadata: { ...issue.metadata, ...(patch.metadata ?? {}), [key]: value } }; } const unsetMetadata = stringFlag(args, "unset-metadata"); if (unsetMetadata !== undefined) { const next = { ...issue.metadata, ...(patch.metadata ?? {}) }; delete next[unsetMetadata]; patch = { ...patch, metadata: next }; } const labels = stringFlag(args, "label"); if (labels !== undefined) patch = { ...patch, labels: [...new Set([...issue.labels, ...labels.split(",")])] }; const addLabel = stringFlag(args, "add-label"); if (addLabel !== undefined) patch = { ...patch, labels: [...new Set([...(patch.labels ?? issue.labels), ...addLabel.split(",").filter(Boolean)])] }; const removeLabel = stringFlag(args, "remove-label"); if (removeLabel !== undefined) { const removed = new Set(removeLabel.split(",")); patch = { ...patch, labels: (patch.labels ?? issue.labels).filter((label) => !removed.has(label)) }; } let body = stringFlag(args, "body"); if (booleanFlag(args, "stdin")) body = await readInput(); if (body !== undefined) patch = { ...patch, description: issueDescription(body) }; const notes = stringFlag(args, "append-notes"); if (notes !== undefined) patch = { ...patch, notes: [issue.notes, notes].filter(Boolean).join("\n") }; } else fail(`unknown command: ${command}`);
+    const status = stringFlag(args, "status"); if (status !== undefined) patch = { ...patch, status }; const due = parseDate(stringFlag(args, "due")); if (due !== undefined) patch = { ...patch, dueAt: due };
     const result = changed(issue, patch); unwrap(await uow.save(result)); if (command === "close" || command === "reopen" || command === "set-state") await this.setCurrent(result.id); return result; }); }
   /** Quick capture (`bd q`): create and return only the new id. */
   async quick(args: ParsedArgs): Promise<string> { return (await this.create(args)).id; }
@@ -323,9 +343,9 @@ class CommandService {
   async todoList(all: boolean): Promise<readonly Issue[]> { return transaction(this.database, async (uow) => unwrap(await uow.list({ limit: 100_000 })).items.filter((issue) => issue.type === "task" && (all || issue.status !== "closed"))); }
   /** `bd lint`: flag issues missing recommended markdown sections for their type. */
   async lint(args: ParsedArgs): Promise<ReadonlyArray<{ readonly issue: Issue; readonly missing: readonly string[] }>> {
-    const ids = args.positionals.slice(1); const typeFilter = stringFlag(args, "type"); const statusFilter = stringFlag(args, "status") ?? "open";
+    const ids = args.positionals.slice(1); const typeFilter = stringFlag(args, "type"); const status = statusFilter(args) ?? "open";
     const all = await this.all();
-    const scope = ids.length > 0 ? all.filter((issue) => ids.includes(issue.id)) : all.filter((issue) => (statusFilter === "all" || issue.status === statusFilter) && (typeFilter === undefined || issue.type === typeFilter));
+    const scope = ids.length > 0 ? all.filter((issue) => ids.includes(issue.id)) : all.filter((issue) => (status === "all" || issue.status === status) && (typeFilter === undefined || issue.type === typeFilter));
     return scope.flatMap((issue) => {
       const required = LINT_SECTIONS[issue.type] ?? [];
       const body = `${issue.description}\n${issue.acceptanceCriteria ?? ""}`;
@@ -378,6 +398,58 @@ class CommandService {
       return { from, to, renamed: mapping.size, dryRun };
     });
   }
+  /**
+   * `tk hunk <id>` — open a Hunk review of the issue's changes, or `sync` its
+   * live review comments into the issue. Launch plan logic lives in hunk.ts.
+   */
+  async hunk(args: ParsedArgs): Promise<{ readonly value: Record<string, unknown>; readonly human: (() => string) | null }> {
+    // Positional layout: `hunk <id>` or `hunk <id> sync` — anything else is rejected.
+    const rest = args.positionals.slice(1);
+    const sync = rest.includes("sync") || booleanFlag(args, "sync");
+    const issueArgs = args.positionals[1] === "sync" ? { ...args, positionals: [args.positionals[0]!, ...args.positionals.slice(2)] } : args;
+    const issue = await transaction(this.database, (uow) => this.selected(issueArgs).then((id) => get(uow, id)));
+    const toplevel = await gitToplevel(this.root);
+    let reviewCwd = toplevel ?? this.root;
+    if (issue.branch !== null && await gitCurrentBranch(reviewCwd) !== issue.branch) {
+      const worktree = (await gitWorktreeList(reviewCwd)).find((entry) => entry.branch === issue.branch);
+      if (worktree === undefined) fail(`branch ${issue.branch} is not checked out; run tk worktree create or open tk hunk from that branch`);
+      reviewCwd = worktree!.path;
+    }
+    const reviewRoot = await gitToplevel(reviewCwd);
+    if (!sync) {
+      // Any positional beyond the issue id (e.g. `--mode split`) is forwarded to hunk verbatim.
+      const extras = rest.filter((token) => token !== (issue.id as string));
+      const scratch = await scratchDirectory();
+      const agentContext = await writeAgentContext(issue, scratch);
+      const defaultBranch = issue.branch === null ? null : await gitDefaultBranch(reviewCwd);
+      if (issue.branch !== null && defaultBranch === null) fail(`could not identify the default branch for ${issue.branch}; configure origin/HEAD or create main/master`);
+      const base = defaultBranch === null ? null : await bunRunner.run(["git", "merge-base", issue.branch!, defaultBranch], reviewCwd).then((result) => result.code === 0 ? result.stdout : fail(`could not resolve merge base for branch ${issue.branch}: ${result.stderr || "branch not found"}`));
+      const plan = planHunk(base, reviewCwd, reviewRoot, extras, agentContext);
+      if (booleanFlag(args, "print")) {
+        return { value: { id: issue.id, argv: plan.argv, cwd: plan.cwd, mode: plan.mode, agent_context: plan.agentContext }, human: () => `${cyan(plan.argv.join(" "))}  ${dim(`# cwd: ${plan.cwd}`)}\n${dim(`# agent-context: ${plan.agentContext}`)}` };
+      }
+      const spawned = Bun.spawn([...plan.argv], { cwd: plan.cwd, stdout: "inherit", stderr: "inherit", stdin: "inherit" });
+      const code = await spawned.exited;
+      return { value: { id: issue.id, command: plan.argv.join(" "), cwd: plan.cwd, exit_code: code }, human: null };
+    }
+    if (reviewRoot === null) fail("hunk sync requires a git repository");
+    const session = await bunRunner.run(["hunk", "session", "comment", "list", "--repo", reviewRoot!, "--json"], reviewCwd);
+    if (session.code !== 0) fail(`hunk session comment list failed: ${session.stderr || "no active session"}`);
+    const comments = parseHunkComments(session.stdout);
+    const knownIds = readHunkCommentIds(issue);
+    const pending = pendingHunkComments(comments, knownIds);
+    if (pending.imported.length === 0) return { value: { id: issue.id, imported: 0, skipped: pending.skipped, total: comments.length }, human: () => green(`✓ No new hunk comments for ${issue.id}`) + dim(` (${pending.skipped} already synced)`) };
+    const updated = await transaction(this.database, async (uow) => {
+      const current = await get(uow, issue.id);
+      const known = new Set(readHunkCommentIds(current));
+      const fresh = pending.imported.filter((comment) => !known.has(comment.commentId));
+      const metadata: Metadata = { ...current.metadata, [hunkCommentMetaKey]: [...readHunkCommentIds(current), ...fresh.map((comment) => comment.commentId)] };
+      const hunkComments = fresh.map((comment) => ({ id: `hunk-${comment.commentId}`, issueId: current.id, author: comment.author ?? "hunk", text: formatHunkComment(comment), createdAt: new Date(comment.createdAt ?? Date.now()), wireUnknown: { hunkCommentId: comment.commentId } }));
+      unwrap(await uow.save(changed(current, { metadata, comments: [...current.comments, ...hunkComments], commentCount: current.commentCount + hunkComments.length })));
+      return get(uow, current.id);
+    });
+    return { value: { id: updated.id, imported: pending.imported.length, skipped: pending.skipped, total: comments.length, comments: commentWire(updated) }, human: () => green(`✓ Imported ${pending.imported.length} hunk comment(s) into ${updated.id}`) + (pending.skipped > 0 ? dim(` (${pending.skipped} already synced)`) : "") };
+  }
 }
 
 /** Stable machine-readable migration contract; every non-imported record is accounted for. */
@@ -390,6 +462,10 @@ const migrationReport = (summary: MigrationSummary, source: string, directory: s
   detached_parents: summary.detachedParents.map((entry) => ({ id: entry.issueId, parent: entry.parentId })),
   cycles: summary.cycles.map((cycle) => [...cycle.members]),
 });
+
+/** Hunk comment ids already recorded on an issue (used for sync dedupe). */
+const readHunkCommentIds = (issue: Issue): readonly string[] => { const value = issue.metadata[hunkCommentMetaKey]; return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []; };
+
 
 const queryIssues = (items: readonly Issue[], expression: string): readonly Issue[] => {
   const match = expression.trim().match(/^([a-z_]+)\s*(=|!=|~)\s*(?:"([^"]*)"|'([^']*)'|([A-Za-z0-9_.-]+))$/i);
@@ -405,10 +481,10 @@ WORKING WITH ISSUES
   create <title> [opts]   Create issue (-t type, -p priority, --labels, --deps, --parent, --assignee)
   q <title>               Quick capture: create and print only the ID
   show <id>               Show issue details
-  list [--status <s>]     List issues (filters: --parent --assignee --type --priority --label)
+  list [--status <s>]     List issues (filters: --parent --assignee --type --priority --label; shorthands: --open --closed --all --ready-to-review --approved --rejected)
   ready [--claim]         List ready (unblocked) issues
   blocked                 List blocked issues
-  update <id> [flags]     Update fields (--title --status --add-label --set-metadata ...)
+  update <id> [flags]     Update fields (--title --status --branch ...)
   close <id> [--reason]   Close issue
   reopen <id>             Reopen closed issue
   defer <id> [until]      Defer issue (default: +24h)
@@ -431,8 +507,12 @@ WORKING WITH ISSUES
   search <text>           Full-text search
   query <expr>            Structured query (status=open, title~bug)
   history <id>            Show audit history
+  hunk <id> [--print]     Open a Hunk review of the issue's branch/WIP (--print shows the command)
+  hunk <id> sync          Import live Hunk review comments into the issue (deduped)
 
-VIEWS & REPORTS
+  watch [--kinds k1,k2] [--ids id1,id2] [--label l] [--interval ms]
+                          Watch for changes (NDJSON events on stdout)
+  tree [--all] [--depth N]  Tree view: epics first, priority-ordered dependency fan-out
   count                   Summary counts
   status                  Counts by status
   stats                   Database overview
@@ -475,15 +555,58 @@ GLOBAL FLAGS
   --actor <name>          Override actor identity
   -h, --help              Show this help
 
+EXAMPLES
+  tk q "fix login bug"                 Quick-capture an idea
+  tk create "Add logout" -t feature    Create feature
+  tk create "epic: auth" -t epic        Create epic
+  tk create "auth modal" -p 1 --parent <epic-id>  Create child task
+  tk list --status=in_progress           WIP issues
+  tk list --ready-to-review              Issues awaiting review
+  tk ready                               What's unblocked
+  tk show tk-abc                         Inspect issue
+  tk update tk-abc --status in_progress   Start work
+  tk comment tk-abc "halfway done"       Log progress
+  tk close tk-abc --reason "pr merged"   Finish
+  tk link tk-def tk-abc                   tk-def blocked by tk-abc
+  tk search "permissions"                Find by text
+  tk stale --days 7                      Stale issues
+  tk tree                                Visualize epics and dependencies
+  tk graph                               Full dependency tree
+  tk epic tk-auth                         Epic progress
+
 ENVIRONMENT
   NO_COLOR                Disable colored output
 `;
+/**
+ * `tk watch` — foreground workspace watcher: prints NDJSON event frames
+ * (`ready`/`event`/`error`) to stdout as issues change. Exit 0 on EOF (stdin
+ * closed), 2 when no workspace, 3 after repeated backend errors. The
+ * pi/omp extension spawns this same loop as a child process.
+ */
+async function runWatch(args: ParsedArgs, start: string): Promise<void> {
+  const root = await rootFrom(start);
+  if (root === null) fail(await beadsHint(start));
+  const { openSurfaceStore, runWatchChild, parseWatchArgs } = await import("@tasks/surface");
+  const store = await openSurfaceStore(root!, { readonly: true });
+  try {
+    const argv: string[] = [];
+    const kinds = stringFlag(args, "kinds"); if (kinds !== undefined) argv.push("--kinds", kinds);
+    const ids = stringFlag(args, "ids"); if (ids !== undefined) argv.push("--ids", ids);
+    const label = stringFlag(args, "label"); if (label !== undefined) argv.push("--label", label);
+    const interval = stringFlag(args, "interval"); if (interval !== undefined) argv.push("--interval", interval);
+    await runWatchChild(store, parseWatchArgs(argv));
+  } finally {
+    await store.close();
+  }
+}
+
 async function main(): Promise<void> { const args = parseArgs(process.argv.slice(2)); const command = args.positionals[0] ?? "help"; const json = booleanFlag(args, "json"); const start = directory(args, cwd()); let root = await rootFrom(start);
   if (command === "init" && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(INIT_HELP); return; }
   if (command === "help" && args.positionals[1] === "init") { process.stdout.write(INIT_HELP); return; }
   if (command === "switch-backend" && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(SWITCH_BACKEND_HELP); return; }
   if (command === "help" && args.positionals[1] === "switch-backend") { process.stdout.write(SWITCH_BACKEND_HELP); return; }
   if (command === "help" || booleanFlag(args, "help") || booleanFlag(args, "h")) { process.stdout.write(HELP); return; }
+  if (command === "watch") { await runWatch(args, start); return; }
   if (command === "worktree") { await runWorktree(args, start, json); return; }
   if (command === "init") { if (booleanFlag(args, "readonly")) fail("readonly mode blocks writes"); const initRoot = start; root = initRoot; const prefix = stringFlag(args, "prefix") ?? "tk"; const storageConfig = initStorageConfig(args); await mkdir(join(initRoot, ".tasks"), { recursive: true }); const initConfig: Config = { prefix, storage: storageConfig }; await writeWorkspaceConfig(join(initRoot, ".tasks"), initConfig); const storage = await openStorage(join(initRoot, ".tasks"), initConfig.storage ?? DEFAULT_STORAGE); try { unwrap(await storage.adapter.migrate()); } finally { await storage.close(); } if (json) output({ workspace: initRoot, prefix, backend: storage.backend, initialized: true }, true); else console.log(`${green("✓ Initialized")} tasks workspace in ${cyan(join(initRoot, ".tasks"))} (prefix: ${prefix}, backend: ${storage.backend})`); return; }
   // migrate bootstraps its own workspace so a beads-only checkout needs no separate init,
@@ -491,7 +614,12 @@ async function main(): Promise<void> { const args = parseArgs(process.argv.slice
   const bootstrapping = root === null && command === "migrate";
   const ephemeral = bootstrapping && booleanFlag(args, "dry-run");
   if (bootstrapping) { if (booleanFlag(args, "readonly")) fail("readonly mode blocks writes"); if (!ephemeral) { await mkdir(join(start, ".tasks"), { recursive: true }); await writeWorkspaceConfig(join(start, ".tasks"), { prefix: stringFlag(args, "prefix") ?? "tk", storage: DEFAULT_STORAGE }); } root = start; }
-  if (root === null) fail(await beadsHint(start)); const workspace = root!; const tasksDir = join(workspace, '.tasks');
+  if (root === null) {
+    // Git hook context: exit silently when no workspace found (don't interrupt commits)
+    if (process.env["BD_GIT_HOOK"]) exit(0);
+    fail(await beadsHint(start));
+  }
+  const workspace = root!; const tasksDir = join(workspace, '.tasks');
   const config = await readWorkspaceConfig(tasksDir); if (booleanFlag(args, "readonly") && writers.has(command)) fail("readonly mode blocks writes"); if (command === "where") { const preview = describeStorage(tasksDir, await resolveStorageConfig(tasksDir, config)); const info = { path: tasksDir, workspace, backend: preview.backend, storage: preview.location, database_path: preview.location, database: preview.location, prefix: config.prefix ?? "tk", schema_version: 1 }; if (json) output(info, true); else console.log(formatWhere(info)); return; }
   if (command === "switch-backend") {
     const targetConfig = switchBackendTarget(args);
@@ -532,14 +660,15 @@ async function main(): Promise<void> { const args = parseArgs(process.argv.slice
     else if (command === "blocked") { const all = await service.all(); const blocked = all.filter((issue) => issue.dependencies.some((edge) => edge.type === "blocks" && all.some((other) => other.id === edge.target && other.status !== "closed"))); value = blocked.map(issueWire); human = () => formatBlocked(blocked, all); }
     else if (command === "count") { const all = await service.all(); value = { total: all.length, by_status: Object.fromEntries([...new Set(all.map((issue) => issue.status))].sort().map((status) => [status, all.filter((issue) => issue.status === status).length])), by_type: Object.fromEntries([...new Set(all.map((issue) => issue.type))].sort().map((type) => [type, all.filter((issue) => issue.type === type).length])) }; human = () => formatCount(value as { total: number; by_status: Record<string, number>; by_type: Record<string, number> }); }
     else if (command === "status") { const all = await service.all(); value = Object.fromEntries([...new Set(all.map((issue) => issue.status))].sort().map((status) => [status, all.filter((issue) => issue.status === status).length])); human = () => formatStatus(value as Record<string, number>); }
-    else if (command === "stats") { const all = await service.all(); const now = new Date(); const blockedIds = new Set(all.filter((issue) => issue.dependencies.some((edge) => edge.type === "blocks" && all.some((other) => other.id === edge.target && other.status !== "closed"))).map((issue) => issue.id)); const tally = (status: string) => all.filter((issue) => issue.status === status).length; value = { total: all.length, open: tally("open"), in_progress: tally("in_progress"), blocked: blockedIds.size, closed: tally("closed"), deferred: tally("deferred"), ready: all.filter((issue) => issue.status === "open" && !blockedIds.has(issue.id) && (issue.deferUntil === null || issue.deferUntil <= now)).length }; human = () => formatStats(value as { total: number; open: number; in_progress: number; blocked: number; closed: number; deferred: number; ready: number }); }
+    else if (command === "stats") { const all = await service.all(); const now = new Date(); const blockedIds = new Set(all.filter((issue) => issue.dependencies.some((edge) => edge.type === "blocks" && all.some((other) => other.id === edge.target && other.status !== "closed"))).map((issue) => issue.id)); const tally = (status: string) => all.filter((issue) => issue.status === status).length; value = { total: all.length, open: tally("open"), in_progress: tally("in_progress"), ready_to_review: tally("ready-to-review"), approved: tally("approved"), rejected: tally("rejected"), blocked: blockedIds.size, closed: tally("closed"), deferred: tally("deferred"), ready: all.filter((issue) => issue.status === "open" && !blockedIds.has(issue.id) && (issue.deferUntil === null || issue.deferUntil <= now)).length }; human = () => formatStats(value as { total: number; open: number; in_progress: number; ready_to_review: number; approved: number; rejected: number; blocked: number; closed: number; deferred: number; ready: number }); }
     else if (command === "query") { const expression = args.positionals.slice(1).join(" ") || fail("query requires expression"); const issues = queryIssues(await service.all(), expression); value = issues.map(issueWire); human = () => formatList(issues); }
     else if (command === "search") { const text = args.positionals.slice(1).join(" ").trim() || fail("search requires text"); const needle = text.toLowerCase(); const issues = (await service.all()).filter((issue) => [issue.id, issue.title, issue.description, issue.notes ?? "", ...issue.labels].join("\n").toLowerCase().includes(needle)); value = issues.map(issueWire); human = () => formatSearch(issues, text); }
+    else if (command === "import") { const count = await service.importJsonl(await readInput()); value = { imported: count }; human = () => green(`✓ Imported ${count} issue(s)`); }
     else if (command === "history") { const entries = await service.history(args); value = entries; human = () => formatHistory(entries, args.positionals[1] ?? "current"); }
     else if (command === "types") { const used = [...new Set((await service.all()).map((issue) => issue.type))].sort(); value = used; human = () => formatTypes(used); }
-    else if (command === "statuses") { const used = [...new Set(["open", "in_progress", "closed", ...(await service.all()).map((issue) => issue.status)])].sort(); value = used; human = () => formatStatuses(used); }
+    else if (command === "statuses") { const used = [...new Set([...KNOWN_STATUSES, ...(await service.all()).map((issue) => issue.status)])].sort(); value = used; human = () => formatStatuses(used); }
     else if (command === "export") value = (await service.all()).map((issue) => issueToBdWire({ version: 1, issue, unknown: issue.wireUnknown }, canonicalTimestampCodec));
-    else if (command === "import") { const count = await service.importJsonl(await readInput()); value = { imported: count }; human = () => green(`✓ Imported ${count} issue(s)`); }
+    else if (command === "tree") { const all = await service.all(); const rawDepth = stringFlag(args, "depth"); const status = statusFilter(args); const options: TreeOptions = { all: booleanFlag(args, "all") || status === "all", ...(status === undefined || status === "all" ? {} : { status }), ...(rawDepth === undefined ? {} : { depth: Number(rawDepth) }) }; if (options.depth !== undefined && (!Number.isInteger(options.depth) || options.depth < 1)) fail("invalid --depth: expected positive integer"); const tree = buildTree(all, options); value = { roots: tree.roots.map(treeNodeWire), visible: tree.visible, hidden: tree.hidden }; human = () => formatTree(tree); }
     else if (command === "migrate") { const report = await service.migrate(args); value = report; human = () => formatMigration(report); }
     else if (command === "doctor") { const all = await service.all(); value = { ok: true, backend: storage.backend, database: storage.location, database_path: storage.location, schema_version: 2, issues: all.length }; human = () => formatDoctor(value as Record<string, unknown>); }
     else if (command === "ping") { value = { ok: true, service: "tasks", schema_version: 2 }; human = () => "pong"; }
@@ -576,6 +705,7 @@ async function main(): Promise<void> { const args = parseArgs(process.argv.slice
     else if (command === "onboard") { value = { text: ONBOARD }; human = () => ONBOARD; }
     else if (command === "human") { value = { text: HUMAN_HELP }; human = () => HUMAN_HELP; }
     else if (["update", "close", "reopen", "defer", "undefer", "label", "set-state"].includes(command)) { const issue = await service.mutate(args, command); value = issueWire(issue); const verbs: Readonly<Record<string, string>> = { update: "Updated issue", close: "Closed", reopen: "Reopened", defer: "Deferred", undefer: "Restored", label: "Labels updated on", "set-state": "State changed on" }; human = () => confirmation(verbs[command] ?? "Updated", issue, command === "close" && stringFlag(args, "reason") !== undefined ? `: ${stringFlag(args, "reason")}` : ""); }
+    else if (command === "hunk") { const result = await service.hunk(args); value = result.value; human = result.human; }
     else fail(`unknown command: ${command}`);
     if (command === "export" && !json) for (const record of value as readonly unknown[]) console.log(JSON.stringify(record)); else if (!json && human !== null) console.log(human()); else output(value, json); } finally { await storage.close(); } }
 main().catch((error: unknown) => { const message = error instanceof Error ? error.message : String(error); if (process.argv.includes("--json")) { const kind: JsonError["error"]["kind"] = error instanceof ArgumentParseError ? "parse" : message.startsWith("readonly") ? "readonly" : message.includes("invalid") || message.startsWith("import line") ? "validation" : "runtime"; console.error(JSON.stringify({ error: { kind, message } } satisfies JsonError)); } else console.error(formatError(message)); exit(1); });
