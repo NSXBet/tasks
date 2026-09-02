@@ -1,0 +1,57 @@
+name: Release
+
+# Publishes self-contained `tk` binaries on every pushed version tag
+# (v1.2.3) and attaches them to the auto-created GitHub Release.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: nsx-actions/oven-sh_setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run tests
+        run: bun test packages/*/test/*.test.ts
+
+      - name: Compile single binaries
+        run: |
+          mkdir dist
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            bun build --compile --minify --sourcemap=none \
+              --target="bun-${target}" \
+              packages/cli/src/tk.ts \
+              --outfile "dist/tk-${target}"
+          done
+
+      - name: Smoke test native binary
+        run: ./dist/tk-linux-x64 version
+
+      - name: Generate checksums
+        working-directory: dist
+        run: shasum -a 256 tk-* > checksums.txt
+
+      - name: Create release and attach binaries
+        uses: nsx-actions/softprops_action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/tk-linux-x64
+            dist/tk-linux-arm64
+            dist/tk-darwin-x64
+            dist/tk-darwin-arm64
+            dist/checksums.txt
