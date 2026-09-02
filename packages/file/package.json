@@ -16,8 +16,8 @@
     "test": "bun run build && cd ../.. && vitest run packages/file/test/file.test.ts"
   },
   "dependencies": {
-    "@tasks/application": "file:../application",
-    "@tasks/domain": "file:../domain"
+    "@tasks/application": "workspace:*",
+    "@tasks/domain": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0"

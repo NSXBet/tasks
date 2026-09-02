@@ -16,8 +16,8 @@
     "test": "bun run build && cd ../.. && bun test packages/beads/test/beads.test.ts"
   },
   "dependencies": {
-    "@tasks/application": "file:../application",
-    "@tasks/domain": "file:../domain"
+    "@tasks/application": "workspace:*",
+    "@tasks/domain": "workspace:*"
   },
   "devDependencies": {
     "@tasks/file": "workspace:*",

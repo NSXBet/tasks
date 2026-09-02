@@ -17,15 +17,15 @@
       "name": "@tasks/application",
       "version": "0.0.0",
       "dependencies": {
-        "@tasks/domain": "file:../domain",
+        "@tasks/domain": "workspace:*",
       },
     },
     "packages/beads": {
       "name": "@tasks/beads",
       "version": "0.0.0",
       "dependencies": {
-        "@tasks/application": "file:../application",
-        "@tasks/domain": "file:../domain",
+        "@tasks/application": "workspace:*",
+        "@tasks/domain": "workspace:*",
       },
       "devDependencies": {
         "@tasks/file": "workspace:*",
@@ -40,11 +40,11 @@
         "tk": "./src/tk.ts",
       },
       "dependencies": {
-        "@tasks/application": "file:../application",
-        "@tasks/beads": "file:../beads",
-        "@tasks/domain": "file:../domain",
-        "@tasks/surface": "file:../surface",
-        "@tasks/workspace": "file:../workspace",
+        "@tasks/application": "workspace:*",
+        "@tasks/beads": "workspace:*",
+        "@tasks/domain": "workspace:*",
+        "@tasks/surface": "workspace:*",
+        "@tasks/workspace": "workspace:*",
       },
     },
     "packages/domain": {
@@ -68,8 +68,8 @@
       "name": "@tasks/file",
       "version": "0.0.0",
       "dependencies": {
-        "@tasks/application": "file:../application",
-        "@tasks/domain": "file:../domain",
+        "@tasks/application": "workspace:*",
+        "@tasks/domain": "workspace:*",
       },
       "devDependencies": {
         "@types/node": "^22.0.0",
@@ -79,8 +79,8 @@
       "name": "@tasks/postgres",
       "version": "0.0.0",
       "dependencies": {
-        "@tasks/application": "file:../application",
-        "@tasks/domain": "file:../domain",
+        "@tasks/application": "workspace:*",
+        "@tasks/domain": "workspace:*",
         "pg": "^8.16.3",
       },
       "devDependencies": {
@@ -91,8 +91,8 @@
       "name": "@tasks/sqlite",
       "version": "0.0.0",
       "dependencies": {
-        "@tasks/application": "file:../application",
-        "@tasks/domain": "file:../domain",
+        "@tasks/application": "workspace:*",
+        "@tasks/domain": "workspace:*",
       },
     },
     "packages/surface": {
@@ -112,11 +112,11 @@
       "name": "@tasks/workspace",
       "version": "0.0.0",
       "dependencies": {
-        "@tasks/application": "file:../application",
-        "@tasks/domain": "file:../domain",
-        "@tasks/file": "file:../file",
-        "@tasks/postgres": "file:../postgres",
-        "@tasks/sqlite": "file:../sqlite",
+        "@tasks/application": "workspace:*",
+        "@tasks/domain": "workspace:*",
+        "@tasks/file": "workspace:*",
+        "@tasks/postgres": "workspace:*",
+        "@tasks/sqlite": "workspace:*",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -327,44 +327,6 @@
 
     "@NSXBet/tasks-extension/@tasks/surface": ["@tasks/surface@file:packages/surface", { "dependencies": { "@tasks/application": "workspace:*", "@tasks/beads": "workspace:*", "@tasks/domain": "workspace:*", "@tasks/workspace": "workspace:*" }, "devDependencies": { "@types/node": "^22.0.0" } }],
 
-    "@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
-
-    "@tasks/beads/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
-
-    "@tasks/beads/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
-
-    "@tasks/cli/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
-
-    "@tasks/cli/@tasks/beads": ["@tasks/beads@file:packages/beads", { "dependencies": { "@tasks/application": "file:../application", "@tasks/domain": "file:../domain" }, "devDependencies": { "@tasks/file": "workspace:*", "@tasks/sqlite": "workspace:*", "@types/node": "^22.0.0" } }],
-
-    "@tasks/cli/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
-
-    "@tasks/cli/@tasks/surface": ["@tasks/surface@file:packages/surface", { "dependencies": { "@tasks/application": "workspace:*", "@tasks/beads": "workspace:*", "@tasks/domain": "workspace:*", "@tasks/workspace": "workspace:*" }, "devDependencies": { "@types/node": "^22.0.0" } }],
-
-    "@tasks/cli/@tasks/workspace": ["@tasks/workspace@file:packages/workspace", { "dependencies": { "@tasks/application": "file:../application", "@tasks/domain": "file:../domain", "@tasks/file": "file:../file", "@tasks/postgres": "file:../postgres", "@tasks/sqlite": "file:../sqlite", "zod": "^4.2.1" }, "devDependencies": { "@types/node": "^22.0.0" } }],
-
-    "@tasks/file/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
-
-    "@tasks/file/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
-
-    "@tasks/postgres/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
-
-    "@tasks/postgres/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
-
-    "@tasks/sqlite/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
-
-    "@tasks/sqlite/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
-
-    "@tasks/workspace/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
-
-    "@tasks/workspace/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
-
-    "@tasks/workspace/@tasks/file": ["@tasks/file@file:packages/file", { "dependencies": { "@tasks/application": "file:../application", "@tasks/domain": "file:../domain" }, "devDependencies": { "@types/node": "^22.0.0" } }],
-
-    "@tasks/workspace/@tasks/postgres": ["@tasks/postgres@file:packages/postgres", { "dependencies": { "@tasks/application": "file:../application", "@tasks/domain": "file:../domain", "pg": "^8.16.3" }, "devDependencies": { "@types/pg": "^8.15.5" } }],
-
-    "@tasks/workspace/@tasks/sqlite": ["@tasks/sqlite@file:packages/sqlite", { "dependencies": { "@tasks/application": "file:../application", "@tasks/domain": "file:../domain" } }],
-
     "@types/pg/@types/node": ["@types/node@26.2.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@types/node/-/node-26.2.0.tgz", { "dependencies": { "undici-types": "8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
 
     "bun-types/@types/node": ["@types/node@26.2.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@types/node/-/node-26.2.0.tgz", { "dependencies": { "undici-types": "8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
@@ -381,52 +343,6 @@
 
     "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace": ["@tasks/workspace@file:packages/workspace", { "dependencies": { "@tasks/application": "file:../application", "@tasks/domain": "file:../domain", "@tasks/file": "file:../file", "@tasks/postgres": "file:../postgres", "@tasks/sqlite": "file:../sqlite", "zod": "^4.2.1" }, "devDependencies": { "@types/node": "^22.0.0" } }],
 
-    "@tasks/beads/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
-
-    "@tasks/cli/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
-
-    "@tasks/cli/@tasks/beads/@tasks/application": ["@tasks/application@file:packages/application", {}],
-
-    "@tasks/cli/@tasks/beads/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
-
-    "@tasks/cli/@tasks/surface/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
-
-    "@tasks/cli/@tasks/surface/@tasks/beads": ["@tasks/beads@file:packages/beads", { "dependencies": { "@tasks/application": "file:../application", "@tasks/domain": "file:../domain" }, "devDependencies": { "@tasks/file": "workspace:*", "@tasks/sqlite": "workspace:*", "@types/node": "^22.0.0" } }],
-
-    "@tasks/cli/@tasks/surface/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
-
-    "@tasks/cli/@tasks/surface/@tasks/workspace": ["@tasks/workspace@file:packages/workspace", { "dependencies": { "@tasks/application": "file:../application", "@tasks/domain": "file:../domain", "@tasks/file": "file:../file", "@tasks/postgres": "file:../postgres", "@tasks/sqlite": "file:../sqlite", "zod": "^4.2.1" }, "devDependencies": { "@types/node": "^22.0.0" } }],
-
-    "@tasks/cli/@tasks/workspace/@tasks/application": ["@tasks/application@file:packages/application", {}],
-
-    "@tasks/cli/@tasks/workspace/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
-
-    "@tasks/cli/@tasks/workspace/@tasks/file": ["@tasks/file@file:packages/file", {}],
-
-    "@tasks/cli/@tasks/workspace/@tasks/postgres": ["@tasks/postgres@file:packages/postgres", {}],
-
-    "@tasks/cli/@tasks/workspace/@tasks/sqlite": ["@tasks/sqlite@file:packages/sqlite", {}],
-
-    "@tasks/file/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
-
-    "@tasks/postgres/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
-
-    "@tasks/sqlite/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
-
-    "@tasks/workspace/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
-
-    "@tasks/workspace/@tasks/file/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
-
-    "@tasks/workspace/@tasks/file/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
-
-    "@tasks/workspace/@tasks/postgres/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
-
-    "@tasks/workspace/@tasks/postgres/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
-
-    "@tasks/workspace/@tasks/sqlite/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
-
-    "@tasks/workspace/@tasks/sqlite/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
-
     "@types/pg/@types/node/undici-types": ["undici-types@8.3.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/undici-types/-/undici-types-8.3.0.tgz", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
 
     "bun-types/@types/node/undici-types": ["undici-types@8.3.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/undici-types/-/undici-types-8.3.0.tgz", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
@@ -435,42 +351,42 @@
 
     "vitest/@types/node/undici-types": ["undici-types@8.3.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/undici-types/-/undici-types-8.3.0.tgz", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
 
-    "@NSXBet/tasks-extension/@tasks/surface/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
 
-    "@NSXBet/tasks-extension/@tasks/surface/@tasks/beads/@tasks/application": ["@tasks/application@file:packages/application", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/beads/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
 
-    "@NSXBet/tasks-extension/@tasks/surface/@tasks/beads/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/beads/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
 
-    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/application": ["@tasks/application@file:packages/application", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
 
-    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
 
-    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/file": ["@tasks/file@file:packages/file", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/file": ["@tasks/file@file:packages/file", { "dependencies": { "@tasks/application": "file:../application", "@tasks/domain": "file:../domain" }, "devDependencies": { "@types/node": "^22.0.0" } }],
 
-    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/postgres": ["@tasks/postgres@file:packages/postgres", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/postgres": ["@tasks/postgres@file:packages/postgres", { "dependencies": { "@tasks/application": "file:../application", "@tasks/domain": "file:../domain", "pg": "^8.16.3" }, "devDependencies": { "@types/pg": "^8.15.5" } }],
 
-    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/sqlite": ["@tasks/sqlite@file:packages/sqlite", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/sqlite": ["@tasks/sqlite@file:packages/sqlite", { "dependencies": { "@tasks/application": "file:../application", "@tasks/domain": "file:../domain" } }],
 
-    "@tasks/cli/@tasks/surface/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/beads/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
 
-    "@tasks/cli/@tasks/surface/@tasks/beads/@tasks/application": ["@tasks/application@file:packages/application", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
 
-    "@tasks/cli/@tasks/surface/@tasks/beads/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/file/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
 
-    "@tasks/cli/@tasks/surface/@tasks/workspace/@tasks/application": ["@tasks/application@file:packages/application", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/file/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
 
-    "@tasks/cli/@tasks/surface/@tasks/workspace/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/postgres/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
 
-    "@tasks/cli/@tasks/surface/@tasks/workspace/@tasks/file": ["@tasks/file@file:packages/file", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/postgres/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
 
-    "@tasks/cli/@tasks/surface/@tasks/workspace/@tasks/postgres": ["@tasks/postgres@file:packages/postgres", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/sqlite/@tasks/application": ["@tasks/application@file:packages/application", { "dependencies": { "@tasks/domain": "file:../domain" } }],
 
-    "@tasks/cli/@tasks/surface/@tasks/workspace/@tasks/sqlite": ["@tasks/sqlite@file:packages/sqlite", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/sqlite/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
 
-    "@tasks/workspace/@tasks/file/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/file/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
 
-    "@tasks/workspace/@tasks/postgres/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/postgres/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
 
-    "@tasks/workspace/@tasks/sqlite/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", {}],
+    "@NSXBet/tasks-extension/@tasks/surface/@tasks/workspace/@tasks/sqlite/@tasks/application/@tasks/domain": ["@tasks/domain@file:packages/domain", { "dependencies": { "zod": "^4.2.1" } }],
   }
 }

@@ -12,10 +12,10 @@
     "test": "bun run build && cd ../.. && bun test packages/cli/test"
   },
   "dependencies": {
-    "@tasks/application": "file:../application",
-    "@tasks/beads": "file:../beads",
-    "@tasks/domain": "file:../domain",
-    "@tasks/workspace": "file:../workspace",
-    "@tasks/surface": "file:../surface"
+    "@tasks/application": "workspace:*",
+    "@tasks/beads": "workspace:*",
+    "@tasks/domain": "workspace:*",
+    "@tasks/workspace": "workspace:*",
+    "@tasks/surface": "workspace:*"
   }
 }

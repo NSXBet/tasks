@@ -16,7 +16,7 @@
     "test": "bun run build && cd ../.. && bun test packages/sqlite/test/sqlite.test.ts"
   },
   "dependencies": {
-    "@tasks/application": "file:../application",
-    "@tasks/domain": "file:../domain"
+    "@tasks/application": "workspace:*",
+    "@tasks/domain": "workspace:*"
   }
 }
