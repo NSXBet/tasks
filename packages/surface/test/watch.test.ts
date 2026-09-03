@@ -43,7 +43,7 @@ const issue = (id: string, status = "open", updatedAt = new Date(0)): Issue => (
 describe("watch diff", () => {
   it("emits created on first sight, updated/status_changed on change, deleted on removal", async () => {
     const subscription: WatchSubscription = {};
-    const state = { lastUpdatedAt: new Map<string, string>(), readyHash: null };
+    const state = { lastUpdatedAt: new Map<string, string>(), readyHash: null, counts: null };
     const uow1 = fakeUow([issue("tk-a"), issue("tk-b")]);
     const first = await diffOnce(uow1, subscription, state);
     expect(first.map((event) => event.kind).sort()).toEqual(["issue.created", "issue.created"]);
@@ -56,14 +56,14 @@ describe("watch diff", () => {
 
     const uow3 = fakeUow([issue("tk-b")]);
     const third = await diffOnce(uow3, subscription, state);
-    // tk-a removed (deleted) and the ready set shrank (ready.changed).
-    expect(third.map((event) => event.kind).sort()).toEqual(["issue.deleted", "ready.changed"]);
+    // tk-a removed (deleted), the ready set shrank, and open counts 2→1.
+    expect(third.map((event) => event.kind).sort()).toEqual(["counts.changed", "issue.deleted", "ready.changed"]);
     expect(third.find((event) => event.kind === "issue.deleted")!.issueId).toBe("tk-a");
   });
 
   it("honors kinds and ids subscription filters", async () => {
     const subscription: WatchSubscription = { kinds: ["issue.created"], ids: ["tk-a"] };
-    const state = { lastUpdatedAt: new Map<string, string>(), readyHash: null };
+    const state = { lastUpdatedAt: new Map<string, string>(), readyHash: null, counts: null };
     const uow = fakeUow([issue("tk-a"), issue("tk-b")]);
     const events = await diffOnce(uow, subscription, state);
     expect(events).toHaveLength(1);
@@ -72,10 +72,23 @@ describe("watch diff", () => {
 
   it("emits ready.changed when the ready set grows", async () => {
     const subscription: WatchSubscription = {};
-    const state = { lastUpdatedAt: new Map<string, string>(), readyHash: null };
+    const state = { lastUpdatedAt: new Map<string, string>(), readyHash: null, counts: null };
     await diffOnce(fakeUow([issue("tk-a", "closed")]), subscription, state);
     const events = await diffOnce(fakeUow([issue("tk-a", "open")]), subscription, state);
     expect(events.map((event) => event.kind)).toContain("ready.changed");
+  });
+
+  it("attaches counts to every event and emits counts.changed when they move", async () => {
+    const subscription: WatchSubscription = {};
+    const state = { lastUpdatedAt: new Map<string, string>(), readyHash: null, counts: null };
+    const first = await diffOnce(fakeUow([issue("tk-a", "open"), issue("tk-b", "ready-to-review")]), subscription, state);
+    expect(first.every((event) => event.counts?.open === 2)).toBe(true);
+    expect(state.counts).toEqual({ open: 2, blocked: 0, readyToReview: 1 });
+
+    const second = await diffOnce(fakeUow([issue("tk-a", "closed"), issue("tk-b", "ready-to-review")]), subscription, state);
+    // tk-a closing emits both its deleted event and a counts.changed (open 2→1).
+    expect(second.some((event) => event.kind === "counts.changed" && event.counts?.open === 1)).toBe(true);
+    expect(state.counts).toEqual({ open: 1, blocked: 0, readyToReview: 1 });
   });
 });
 
