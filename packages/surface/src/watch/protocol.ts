@@ -7,7 +7,15 @@ export type WatchEventKind =
   | 'issue.status_changed'
   | 'issue.commented'
   | 'issue.deleted'
-  | 'ready.changed';
+  | 'ready.changed'
+  | 'counts.changed';
+
+/** Board counters attached to every event and watched for changes. */
+export interface WatchCounts {
+  readonly open: number;
+  readonly blocked: number;
+  readonly readyToReview: number;
+}
 
 export interface WatchEvent {
   /** Per-watcher monotonic sequence; ordering authority (never timestamps). */
@@ -16,6 +24,8 @@ export interface WatchEvent {
   /** ISO-8601 event time; informational only. */
   readonly at: string;
   readonly issueId?: string;
+  /** Board snapshot as of this tick (present on every event, absent on none). */
+  readonly counts?: WatchCounts;
   readonly data?: {
     readonly from?: string;
     readonly to?: string;

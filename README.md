@@ -62,6 +62,7 @@ tk show <id>                  # Show issue details
 tk close <id>                 # Close issue
 tk update <id> [--branch <name>]  # Update fields; link the issue branch
 tk dep <id> add <target>      # Add dependency
+tk watch [--kinds a,b] [--ids x,y]   # Stream issue-change events as NDJSON (foreground)
 tk tree [--all] [--depth N]  # Tree view: epics, subtasks, dependency fan-out
 tk search <text>              # Full-text search
 tk hunk <id> [--print]        # Open a Hunk review of the issue's branch/WIP
@@ -156,6 +157,85 @@ The JSON report accounts for every record read:
 
 If an older `tk` already renamed `.beads/` to `.tasks/`, `tk` detects the
 moved beads database and tells you how to restore it before migrating.
+
+## Agent extension (pi / omp)
+
+The repo ships as an installable extension for [pi](https://github.com/earendil-works/pi-coding-agent) and omp, exposing the full tk surface as LLM tools plus live change notifications.
+
+### Install
+
+```bash
+omp install github:NSXBet/tasks
+```
+
+omp (and pi) resolve the repo, read the `pi`/`omp` manifest keys in the root
+`package.json` — pointing at `packages/extension/src/index.ts` and the
+`packages/extension/skills/*/SKILL.md` skill — and copy the plugin into
+`~/.omp/plugins/`. `#ref` pins a branch, tag, or commit
+(`github:NSXBet/tasks#v1.2.0`).
+
+To install from a local checkout instead (symlinked, live for edits):
+
+```bash
+omp install /path/to/tasks/packages/extension
+```
+
+Both hosts run TypeScript directly (omp is a Bun binary; pi loads `.ts`
+extensions via jiti under node), so there is no build step and no committed
+bundles. The extension sources `@tasks/surface` as a workspace dep; the watch
+child entry ships inside the surface package.
+
+To install from a local checkout instead (symlinked, live for edits):
+
+```bash
+omp install /path/to/tasks/packages/extension
+```
+
+
+### Tools
+
+| Tool | Purpose |
+|---|---|
+| `tasks` | Full tk surface through one `op`-parameterized tool: `create`, `quick`, `show`, `list`, `ready`, `blocked`, `update`, `close`, `reopen`, `defer`, `claim`, `comment`, `dep-add`, `dep-remove`, `rename`, `delete`, `todo`, `todo-done`, `search`, `query`, `counts`, `stats`, `tree`, `graph`, `duplicates`, `lint`, `children`, `epic`. Returns JSON. |
+| `tasks_ready` | The unblocked backlog — call when about to run out of work. |
+| `tasks_watch_start` | Spawn a watcher child that notifies the session when issues change. Filter with `kinds` (`issue.created`, `issue.updated`, `issue.status_changed`, `issue.deleted`, `comment.created`, `ready.changed`), `ids`, `label`, `interval` (ms). |
+| `tasks_watch_status` | Active watchers with seq watermark and last event. |
+| `tasks_watch_stop` | Stop one watcher (by id) or all. |
+
+### Watching for changes
+
+The principal feature: a background process polls the workspace and steers a
+notification into the session when a subscribed event fires — the agent gets a
+follow-up turn without being prompted.
+
+```
+tasks_watch_start { "kinds": ["issue.created", "issue.status_changed"], "ids": ["tk-abc"] }
+```
+
+- Notifications arrive via `sendUserMessage(text, { deliverAs: "followUp" })` — identical primitive on pi and omp.
+- Keep subscriptions narrow (`kinds` + optional `ids`/`label`); a watcher on every update is noise.
+- Watchers die with the session; stop them explicitly with `tasks_watch_stop` when done.
+- The same stream is available in a terminal: `tk watch --kinds issue.created`.
+
+A widget bubble above the editor lists active watchers, their uptime, and the
+last event per watcher (hidden while no watchers run).
+
+### Commands
+
+| Command | Purpose |
+|---|---|
+| `/tasks` | Print current tasks — open issues in this workspace (id, title, assignee). |
+| `/tasks watch` | Show active task watchers — count, name, last event, seq watermark. |
+
+Agents drive everything through the tools; the commands are human-facing
+health checks in the composer.
+
+### Skill
+
+Installing the extension injects the `tasks` skill, which teaches agents the
+workflow above (tools-over-shell, claim/comment/close conventions, watcher
+etiquette). It loads through the same manifest mechanism as the extension
+bundle; no separate configuration.
 
 ## File backend
 

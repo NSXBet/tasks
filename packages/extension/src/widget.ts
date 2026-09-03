@@ -4,6 +4,9 @@
  * truncation). Consumed via `ctx.ui.setWidget(key, factory, { placement:
  * "aboveEditor" })` — identical contract on pi and omp.
  */
+import type { WatchCounts } from "../../surface/src/index.ts";
+import { formatCounts } from "./watch-manager.ts";
+
 export interface WatchRow {
   readonly name: string;
   readonly detail: string;
@@ -17,8 +20,13 @@ const OPEN_ACCENT = "\x1b[38;2;214;158;46m";
 const RST = "\x1b[0m";
 
 const visibleWidth = (text: string): number => {
-  // Strip ANSI sequences; watch rows are ASCII plus box-drawing chars.
-  return text.replace(/\x1b\[[0-9;]*m/g, "").length;
+  // Strip ANSI sequences; count emoji/wide codepoints (the count icons) as
+  // double width to match terminal rendering.
+  let width = 0;
+  for (const char of text.replace(/\x1b\[[0-9;]*m/g, "")) {
+    width += char.codePointAt(0)! > 0x2fff ? 2 : 1;
+  }
+  return width;
 };
 
 const truncateToWidth = (text: string, maxWidth: number): string => {
@@ -27,9 +35,10 @@ const truncateToWidth = (text: string, maxWidth: number): string => {
   let out = "";
   let width = 0;
   for (const char of text.replace(/\x1b\[[0-9;]*m/g, "")) {
-    if (width + 1 > maxWidth - 1) break;
+    const charWidth = char.codePointAt(0)! > 0x2fff ? 2 : 1;
+    if (width + charWidth > maxWidth - 1) break;
     out += char;
-    width += 1;
+    width += charWidth;
   }
   return `${out}…`;
 };
@@ -77,13 +86,16 @@ const formatElapsed = (startTime: number, now: number): string => {
 };
 
 /** Render the full widget box for the given watcher rows at terminal width. */
-export function renderWatchWidgetLines(rows: readonly WatchRow[], width: number): string[] {
+export function renderWatchWidgetLines(rows: readonly WatchRow[], counts: WatchCounts | null, width: number): string[] {
   if (rows.length === 0) return [];
   const now = Date.now();
   const pending = rows.some((row) => row.pending);
   const accent = pending ? OPEN_ACCENT : ACTIVE_ACCENT;
   const info = pending ? `${rows.length} watching · events` : `${rows.length} watching · idle`;
   const lines: string[] = [borderTop("Tasks Watch", info, width, accent)];
+  if (counts !== null) {
+    lines.push(borderLine(` ${formatCounts(counts)} `, "", width, accent));
+  }
   for (const row of rows) {
     const elapsed = formatElapsed(row.startedAt, now);
     const left = ` ${elapsed}  ${row.name}  ${row.detail} `;

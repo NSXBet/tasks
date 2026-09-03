@@ -11,4 +11,4 @@ export * from './operations/comments.js';
 export * from './operations/views.js';
 export * from './watch/protocol.js';
 export * from './watch/core.js';
-export { createSurface, type TasksSurface } from './surface.js';
+export { createSurface, watchChildScript, type TasksSurface } from './surface.js';

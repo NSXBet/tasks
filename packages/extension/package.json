@@ -4,23 +4,32 @@
   "private": true,
   "type": "module",
   "description": "Tasks as an agent extension: full tk surface as LLM tools, a workspace watcher that notifies the session when issues change, and a skill injection. Loads under both pi and omp.",
-  "keywords": ["pi-package", "pi-extension", "omp-extension", "tasks", "tk", "watcher"],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "omp-extension",
+    "tasks",
+    "tk",
+    "watcher"
+  ],
   "omp": {
-    "extensions": ["./dist/index.js"],
-    "skills": ["./skills/*/SKILL.md"]
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "skills": [
+      "./skills/*/SKILL.md"
+    ]
   },
   "pi": {
-    "extensions": ["./dist/index.js"],
-    "skills": ["./skills/*/SKILL.md"]
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "skills": [
+      "./skills/*/SKILL.md"
+    ]
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --target bun --outdir ./dist --external @earendil-works/pi-coding-agent --external @earendil-works/pi-tui --external @sinclair/typebox && bun build ./src/watch/child-entry.ts --target bun --outfile ./dist/tk-watch.js && bun run scripts/check-dist.ts",
     "test": "bun test ./test/"
   },
-  "dependencies": {
-    "@tasks/surface": "file:../surface"
-  },
-  "devDependencies": {
-    "@sinclair/typebox": "^0.34.52"
-  }
+  "dependencies": {}
 }

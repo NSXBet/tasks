@@ -1,3 +1,5 @@
+import { writeSync } from "node:fs";
+import { exit } from "node:process";
 import type { Issue } from "@tasks/domain";
 import type { IssueTree, TreeNode } from "./tree.js";
 
@@ -544,7 +546,33 @@ ${dim("Examples:")}
 /* ------------------------------------------------------------------ */
 
 export function output(value: unknown, json: boolean): void {
-  if (json) { console.log(JSON.stringify(value)); return; }
-  if (Array.isArray(value)) { for (const item of value) { const record = item as Record<string, unknown>; console.log(`${String(record["id"] ?? "")}\t${String(record["status"] ?? "")}\t${String(record["title"] ?? JSON.stringify(item))}`); } return; }
-  console.log(typeof value === "string" ? value : JSON.stringify(value, null, 2));
+  if (json) { writeAllStdout(JSON.stringify(value) + "\n"); return; }
+  if (Array.isArray(value)) { for (const item of value) { const record = item as Record<string, unknown>; writeAllStdout(`${String(record["id"] ?? "")}\t${String(record["status"] ?? "")}\t${String(record["title"] ?? JSON.stringify(item))}\n`); } return; }
+  writeAllStdout((typeof value === "string" ? value : JSON.stringify(value, null, 2)) + "\n");
+}
+
+/**
+ * Synchronous stdout write, bypassing the buffered console path. Bun's
+ * buffered stdout can drop the tail beyond ~64 KiB when the process exits
+ * with stdout still a pipe (oven-sh/bun#28145, #21516). Bun also marks a
+ * piped stdout non-blocking, so a full pipe surfaces as EAGAIN — poll-style
+ * retry (1 ms blocking sleep) until the consumer drains.
+ */
+function writeAllStdout(text: string): void {
+  const bytes = Buffer.from(text, "utf8");
+  let offset = 0;
+  while (offset < bytes.length) {
+    try {
+      offset += writeSync(1, bytes, offset, bytes.length - offset);
+    } catch (cause) {
+      const code = (cause as NodeJS.ErrnoException).code;
+      if (code === "EPIPE") exit(0);
+      if (code === "EAGAIN") { sleepSync(1); continue; }
+      if (code !== "EINTR") throw cause;
+    }
+  }
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }

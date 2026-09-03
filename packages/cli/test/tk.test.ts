@@ -10,6 +10,33 @@ function run(directory: string, args: readonly string[], input?: string): { read
 function json<T>(directory: string, args: readonly string[], input?: string): T { const result = run(directory, [...args, "--json"], input); expect(result.status, result.stderr).toBe(0); return JSON.parse(result.stdout) as T; }
 afterEach(() => { while (workspaces.length) rmSync(workspaces.pop()!, { recursive: true, force: true }); });
 
+// Regression: buffered stdout loses the tail beyond ~64 KiB when the process
+// exits with stdout still a pipe (oven-sh/bun#28145). Large JSON payloads
+// must survive a real pipe with a slow consumer, which spawnSync pipes do
+// not exercise — they drain faster than the writer fills. The per-chunk
+// delay is a real wall-clock pause on purpose: the condition under test is
+// kernel pipe backpressure, which fake timers cannot simulate.
+it("emits large JSON intact through a pipe with a slow reader", async () => {
+  const directory = workspace();
+  json(directory, ["init"]);
+  const records = Array.from({ length: 60 }, (_, index) => ({ _type: "issue", id: `demo-${index}`, title: `issue ${index}`, description: "d".repeat(2000), status: "open", priority: 2, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }));
+  const imported = run(directory, ["import", "--json"], records.map((record) => JSON.stringify(record)).join("\n"));
+  expect(imported.status, imported.stderr).toBe(0);
+  expect(JSON.parse(imported.stdout)).toEqual({ imported: 60 });
+  const child = Bun.spawn([process.execPath, executable, "-C", directory, "list", "--json"], { stdout: "pipe", stderr: "pipe" });
+  const chunks: Uint8Array[] = [];
+  const reader = child.stdout.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value!);
+    await Bun.sleep(5);
+  }
+  const parsed = JSON.parse(new TextDecoder().decode(await new Blob(chunks).arrayBuffer())) as readonly unknown[];
+  expect(parsed).toHaveLength(60);
+  expect(child.exitCode).toBe(0);
+});
+
 describe("tk executable", () => {
   it("supports conductor list, show, comment and close paths", () => { const directory = workspace(); json(directory, ["init", "--prefix", "tk"]); const epic = json<{ id: string }>(directory, ["create", "epic", "--type", "epic"]); const child = json<{ id: string }>(directory, ["create", "child", "--parent", epic.id]); expect(json<readonly { id: string }[]>(directory, ["list", "--parent", epic.id])).toHaveLength(1); expect(json<readonly { id: string }[]>(directory, ["show", child.id])[0]!.id).toBe(child.id); expect(json<{ comments: readonly { text: string }[] }>(directory, ["comment", child.id, "--body", "note"]).comments[0]!.text).toBe("note"); expect(json<{ status: string }>(directory, ["close", child.id]).status).toBe("closed"); });
   it("supports tuicr workspace, current, comments, dependencies, lifecycle and edits", () => { const directory = workspace(); json(directory, ["init"]); const first = json<{ id: string }>(directory, ["create", "first"]); const second = json<{ id: string }>(directory, ["create", "second"]); expect(json<{ workspace: string }>(directory, ["where"]).workspace).toBe(directory); expect(json<readonly { id: string }[]>(directory, ["show", "--current"])[0]!.id).toBe(second.id); json(directory, ["comment", "--current", "--stdin"], "stdin note"); expect(json<readonly { text: string }[]>(directory, ["comments", "--current"])[0]!.text).toBe("stdin note"); expect(json<readonly { id: string }[]>(directory, ["list"])).toHaveLength(2); json(directory, ["dep", second.id, "add", first.id]); expect(json<readonly { id: string }[]>(directory, ["dep", second.id, "list"])[0]!.id).toBe(first.id); json(directory, ["dep", second.id, "remove", first.id]); json(directory, ["dep", second.id, "relate", first.id]); json(directory, ["dep", second.id, "unrelate", first.id]); expect(json<{ status: string }>(directory, ["set-state", second.id, "in_progress"]).status).toBe("in_progress"); expect(json<{ title: string; description: string }>(directory, ["update", second.id, "--title", "edited", "--body", "body"]).title).toBe("edited"); expect(json<{ status: string }>(directory, ["close", second.id]).status).toBe("closed"); expect(json<{ status: string }>(directory, ["reopen", second.id]).status).toBe("open"); });

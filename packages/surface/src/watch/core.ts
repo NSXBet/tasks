@@ -1,9 +1,13 @@
+import { spawn } from 'node:child_process';
+import { Readable } from 'node:stream';
 import type { IssueUnitOfWork } from '@tasks/application';
 import type { Issue } from '@tasks/domain';
 import type { SurfaceError } from '../errors.js';
-import type { SurfaceStore } from '../store.js';
-import type { WatchEvent, WatchEventKind, WatchFrame, WatchSubscription } from './protocol.js';
+import type { WatchCounts, WatchEvent, WatchEventKind, WatchFrame, WatchSubscription } from './protocol.js';
 import { DEFAULT_POLL_INTERVAL_MS, MAX_EVENTS_PER_TICK, MIN_POLL_INTERVAL_MS } from './protocol.js';
+
+/** Statuses that remove an issue from the open/blocked counters (CLI parity). */
+const TERMINAL_STATUSES: readonly string[] = ['closed'];
 
 export interface WatchHandle {
   /** Resolves when the watcher stops (crash, backend loss, or stop()). */
@@ -15,11 +19,13 @@ export interface WatchHandle {
 
 /**
  * Internal poll state: per-issue updatedAt watermarks plus the ready-set
- * fingerprint. Ordering authority is the emitted `seq`, never timestamps.
+ * fingerprint and the last counts snapshot. Ordering authority is the emitted
+ * `seq`, never timestamps.
  */
 interface ReaderState {
   readonly lastUpdatedAt: Map<string, string>;
   readyHash: string | null;
+  counts: WatchCounts | null;
 }
 
 /**
@@ -74,7 +80,23 @@ export const diffOnce = async (
   }
   state.readyHash = readyHash;
 
-  const filtered = events.filter((event) => subscription.kinds === undefined || subscription.kinds.includes(event.kind));
+  // Board counters: open (not terminal), blocked by an open blocker, and the
+  // CLI's ready-to-review status. Attached to every event; a change between
+  // ticks (with no other event) becomes its own counts.changed event.
+  const counts: WatchCounts = {
+    open: all.filter((issue) => !TERMINAL_STATUSES.includes(issue.status)).length,
+    blocked: blockedIds.size,
+    readyToReview: all.filter((issue) => issue.status === 'ready-to-review').length,
+  };
+  const countsChanged = state.counts !== null
+    && (state.counts.open !== counts.open || state.counts.blocked !== counts.blocked || state.counts.readyToReview !== counts.readyToReview);
+  state.counts = counts;
+  if (countsChanged) {
+    events.push({ seq: 0, kind: 'counts.changed', at, counts });
+  }
+  const withCounts = events.map((event) => (event.counts === undefined ? { ...event, counts } : event));
+
+  const filtered = withCounts.filter((event) => subscription.kinds === undefined || subscription.kinds.includes(event.kind));
   return filtered.length <= MAX_EVENTS_PER_TICK ? filtered : filtered.slice(0, MAX_EVENTS_PER_TICK);
 };
 
@@ -91,7 +113,7 @@ export const runWatchLoop = async (
   shouldStop: () => boolean,
 ): Promise<void> => {
   const interval = Math.max(subscription.interval ?? DEFAULT_POLL_INTERVAL_MS, MIN_POLL_INTERVAL_MS);
-  const state: ReaderState = { lastUpdatedAt: new Map(), readyHash: null };
+  const state: ReaderState = { lastUpdatedAt: new Map(), readyHash: null, counts: null };
   let seq = 0;
   let consecutiveErrors = 0;
   while (!shouldStop() && consecutiveErrors < 3) {
@@ -142,7 +164,19 @@ export const runWatchChild = async (store: SurfaceStore, subscription: WatchSubs
  * parse NDJSON frames from stdout, deliver events to `onEvent`. stdin stays
  * open until `handle.stop()`; when the parent session dies the child sees EOF
  * and exits 0.
+ *
+ * Runtime selection: `process.execPath` may be a harness binary (e.g. omp)
+ * that cannot execute arbitrary TS, so prefer a real `bun` on the PATH; under
+ * node use `--experimental-strip-types` (node >= 22.6).
  */
+const watchRuntime = (): readonly string[] => {
+  try {
+    const bun = (globalThis as { Bun?: { which(cmd: string): string | null } }).Bun?.which('bun');
+    if (bun !== undefined && bun !== null && bun !== '') return [bun];
+  } catch { /* not a Bun host */ }
+  return [process.execPath, '--experimental-strip-types'];
+};
+
 export const spawnWatchChild = (options: {
   readonly watchScript: string;
   readonly root: string;
@@ -155,17 +189,23 @@ export const spawnWatchChild = (options: {
   if (options.subscription.ids !== undefined) args.push('--ids', options.subscription.ids.join(','));
   if (options.subscription.label !== undefined) args.push('--label', options.subscription.label);
   if (options.subscription.interval !== undefined) args.push('--interval', String(options.subscription.interval));
-  const child = Bun.spawn([process.execPath, options.watchScript, ...args], {
-    stdin: 'pipe',
-    stdout: 'pipe',
-    stderr: 'ignore',
+  const runtime = watchRuntime();
+  const child = spawn(runtime[0]!, [...runtime.slice(1), options.watchScript, ...args], {
+    stdio: ['pipe', 'pipe', 'ignore'],
   });
   let seq = 0;
   let buffer = '';
   const { promise: done, resolve } = Promise.withResolvers<void>();
+  const decoder = new TextDecoder();
   const pump = async (): Promise<void> => {
-    const reader = child.stdout.getReader();
-    const decoder = new TextDecoder();
+    // node ChildProcess streams are node streams; wrap for the web reader API.
+    // Under Bun, child.stdout already exposes getReader(); node needs toWeb().
+    const stdoutStream: ReadableStream<Uint8Array> =
+      child.stdout === null ? new ReadableStream<Uint8Array>({ start: (c) => c.close() })
+      : typeof Bun !== 'undefined' && child.stdout instanceof ReadableStream
+        ? child.stdout
+        : Readable.toWeb(child.stdout);
+    const reader = stdoutStream.getReader();
     for (;;) {
       const { done: finished, value } = await reader.read();
       if (finished) break;
@@ -195,7 +235,7 @@ export const spawnWatchChild = (options: {
     done,
     seq: () => seq,
     stop: () => {
-      try { child.stdin.end(); } catch { /* already gone */ }
+      try { child.stdin?.end(); } catch { /* already gone */ }
       // stdin EOF should stop the child within one poll interval; if it has
       // not exited after 5s, terminate it directly.
       const killer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } }, 5000);

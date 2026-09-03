@@ -5,7 +5,7 @@
  * Emits NDJSON frames on stdout; exits 0 on stdin EOF, 2 without a workspace,
  * 3 after three consecutive backend errors.
  */
-import { openSurfaceStore, parseWatchArgs, rootFrom, runWatchChild } from "@tasks/surface";
+import { openSurfaceStore, parseWatchArgs, rootFrom, runWatchChild } from "../../surface/src/index.ts";
 
 const root = await rootFrom(process.argv[2] ?? process.cwd());
 if (root === null) {

@@ -1,19 +1,19 @@
 /**
- * Watch lifecycle for the extension: spawns the tk-watch child per
- * subscription, parses NDJSON frames, coalesces and delivers notifications to
- * the host session, and keeps the above-editor widget in sync.
+ * Watch lifecycle for the extension: runs the watch poll loop IN-PROCESS per
+ * subscription (the previous spawn-a-child design broke under omp, whose
+ * execPath is the omp binary, not bun), coalesces and delivers notifications
+ * to the host session, and keeps the above-editor widget in sync.
  *
  * Notification primitive (verified identical on both hosts):
  *   pi.sendUserMessage(text, { deliverAs: "followUp" })
  * Queued after the current run while streaming; starts a turn when idle.
  */
-import type { WatchEvent, WatchSubscription } from "@tasks/surface";
-import { spawnWatchChild, type WatchHandle } from "@tasks/surface";
-import { renderWatchWidgetLines, type WatchRow } from "./widget.js";
+import type { WatchCounts, WatchEvent, WatchSubscription } from "../../surface/src/index.ts";
+import { runWatchLoop } from "../../surface/src/index.ts";
+import { openSurfaceStore, type SurfaceStore } from "../../surface/src/index.ts";
+import { renderWatchWidgetLines, type WatchRow } from "./widget.ts";
 
 export interface WatchManagerOptions {
-  /** Absolute path to the bundled tk-watch.js child script. */
-  readonly watchScript: string;
   readonly root: string;
   /** Host session bridge; implemented in index.ts against ExtensionAPI. */
   readonly notify: (text: string) => void;
@@ -23,35 +23,66 @@ export interface WatchManagerOptions {
 
 interface ActiveWatch {
   readonly id: string;
-  readonly handle: WatchHandle;
   readonly subscription: WatchSubscription;
   readonly startedAt: number;
+  readonly stop: () => void;
+  readonly done: Promise<void>;
   lastEvent: WatchEvent | null;
 }
 
 export class WatchManager {
   readonly #watches = new Map<string, ActiveWatch>();
   readonly #options: WatchManagerOptions;
-  #seq = 0;
+  #store: SurfaceStore | null = null;
+  /** Latest board counters; refreshed on every delivered event. */
+  #counts: WatchCounts | null = null;
 
   constructor(options: WatchManagerOptions) {
     this.#options = options;
   }
 
+  /** Readonly store shared by all in-process watch loops (lazy). */
+  async #watchStore(): Promise<SurfaceStore> {
+    if (this.#store === null) {
+      this.#store = await openSurfaceStore(this.#options.root, { readonly: true });
+    }
+    return this.#store;
+  }
+
+  /** Latest counts; null until the first poll tick delivered an event. */
+  counts(): WatchCounts | null {
+    return this.#counts;
+  }
+  /** Close the shared readonly watch store; call on session shutdown. */
+  async close(): Promise<void> {
+    await this.#store?.close();
+    this.#store = null;
+  }
+
+
   /** Start one subscription; id is derived from filters for dedupe. */
-  start(subscription: WatchSubscription): string {
+  async start(subscription: WatchSubscription): Promise<string> {
     const id = watchId(subscription);
     const existing = this.#watches.get(id);
     if (existing !== undefined) return id;
-    const handle = spawnWatchChild({
-      watchScript: this.#options.watchScript,
-      root: this.#options.root,
+    let stopping = false;
+    const done = (async () => {
+      try {
+        const store = await this.#watchStore();
+        await runWatchLoop(store, subscription, (event) => this.#onEvent(id, event), () => stopping || !this.#watches.has(id));
+      } catch (cause) {
+        if (this.#watches.has(id)) this.#options.notify(`⚠ tasks watcher error: ${cause instanceof Error ? cause.message : String(cause)}`);
+      }
+    })();
+    this.#watches.set(id, {
+      id,
       subscription,
-      onEvent: (event) => this.#onEvent(id, event),
-      onError: (error) => this.#options.notify(`⚠ tasks watcher error: ${error.message}`),
+      startedAt: Date.now(),
+      stop: () => { stopping = true; },
+      done,
+      lastEvent: null,
     });
-    this.#watches.set(id, { id, handle, subscription, startedAt: Date.now(), lastEvent: null });
-    void handle.done.then(() => {
+    void done.then(() => {
       // A dead watcher removes itself; the session learns via status tool.
       this.#watches.delete(id);
       this.#options.refreshWidget();
@@ -63,12 +94,14 @@ export class WatchManager {
   stop(id?: string): number {
     if (id === undefined) {
       const count = this.#watches.size;
-      for (const watch of this.#watches.values()) watch.handle.stop();
+      for (const watch of [...this.#watches.values()]) watch.stop();
+      this.#watches.clear();
+      this.#options.refreshWidget();
       return count;
     }
     const watch = this.#watches.get(id);
     if (watch === undefined) return 0;
-    watch.handle.stop();
+    watch.stop();
     this.#watches.delete(id);
     this.#options.refreshWidget();
     return 1;
@@ -77,7 +110,7 @@ export class WatchManager {
   status(): readonly { id: string; seq: number; startedAt: number; lastEvent: WatchEvent | null }[] {
     return [...this.#watches.values()].map((watch) => ({
       id: watch.id,
-      seq: watch.handle.seq(),
+      seq: watch.lastEvent === null ? 0 : watch.lastEvent.seq,
       startedAt: watch.startedAt,
       lastEvent: watch.lastEvent,
     }));
@@ -92,10 +125,10 @@ export class WatchManager {
   }
 
   #onEvent(id: string, event: WatchEvent): void {
-    this.#seq = event.seq;
+    if (event.counts !== undefined) this.#counts = event.counts;
     const watch = this.#watches.get(id);
     if (watch !== undefined) watch.lastEvent = event;
-    this.#options.notify(formatEvent(event));
+    this.#options.notify(formatEvent(event, this.#counts));
     this.#options.refreshWidget();
   }
 
@@ -104,7 +137,7 @@ export class WatchManager {
     return [...this.#watches.values()].map((watch) => ({
       name: watch.id,
       detail: watch.lastEvent === null ? "starting…" : `${watch.lastEvent.kind}${watch.lastEvent.issueId === undefined ? "" : ` ${watch.lastEvent.issueId}`}`,
-      seq: watch.handle.seq(),
+      seq: watch.lastEvent === null ? 0 : watch.lastEvent.seq,
       startedAt: watch.startedAt,
       pending: watch.lastEvent !== null && Date.now() - new Date(watch.lastEvent.at).valueOf() < 5000,
     }));
@@ -114,7 +147,7 @@ export class WatchManager {
   widgetComponent(): { invalidate(): void; render(width: number): string[] } {
     return {
       invalidate() {},
-      render: (width: number) => renderWatchWidgetLines(this.widgetRows(), width),
+      render: (width: number) => renderWatchWidgetLines(this.widgetRows(), this.#counts, width),
     };
   }
 }
@@ -128,24 +161,32 @@ const watchId = (subscription: WatchSubscription): string => {
   return parts.join(":") || "all";
 };
 
+/** Icon-prefixed board counters: 🟢 open · ⛔ blocked · 👀 ready-to-review. */
+export const formatCounts = (counts: WatchCounts): string =>
+  `🟢 ${counts.open} open · ⛔ ${counts.blocked} blocked · 👀 ${counts.readyToReview} ready-to-review`;
+
 /** One-line human summary; steered into the session as a followUp message. */
-export const formatEvent = (event: WatchEvent): string => {
+export const formatEvent = (event: WatchEvent, counts?: WatchCounts | null): string => {
   const at = event.at.slice(11, 19);
   const id = event.issueId ?? "";
+  const board = counts === undefined ? (event.counts === undefined ? null : formatCounts(event.counts)) : (counts === null ? null : formatCounts(counts));
+  const suffix = board === null ? "" : ` · ${board}`;
   switch (event.kind) {
     case "issue.created":
-      return `📋 tasks: issue ${id} created (${at})`;
+      return `📋 tasks: issue ${id} created (${at})${suffix}`;
     case "issue.updated":
-      return `📝 tasks: issue ${id} updated (${at})`;
+      return `📝 tasks: issue ${id} updated (${at})${suffix}`;
     case "issue.status_changed":
-      return `🔁 tasks: issue ${id} status changed (${at})`;
+      return `🔁 tasks: issue ${id} status changed (${at})${suffix}`;
     case "issue.commented":
-      return `💬 tasks: issue ${id} received a comment (${at})`;
+      return `💬 tasks: issue ${id} received a comment (${at})${suffix}`;
     case "issue.deleted":
-      return `🗑 tasks: issue ${id} deleted (${at})`;
+      return `🗑 tasks: issue ${id} deleted (${at})${suffix}`;
     case "ready.changed":
-      return `✅ tasks: ready set changed — call tasks_ready when idle (${at})`;
+      return `✅ tasks: ready set changed — call tasks_ready when idle (${at})${suffix}`;
+    case "counts.changed":
+      return `📊 tasks: board counts changed — ${board ?? formatCounts(event.counts ?? { open: 0, blocked: 0, readyToReview: 0 })} (${at})`;
     default:
-      return `📋 tasks: ${event.kind} ${id} (${at})`;
+      return `📋 tasks: ${event.kind} ${id} (${at})${suffix}`;
   }
 };

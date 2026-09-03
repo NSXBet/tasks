@@ -4,15 +4,16 @@
  * - Default-export factory (both hosts call it identically).
  * - Types come from @earendil-works/pi-coding-agent (rewritten to host copies
  *   by pi's virtual modules and omp's legacy-pi-compat).
- * - Tool schemas use @sinclair/typebox (also rewritten by both hosts).
+ * - Tool schemas use `typebox` (omp maps it to its internal copy; pi resolves
+ *   it from disk — it is a root dependency of this repo).
  * - Registers: `tasks` (full surface via one tool), `tasks_ready`,
  *   `tasks_watch_start/stop/status`, `/tasks` command, and the
  *   Tasks Watch widget (aboveEditor), copied from the herdr-subagents pattern.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
-import { createSurface, type TasksSurface } from "@tasks/surface";
-import { WatchManager } from "./watch-manager.js";
+import { createSurface, type TasksSurface } from "../../surface/src/index.ts";
+import { Type } from "typebox";
+import { WatchManager, formatCounts } from "./watch-manager.ts";
 
 type SurfaceOutcome = { ok: true; value: unknown } | { ok: false; error: { kind: string; message: string } };
 
@@ -37,7 +38,6 @@ async function withSurface<T>(root: string, work: (surface: TasksSurface) => Pro
 }
 
 export default function tasksExtension(pi: ExtensionAPI) {
-  // Root is captured per session start (worktree-aware via surface discovery).
   let root = process.cwd();
   let surfaceFactory: (() => Promise<TasksSurface>) | null = null;
   let manager: WatchManager | null = null;
@@ -54,9 +54,6 @@ export default function tasksExtension(pi: ExtensionAPI) {
   const ensureManager = (hasUI: boolean): WatchManager => {
     if (manager !== null) return manager;
     manager = new WatchManager({
-      // tk-watch.js ships next to this bundled entry (dist/).
-      watchScript: new URL("./tk-watch.js", import.meta.url).pathname,
-      root,
       notify: (text) => {
         void pi.sendUserMessage(text, { deliverAs: "followUp" });
       },
@@ -103,6 +100,7 @@ export default function tasksExtension(pi: ExtensionAPI) {
   pi.on("session_shutdown", () => {
     stopWidgetTimer();
     manager?.stopAll();
+    void manager?.close();
     manager = null;
     latestCtx = null;
   });
@@ -215,7 +213,7 @@ export default function tasksExtension(pi: ExtensionAPI) {
             });
             case "quick": {
               const made = await s.create({ title: (p["title"] as string | undefined) ?? "" });
-              return made.ok ? made.value.id : made;
+              return made.ok ? { ok: true, value: made.value.id } : made;
             }
             case "show": return id === undefined ? s.current() : s.show(id);
             case "list": return s.list({
@@ -270,7 +268,6 @@ export default function tasksExtension(pi: ExtensionAPI) {
       }
     },
   });
-
   pi.registerTool({
     name: "tasks_ready",
     label: "Tasks ready",
@@ -288,12 +285,13 @@ export default function tasksExtension(pi: ExtensionAPI) {
   const Kinds = Type.Optional(Type.Array(Type.Union([
     Type.Literal("issue.created"), Type.Literal("issue.updated"), Type.Literal("issue.status_changed"),
     Type.Literal("issue.commented"), Type.Literal("issue.deleted"), Type.Literal("ready.changed"),
+    Type.Literal("counts.changed"),
   ]), { description: "Event kinds to subscribe to (default all)." }));
 
   pi.registerTool({
     name: "tasks_watch_start",
     label: "Tasks watch start",
-    description: "Spawn a workspace watcher. Notifies this session (followUp message, new turn when idle) on each matching change: issue created/updated/deleted, status changes, comments, or the ready set changing. Filters: kinds, ids, label, intervalMs.",
+    description: "Start a workspace watcher (in-process poll loop). Notifies this session (followUp message, new turn when idle) on each matching change: issue created/updated/deleted, status changes, comments, ready set or board counts (🟢 open · ⛔ blocked · 👀 ready-to-review) changing. Filters: kinds, ids, label, intervalMs.",
     parameters: Type.Object({ kinds: Kinds as never, ids: Type.Optional(Type.Array(Type.String(), { description: "Only these issue ids." })), label: Type.Optional(Type.String({ description: "Only issues with this label." })), intervalMs: Type.Optional(Type.Number({ description: "Poll interval ms (default 2000, min 250)." })) }),
     async execute(_id, params) {
       const hasUI = latestCtx?.hasUI ?? false;
@@ -304,7 +302,7 @@ export default function tasksExtension(pi: ExtensionAPI) {
       if (p["ids"] !== undefined) subscription["ids"] = p["ids"];
       if (p["label"] !== undefined) subscription["label"] = p["label"];
       if (p["intervalMs"] !== undefined) subscription["interval"] = p["intervalMs"];
-      const watchId2 = m.start(subscription as never);
+      const watchId2 = await m.start(subscription as never);
       updateWidget();
       return toolResult(JSON.stringify({ started: true, watcher: watchId2 }));
     },
@@ -336,10 +334,35 @@ export default function tasksExtension(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("tasks", {
-    description: "Show tasks help + watcher status",
+    description: "Print current tasks (open issues in this workspace)",
+    handler: async (_args, ctx) => {
+      const result = await withSurface(root, (s) => s.list({ status: "open" }));
+      if (!result.ok) {
+        ctx.ui.notify(`tasks: ${result.error.message}`, "error");
+        return;
+      }
+      const issues = result.value as ReadonlyArray<{ readonly id: string; readonly title: string; readonly assignee: string | null }>;
+      if (issues.length === 0) {
+        ctx.ui.notify("tasks: no open issues", "info");
+        return;
+      }
+      const lines = issues.map((i) => `${i.id}  ${i.title}${i.assignee ? `  @${i.assignee}` : ""}`);
+      ctx.ui.notify(`tasks (${issues.length} open):\n${lines.join("\n")}`, "info");
+    },
+  });
+
+  pi.registerCommand("tasks watch", {
+    description: "Show active task watchers (count + last event + board counts)",
     handler: async (_args, ctx) => {
       const rows = manager?.status() ?? [];
-      ctx.ui.notify(`tasks: tools tasks/tasks_ready/tasks_watch_* active · watchers: ${rows.length}`, "info");
+      if (rows.length === 0) {
+        ctx.ui.notify("tasks watch: no active watchers", "info");
+        return;
+      }
+      const counts = manager?.counts() ?? null;
+      const header = counts === null ? `${rows.length} active` : `${rows.length} active · ${formatCounts(counts)}`;
+      const lines = rows.map((r) => `${r.name}: ${r.detail} (seq ${r.seq})`);
+      ctx.ui.notify(`tasks watch (${header}):\n${lines.join("\n")}`, "info");
     },
   });
 }

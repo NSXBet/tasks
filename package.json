@@ -3,6 +3,22 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "pi": {
+    "extensions": [
+      "./packages/extension/src/index.ts"
+    ],
+    "skills": [
+      "./packages/extension/skills/*/SKILL.md"
+    ]
+  },
+  "omp": {
+    "extensions": [
+      "./packages/extension/src/index.ts"
+    ],
+    "skills": [
+      "./packages/extension/skills/*/SKILL.md"
+    ]
+  },
   "packageManager": "bun@1.3.14",
   "workspaces": [
     "packages/*"
@@ -40,6 +56,7 @@
     "./cli": "./packages/cli/src/tk.ts"
   },
   "dependencies": {
+    "typebox": "^1.3.18",
     "zod": "^4.2.1"
   }
 }

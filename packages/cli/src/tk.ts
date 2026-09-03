@@ -14,18 +14,21 @@ import {
   formatDuplicates, formatEpic, formatGraph, formatHistory, formatLint, formatList, formatMigration, formatOrphans,
   formatReady, formatRenamePrefix, formatSearch, formatShow, formatStale, formatStats,
   formatStatus, formatStatuses, formatTodo, formatTree, formatTypes, formatVersion, formatWhere, formatWorktreeInfo, formatWorktreeList,
-  HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, cyan, dim, formatError, green, issueWire, output, treeNodeWire,
+  HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
 import { bunRunner } from "./git.js";
 import { formatHunkComment, hunkCommentMetaKey, parseHunkComments, pendingHunkComments, planHunk, scratchDirectory, writeAgentContext } from "./hunk.js";
 import { buildTree, type TreeOptions } from "./tree.js";
+import { checkGitHooks, installHooks, managedHookNames, runHookCommand, uninstallHooks } from "./hooks.js";
+import { CODEX_EVENTS, installCodexHooks, codexHooksPath, installCursorHooks, cursorHooksTargetPath, removeCodexHooks, removeCursorHooks } from "./hooks-json.js";
+import { runCodexHook, runCursorHook } from "./agent-hooks.js";
 
 /** bd-style collision-resistant issue IDs: <prefix>-<base36 hash>, short like bd (bd-0t0, bd-45g). */
 const generateId = (): string => randomBytes(6).toString("base64url").toLowerCase().replace(/[^a-z0-9]/g, "x");
 /** Start at 3 chars (like bd), grow on collision pressure. */
 const idLength = (taken: number): number => (taken < 50 ? 3 : taken < 1_000 ? 4 : 6);
 
-const writers = new Set(["init", "create", "q", "update", "close", "reopen", "defer", "undefer", "comment", "note", "assign", "priority", "tag", "dep", "label", "set-state", "import", "migrate", "delete", "remove", "rename", "link", "duplicate", "supersede", "todo", "backup", "rename-prefix", "switch-backend"]);
+const writers = new Set(["init", "create", "q", "update", "close", "reopen", "defer", "undefer", "comment", "note", "assign", "priority", "tag", "dep", "label", "set-state", "import", "migrate", "delete", "remove", "rename", "link", "duplicate", "supersede", "todo", "backup", "rename-prefix", "switch-backend", "hooks"]);
 /** Stable stderr JSON error contract: { error: { kind, message } }. */
 type JsonError = { readonly error: { readonly kind: "parse" | "validation" | "readonly" | "runtime"; readonly message: string } };
 type Config = WorkspaceConfig;
@@ -542,6 +545,11 @@ SETUP
   worktree list           List worktrees and their tasks-workspace state
   worktree info           Show tasks-workspace state for the current worktree
   worktree remove <name>  Remove a worktree (with safety checks)
+  hooks install [--tasks|--shared]  Install git hooks (markers preserve user content)
+  hooks uninstall         Remove tk git hooks
+  hooks list              Show hook install status
+  hooks run <hook> [args] Execute a hook (called by installed shims)
+  setup cursor|codex [--global] [--remove]  Install agent lifecycle hooks
   version                 Print version information
   quickstart              Quick start guide
   prime                   AI-optimized workflow context
@@ -600,6 +608,54 @@ async function runWatch(args: ParsedArgs, start: string): Promise<void> {
   }
 }
 
+
+/**
+ * `tk hooks` — git hooks lifecycle, ported from bd hooks:
+ * install [--tasks|--shared], uninstall, list [--json], run <hook> [args].
+ * Dispatched before workspace resolution so hooks work in any git repo.
+ */
+async function runHooks(args: ParsedArgs, start: string, json: boolean): Promise<void> {
+  const sub = args.positionals[1];
+  if (sub === "install") {
+    const shared = booleanFlag(args, "shared");
+    const tasks = booleanFlag(args, "tasks");
+    const { hooksDir } = await installHooks(start, { shared, tasks });
+    if (json) output({ success: true, message: "Git hooks installed successfully", shared, tasks }, true);
+    else {
+      console.log("✓ Git hooks installed successfully");
+      if (tasks) console.log(`Hooks installed to: ${join(hooksDir)}\nGit config set: core.hooksPath=${hooksDir}`);
+      else if (shared) console.log(`Hooks installed to: ${hooksDir}\nGit config set: core.hooksPath=${hooksDir}\n⚠️  Remember to commit .tasks-hooks/ to share with your team!`);
+      console.log(`\nInstalled hooks:\n${managedHookNames.map((name) => `  - ${name}`).join("\n")}`);
+    }
+    return;
+  }
+  if (sub === "uninstall") {
+    await uninstallHooks(start);
+    if (json) output({ success: true, message: "Git hooks uninstalled successfully" }, true);
+    else console.log("✓ Git hooks uninstalled successfully");
+    return;
+  }
+  if (sub === "list") {
+    const statuses = await checkGitHooks(start);
+    if (json) { output({ hooks: statuses }, true); return; }
+    console.log("Git hooks status:");
+    for (const status of statuses) {
+      if (!status.installed) console.log(`  ✗ ${status.name}: not installed`);
+      else if (status.isShim) console.log(`  ✓ ${status.name}: installed (shim ${status.version})`);
+      else if (status.outdated) console.log(`  ⚠ ${status.name}: installed (version ${status.version}, current: ${VERSION}) - outdated`);
+      else console.log(`  ✓ ${status.name}: installed (version ${status.version})`);
+    }
+    return;
+  }
+  if (sub === "run") {
+    const hookName = args.positionals[2] ?? fail("hooks run requires hook name");
+    const exitCode = await runHookCommand(hookName, args.positionals.slice(3), start);
+    if (exitCode !== 0) exit(exitCode);
+    return;
+  }
+  fail("usage: tk hooks install [--tasks|--shared] | uninstall | list | run <hook> [args]");
+}
+
 async function main(): Promise<void> { const args = parseArgs(process.argv.slice(2)); const command = args.positionals[0] ?? "help"; const json = booleanFlag(args, "json"); const start = directory(args, cwd()); let root = await rootFrom(start);
   if (command === "init" && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(INIT_HELP); return; }
   if (command === "help" && args.positionals[1] === "init") { process.stdout.write(INIT_HELP); return; }
@@ -608,7 +664,39 @@ async function main(): Promise<void> { const args = parseArgs(process.argv.slice
   if (command === "help" || booleanFlag(args, "help") || booleanFlag(args, "h")) { process.stdout.write(HELP); return; }
   if (command === "watch") { await runWatch(args, start); return; }
   if (command === "worktree") { await runWorktree(args, start, json); return; }
-  if (command === "init") { if (booleanFlag(args, "readonly")) fail("readonly mode blocks writes"); const initRoot = start; root = initRoot; const prefix = stringFlag(args, "prefix") ?? "tk"; const storageConfig = initStorageConfig(args); await mkdir(join(initRoot, ".tasks"), { recursive: true }); const initConfig: Config = { prefix, storage: storageConfig }; await writeWorkspaceConfig(join(initRoot, ".tasks"), initConfig); const storage = await openStorage(join(initRoot, ".tasks"), initConfig.storage ?? DEFAULT_STORAGE); try { unwrap(await storage.adapter.migrate()); } finally { await storage.close(); } if (json) output({ workspace: initRoot, prefix, backend: storage.backend, initialized: true }, true); else console.log(`${green("✓ Initialized")} tasks workspace in ${cyan(join(initRoot, ".tasks"))} (prefix: ${prefix}, backend: ${storage.backend})`); return; }
+/**
+ * `tk setup cursor|codex [--global] [--remove]` — agent lifecycle hooks.json
+ * management (hooks only; rules/skill templates are agent-specific and are
+ * not part of the hooks port). tk owns only its own command entries.
+ */
+async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean): Promise<void> {
+  const agent = args.positionals[1] ?? fail("usage: tk setup cursor|codex [--global] [--remove]");
+  const global = booleanFlag(args, "global");
+  const remove = booleanFlag(args, "remove");
+  if (agent === "cursor") {
+    const path = cursorHooksTargetPath(global, start);
+    if (remove) { await removeCursorHooks(path); if (json) output({ success: true, agent, removed: true }, true); else console.log("✓ Removed tk Cursor hooks"); return; }
+    await installCursorHooks(path);
+    if (json) output({ success: true, agent, path, events: ["sessionStart", "preCompact", "postToolUse"] }, true);
+    else console.log(`✓ Cursor hooks installed: ${path} (sessionStart, preCompact, postToolUse)\nThe hooks invoke 'tk cursor-hook', so make sure tk is on PATH for Cursor.`);
+    return;
+  }
+  if (agent === "codex") {
+    if (remove) { await removeCodexHooks(global, start); if (json) output({ success: true, agent, removed: true }, true); else console.log("✓ Removed tk Codex hooks"); return; }
+    await installCodexHooks(global, start);
+    if (json) output({ success: true, agent, path: codexHooksPath(global, start), events: CODEX_EVENTS }, true);
+    return;
+  }
+  fail(`unsupported setup target: ${agent} (supported: cursor, codex)`);
+}
+
+  if (command === "init") { if (booleanFlag(args, "readonly")) fail("readonly mode blocks writes"); const initRoot = start; root = initRoot; const prefix = stringFlag(args, "prefix") ?? "tk"; const storageConfig = initStorageConfig(args); await mkdir(join(initRoot, ".tasks"), { recursive: true }); const initConfig: Config = { prefix, storage: storageConfig }; await writeWorkspaceConfig(join(initRoot, ".tasks"), initConfig); const storage = await openStorage(join(initRoot, ".tasks"), initConfig.storage ?? DEFAULT_STORAGE); try { unwrap(await storage.adapter.migrate()); } finally { await storage.close(); } if (json) output({ workspace: initRoot, prefix, backend: storage.backend, initialized: true }, true); else console.log(`${green("✓ Initialized")} tasks workspace at ${join(initRoot, ".tasks")}`); return; }
+  // Hook commands work without a .tasks workspace (install/run must work in
+  // any git repo, like bd hooks). Dispatch before workspace resolution.
+  if (command === "hooks") { await runHooks(args, start, json); return; }
+  if (command === "setup") { await runAgentHooksSetup(args, start, json); return; }
+  if (command === "codex-hook") { await runCodexHook(args.positionals[1] ?? fail("codex-hook requires event"), await readInput()); return; }
+  if (command === "cursor-hook") { await runCursorHook(args.positionals[1] ?? fail("cursor-hook requires event"), await readInput()); return; }
   // migrate bootstraps its own workspace so a beads-only checkout needs no separate init,
   // except under --dry-run, which must leave the filesystem untouched.
   const bootstrapping = root === null && command === "migrate";
@@ -616,7 +704,7 @@ async function main(): Promise<void> { const args = parseArgs(process.argv.slice
   if (bootstrapping) { if (booleanFlag(args, "readonly")) fail("readonly mode blocks writes"); if (!ephemeral) { await mkdir(join(start, ".tasks"), { recursive: true }); await writeWorkspaceConfig(join(start, ".tasks"), { prefix: stringFlag(args, "prefix") ?? "tk", storage: DEFAULT_STORAGE }); } root = start; }
   if (root === null) {
     // Git hook context: exit silently when no workspace found (don't interrupt commits)
-    if (process.env["BD_GIT_HOOK"]) exit(0);
+    if (process.env["TK_GIT_HOOK"] ?? process.env["BD_GIT_HOOK"]) exit(0);
     fail(await beadsHint(start));
   }
   const workspace = root!; const tasksDir = join(workspace, '.tasks');

@@ -35,7 +35,7 @@ import { spawnWatchChild, type WatchHandle } from './watch/core.js';
  * Watch child entry script shipped next to the surface (bundled into the
  * extension's dist; for the CLI it is the surface package's own bin).
  */
-const WATCH_SCRIPT = new URL('./watch/child-entry.js', import.meta.url).pathname;
+export const watchChildScript = (): string => new URL('./watch/child-entry.ts', import.meta.url).pathname;
 
 /**
  * The typed Tasks surface: one factory consumed by the tk CLI and the pi/omp
@@ -146,6 +146,6 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     graph: () => dependencyGraph(store),
     duplicates: (minSimilarity) => duplicatePairs(store, minSimilarity),
     lint: (options) => lintIssues(store, options),
-    watch: (subscription) => spawnWatchChild({ watchScript: WATCH_SCRIPT, root: store.root, subscription, onEvent: () => {} }),
+    watch: (subscription) => spawnWatchChild({ watchScript: watchChildScript(), root: store.root, subscription, onEvent: () => {} }),
   };
 };
