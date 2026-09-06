@@ -59,7 +59,7 @@ afterEach(() => {
 
 async function migrate(adapter: SqliteAdapter) {
   const result = await adapter.migrate();
-  expect(result).toMatchObject({ ok: true, value: { currentVersion: '004-issue-branch', lockAcquired: true } });
+  expect(result).toMatchObject({ ok: true, value: { currentVersion: '005-issue-attachments', lockAcquired: true } });
 }
 
 async function save(adapter: SqliteAdapter, value: Issue) {
@@ -92,7 +92,6 @@ async function collectClaim(worker: ReturnType<typeof Bun.spawn>): Promise<Resul
 }
 
 async function releaseWorkers(workers: readonly ReturnType<typeof Bun.spawn>[], directory: string) {
-  // Both independent Bun processes block on release file before contending for same SQLite claim.
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const ready = await Promise.all(workers.map((_, index) => Bun.file(join(directory, `ready-${index === 0 ? 'one' : 'two'}`)).exists()));
@@ -112,13 +111,14 @@ describe('@tasks/sqlite', () => {
     await migrate(adapter);
 
     const history = await adapter.history();
-    expect(history.ok && history.value).toHaveLength(4);
+    expect(history.ok && history.value).toHaveLength(5);
     expect(history.ok && history.value?.[0]).toMatchObject({
       id: '001-initial', order: 1, checksum: sqliteMigrations[0]?.checksum,
     });
     expect(history.ok && history.value?.[1]).toMatchObject({ id: '002-issue-history', order: 2, checksum: sqliteMigrations[1]?.checksum });
     expect(history.ok && history.value?.[2]).toMatchObject({ id: '003-issue-commits', order: 3, checksum: sqliteMigrations[2]?.checksum });
     expect(history.ok && history.value?.[3]).toMatchObject({ id: '004-issue-branch', order: 4, checksum: sqliteMigrations[3]?.checksum });
+    expect(history.ok && history.value?.[4]).toMatchObject({ id: '005-issue-attachments', order: 5, checksum: sqliteMigrations[4]?.checksum });
     expect(await adapter.migrate()).toMatchObject({ ok: true, value: { applied: [] } });
 
     const changed = { ...sqliteMigrations[0]!, checksum: 'not-the-durable-checksum' };

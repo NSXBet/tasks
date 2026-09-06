@@ -124,6 +124,7 @@ export default function tasksExtension(pi: ExtensionAPI) {
     Type.Literal("todo-done"), Type.Literal("search"), Type.Literal("query"), Type.Literal("history"),
     Type.Literal("counts"), Type.Literal("stats"), Type.Literal("tree"), Type.Literal("graph"),
     Type.Literal("duplicates"), Type.Literal("lint"), Type.Literal("children"), Type.Literal("epic"),
+    Type.Literal("attach"), Type.Literal("detach"),
   ]);
   const Id = Type.Optional(Type.String({ description: "Issue id (e.g. tk-abc). Use `--current` semantics via op show without id to read the current pointer." }));
 
@@ -137,9 +138,9 @@ export default function tasksExtension(pi: ExtensionAPI) {
       "ready(claim?) → unblocked issues · blocked() → blocked issues · children(id) · epic(id) → {epic, children, done, eligible}",
       "update(id, title?, description?, priority?, type?, assignee?, owner?, branch?, parent?, notes?, acceptanceCriteria?, design?, specId?, externalRef?, estimate?, dueAt?, status?) → issue",
       "close(id, reason?) · reopen(id) · defer(id, until?) · undefer(id) · claim(id) → issue",
-      "assign(id, user) · priority(id, 0-4) · label-add(id, label) · label-rm(id, label) · note(id, text) → issue",
       "comment(id, body) → issue · comments(id) → issue",
-      "dep-add(id, target, type?) · dep-rm(id, target) · dep-list(id, direction?) → rows · link(id1, id2)",
+      "update(id, title?, description?, priority?, type?, assignee?, owner?, branch?, parent?, notes?, acceptanceCriteria?, design?, specId?, externalRef?, estimate?, dueAt?, status?, plan?, attachments?[]) → issue",
+      "attach(id, path, attachmentMetadata?) · detach(id, path) — file-path attachments (references, not copies); bare path = repo root (foo.yaml). Use plan instead when setting the issue's plan file",
       "rename(id, newId) · delete(ids) · duplicate(id, canonical) · supersede(id, replacement)",
       "todo(title) · todo-done(ids) — task-type shortcuts",
       "search(text) · query(expr: 'status=open', 'title~bug') · history(id) → audit entries",
@@ -182,6 +183,10 @@ export default function tasksExtension(pi: ExtensionAPI) {
       all: Type.Optional(Type.Boolean({ description: "tree: include closed." })),
       depth: Type.Optional(Type.Number({ description: "tree depth." })),
       limit: Type.Optional(Type.Number()),
+      path: Type.Optional(Type.String({ description: "For attach op: file path to attach. Bare name = repo root (foo.yaml); directories ok (docs/spec.md). The file should already exist." })),
+      attachmentMetadata: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "For attach op: metadata stored alongside the attachment, e.g. { kind: 'spec' }." })),
+      plan: Type.Optional(Type.String({ description: "For create/update ops: path to the issue's plan file. Attaches it with kind=plan metadata and replaces any prior plan. Bare path = repo root. Use when the user says 'plan', 'plan file', or hands you a markdown plan." })),
+      attachments: Type.Optional(Type.Array(Type.Object({ path: Type.String(), metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())) }, { additionalProperties: false }), { description: "For create/update ops: full attachment list [{ path, metadata? }]. Prefer --plan or the attach op for single files." })),
       user: Type.Optional(Type.String({ description: "assign user." })),
     }),
     async execute(_id, params) {
@@ -207,9 +212,9 @@ export default function tasksExtension(pi: ExtensionAPI) {
               ...(p["acceptanceCriteria"] === undefined ? {} : { acceptanceCriteria: p["acceptanceCriteria"] as string | null }),
               ...(p["design"] === undefined ? {} : { design: p["design"] as string | null }),
               ...(p["specId"] === undefined ? {} : { specId: p["specId"] as string | null }),
-              ...(p["externalRef"] === undefined ? {} : { externalRef: p["externalRef"] as string | null }),
-              ...(p["branch"] === undefined ? {} : { branch: p["branch"] as string | null }),
               ...(p["notes"] === undefined ? {} : { notes: p["notes"] as string | null }),
+              ...(p["plan"] === undefined ? {} : { attachments: [{ path: p["plan"] as string, metadata: { kind: "plan" } }] }),
+              ...(p["attachments"] === undefined ? {} : { attachments: p["attachments"] as readonly { path: string; metadata?: Record<string, unknown> }[] }),
             });
             case "quick": {
               const made = await s.create({ title: (p["title"] as string | undefined) ?? "" });
@@ -224,8 +229,13 @@ export default function tasksExtension(pi: ExtensionAPI) {
               ...(p["limit"] === undefined ? {} : { limit: p["limit"] as number }),
             });
             case "ready": return s.ready({ ...(p["limit"] === undefined ? {} : { limit: p["limit"] as number }) });
+            case "update": {
+              const patch = { ...p } as Record<string, unknown>;
+              delete patch["op"]; delete patch["id"];
+              if (typeof patch["plan"] === "string") { patch["attachments"] = [...(Array.isArray(patch["attachments"]) ? patch["attachments"] as unknown[] : []), { path: patch["plan"], metadata: { kind: "plan" } }]; delete patch["plan"]; }
+              return s.update(id ?? "", patch as never);
+            }
             case "blocked": return s.blocked();
-            case "update": return s.update(id ?? "", p as never);
             case "close": return s.status(id ?? "", { status: "closed", ...(p["reason"] === undefined ? {} : { reason: p["reason"] as string }) });
             case "reopen": return s.status(id ?? "", { status: "open" });
             case "defer": return s.defer(id ?? "", p["until"] as string | undefined);
@@ -257,8 +267,9 @@ export default function tasksExtension(pi: ExtensionAPI) {
             case "graph": return s.graph();
             case "duplicates": return s.duplicates();
             case "lint": return s.lint(p["ids"] === undefined ? {} : { ids: p["ids"] as readonly string[] });
-            case "children": return s.children(id ?? "");
             case "epic": return s.epic(id ?? "");
+            case "attach": return s.attach(id ?? "", p["path"] as string, p["attachmentMetadata"] as Record<string, unknown> | undefined);
+            case "detach": return s.detach(id ?? "", p["path"] as string);
             default: return { ok: false, error: { kind: "validation", message: `unknown op: ${op}` } } as never;
           }
         });

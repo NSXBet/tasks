@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import type { DependencyEdge, Issue, Metadata } from '@tasks/domain';
-import { dependencyTarget, issueDescription, issueId, issuePriority, issueTitle } from '@tasks/domain';
+import type { DependencyEdge, Issue, IssueAttachment, Metadata } from '@tasks/domain';
+import { dependencyTarget, issueDescription, issueId, issuePriority, issueTitle, IssueAttachmentSchema } from '@tasks/domain';
 import type { IssueUnitOfWork } from '@tasks/application';
 import type { SurfaceStore } from '../store.js';
 import { writeCurrentId } from '../store.js';
@@ -31,6 +31,8 @@ export interface CreateInput {
   readonly externalRef?: string | null;
   readonly branch?: string | null;
   readonly metadata?: Metadata;
+  /** File-path attachments (e.g. `foo.yaml` relative to the repo root); `{ path, metadata? }`. */
+  readonly attachments?: readonly IssueAttachment[];
   /** `<type>:<target>` or bare `<target>` (type defaults to `blocks`). */
   readonly deps?: readonly string[];
 }
@@ -112,6 +114,7 @@ export const createIssue = async (store: SurfaceStore, input: CreateInput) => {
       externalRef: input.externalRef ?? null,
       branch: input.branch ?? null,
       metadata: input.metadata ?? {},
+      attachments: (input.attachments ?? []).map(attachment => IssueAttachmentSchema.parse(attachment)),
       wireUnknown: {},
       dependencies: [],
       dependencyCount: 0,

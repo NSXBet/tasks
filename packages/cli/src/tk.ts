@@ -2,9 +2,9 @@
 import { access, copyFile, cp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { cwd, exit, stdin } from "node:process";
 import { randomBytes } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { findBeadsWorkspace, inferPrefix, migrateBeadsJsonl, resolveBeadsJsonl, searchPath, type MigrationSummary } from "@tasks/beads";
-import { dependencyTarget, issueDescription, issueFromBdWire, issueId, issuePriority, issueTitle, issueToBdWire, type Issue, type IssueId, type Metadata } from "@tasks/domain";
+import { dependencyTarget, issueDescription, issueFromBdWire, issueId, issuePriority, issueTitle, issueToBdWire, type Issue, type IssueAttachment, type IssueId, type Metadata } from "@tasks/domain";
 import { canonicalTimestampCodec, err, ok, type IssueUnitOfWork, type Result } from "@tasks/application";
 import { DEFAULT_STORAGE, describeStorage, openEphemeralScratch, openStorage, readWorkspaceConfig, resolveStorageConfig, writeWorkspaceConfig, type StorageAdapter, type StorageConfig, type WorkspaceConfig } from "@tasks/workspace";
 import { booleanFlag, directory, parseArgs, stringFlag, ArgumentParseError, type ParsedArgs } from "./args.js";
@@ -14,7 +14,7 @@ import {
   formatDuplicates, formatEpic, formatGraph, formatHistory, formatLint, formatList, formatMigration, formatOrphans,
   formatReady, formatRenamePrefix, formatSearch, formatShow, formatStale, formatStats,
   formatStatus, formatStatuses, formatTodo, formatTree, formatTypes, formatVersion, formatWhere, formatWorktreeInfo, formatWorktreeList,
-  HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, green, issueWire, output, treeNodeWire,
+  HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
 import { bunRunner } from "./git.js";
 import { formatHunkComment, hunkCommentMetaKey, parseHunkComments, pendingHunkComments, planHunk, scratchDirectory, writeAgentContext } from "./hunk.js";
@@ -22,14 +22,14 @@ import { buildTree, type TreeOptions } from "./tree.js";
 import { checkGitHooks, installHooks, managedHookNames, runHookCommand, uninstallHooks } from "./hooks.js";
 import { CODEX_EVENTS, installCodexHooks, codexHooksPath, installCursorHooks, cursorHooksTargetPath, removeCodexHooks, removeCursorHooks } from "./hooks-json.js";
 import { runCodexHook, runCursorHook } from "./agent-hooks.js";
+import { runSkill } from "./skill.js";
 
 /** bd-style collision-resistant issue IDs: <prefix>-<base36 hash>, short like bd (bd-0t0, bd-45g). */
 const generateId = (): string => randomBytes(6).toString("base64url").toLowerCase().replace(/[^a-z0-9]/g, "x");
 /** Start at 3 chars (like bd), grow on collision pressure. */
 const idLength = (taken: number): number => (taken < 50 ? 3 : taken < 1_000 ? 4 : 6);
 
-const writers = new Set(["init", "create", "q", "update", "close", "reopen", "defer", "undefer", "comment", "note", "assign", "priority", "tag", "dep", "label", "set-state", "import", "migrate", "delete", "remove", "rename", "link", "duplicate", "supersede", "todo", "backup", "rename-prefix", "switch-backend", "hooks"]);
-/** Stable stderr JSON error contract: { error: { kind, message } }. */
+const writers = new Set(["init", "create", "q", "update", "close", "reopen", "defer", "undefer", "comment", "note", "assign", "priority", "tag", "dep", "label", "set-state", "import", "migrate", "delete", "remove", "rename", "link", "duplicate", "supersede", "todo", "backup", "rename-prefix", "switch-backend", "hooks", "attach", "detach"]);
 type JsonError = { readonly error: { readonly kind: "parse" | "validation" | "readonly" | "runtime"; readonly message: string } };
 type Config = WorkspaceConfig;
 const fail = (message: string): never => { throw new Error(message); };
@@ -41,6 +41,26 @@ const timeFrom = (value: unknown, fallback: Date): Date => { const parsed = new 
 const parseDate = (value: string | undefined): Date | null | undefined => { if (value === undefined) return undefined; if (value === "" || value === "null") return null; const date = new Date(value); if (Number.isNaN(date.valueOf())) fail(`invalid date: ${value}`); return date; };
 const parseMetadata = (value: string | undefined): Metadata | undefined => { if (value === undefined) return undefined; const parsed: unknown = JSON.parse(value); if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") fail("metadata must be JSON object"); return parsed as Metadata; };
 const metadataEntry = (value: string): readonly [string, Metadata[string]] => { const separator = value.indexOf("="); if (separator <= 0) fail("metadata entry must be key=value"); const key = value.slice(0, separator); const raw = value.slice(separator + 1); try { return [key, JSON.parse(raw) as Metadata[string]]; } catch { return [key, raw]; } };
+/**
+ * `--attach <path>[=json]` (repeatable) → attachment records. Bare paths are
+ * stored workspace-root-relative (`foo.yaml` means `<repo>/foo.yaml`, the way
+ * agents reference repo files). Inline `=json` or a trailing
+ * `--attach-metadata key=value,...` carries per-attachment metadata.
+ */
+const parseAttachments = (args: ParsedArgs, root: string): IssueAttachment[] => {
+  const raw = args.flags.get("attach") as string | readonly string[] | undefined;
+  const plan = stringFlag(args, "plan");
+  if (raw === undefined && plan === undefined) return [];
+  const entries = (Array.isArray(raw) ? raw : [raw]).filter((entry): entry is string => typeof entry === "string" && entry !== "");
+  const pairs = entries.map((entry) => { const separator = entry.indexOf("="); return separator > 0 ? [entry.slice(0, separator), entry.slice(separator + 1)] as const : [entry, undefined] as const; });
+  const trailing = stringFlag(args, "attach-metadata");
+  return pairs.map(([entryPath, inlineMeta], index) => {
+    let metadata: Metadata = {};
+    if (inlineMeta !== undefined) { try { const parsed: unknown = JSON.parse(inlineMeta); if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) metadata = parsed as Metadata; else metadata = { value: parsed as Metadata[string] }; } catch { metadata = { value: inlineMeta }; } }
+    if (trailing !== undefined && index === pairs.length - 1) { const trailingMeta: Metadata = {}; for (const part of trailing.split(",").filter(Boolean)) { const [key, value] = metadataEntry(part); trailingMeta[key] = value; } metadata = { ...metadata, ...trailingMeta }; }
+    return { path: isAbsolute(entryPath) ? entryPath : relative(root, resolve(root, entryPath)), metadata, wireUnknown: {} };
+  }).concat(plan === undefined ? [] : [{ path: isAbsolute(plan) ? plan : relative(root, resolve(root, plan)), metadata: { kind: "plan" }, wireUnknown: {} }]);
+};
 /**
  * Resolves `--status <s>` or its boolean shorthands (`--open`, `--closed`,
  * `--all`, `--ready-to-review`, `--approved`, `--rejected`) to a status value,
@@ -222,7 +242,7 @@ class CommandService {
       let attempts = 0;
       while (existing.has(candidate)) { attempts += 1; if (attempts > 20) fail("could not allocate unique issue id"); candidate = `${this.prefix()}-${generateId().slice(0, length)}`; }
       const now = new Date(); const parent = stringFlag(args, "parent"); const estimate = stringFlag(args, "estimate");
-      const issue: Issue = { id: issueId(candidate), title: issueTitle(title), description: issueDescription(description), status: stringFlag(args, "status") ?? "open", priority: issuePriority(Number(stringFlag(args, "priority") ?? 2)), type: stringFlag(args, "type") ?? "task", owner: stringFlag(args, "owner") ?? null, assignee: stringFlag(args, "assignee") ?? null, createdBy: this.actor, createdAt: now, updatedAt: now, startedAt: null, closedAt: null, dueAt: parseDate(stringFlag(args, "due")) ?? null, deferUntil: parseDate(stringFlag(args, "defer-until")) ?? null, parentId: parent === undefined ? null : issueId(parent), labels: (stringFlag(args, "labels") ?? stringFlag(args, "label") ?? "").split(",").filter(Boolean), notes: stringFlag(args, "notes") ?? null, design: stringFlag(args, "design") ?? null, acceptanceCriteria: stringFlag(args, "acceptance") ?? null, estimate: estimate === undefined ? null : Number(estimate), specId: stringFlag(args, "spec-id") ?? null, externalRef: stringFlag(args, "external-ref") ?? null, branch: stringFlag(args, "branch") ?? null, metadata: parseMetadata(stringFlag(args, "metadata")) ?? {}, wireUnknown: {}, dependencies: [], dependencyCount: 0, dependentCount: 0, comments: [], commentCount: 0 };
+      const issue: Issue = { id: issueId(candidate), title: issueTitle(title), description: issueDescription(description), status: stringFlag(args, "status") ?? "open", priority: issuePriority(Number(stringFlag(args, "priority") ?? 2)), type: stringFlag(args, "type") ?? "task", owner: stringFlag(args, "owner") ?? null, assignee: stringFlag(args, "assignee") ?? null, createdBy: this.actor, createdAt: now, updatedAt: now, startedAt: null, closedAt: null, dueAt: parseDate(stringFlag(args, "due")) ?? null, deferUntil: parseDate(stringFlag(args, "defer-until")) ?? null, parentId: parent === undefined ? null : issueId(parent), labels: (stringFlag(args, "labels") ?? stringFlag(args, "label") ?? "").split(",").filter(Boolean), notes: stringFlag(args, "notes") ?? null, design: stringFlag(args, "design") ?? null, acceptanceCriteria: stringFlag(args, "acceptance") ?? null, estimate: estimate === undefined ? null : Number(estimate), specId: stringFlag(args, "spec-id") ?? null, externalRef: stringFlag(args, "external-ref") ?? null, branch: stringFlag(args, "branch") ?? null, metadata: parseMetadata(stringFlag(args, "metadata")) ?? {}, attachments: parseAttachments(args, this.root), wireUnknown: {}, dependencies: [], dependencyCount: 0, dependentCount: 0, comments: [], commentCount: 0 };
       unwrap(await uow.save(issue)); for (const entry of (stringFlag(args, "deps") ?? "").split(",").filter(Boolean)) { const [kind, target] = entry.includes(":") ? entry.split(/:(.*)/s) : ["blocks", entry]; unwrap(await uow.addDependency({ issueId: issue.id, target: dependencyTarget(target!), type: kind!, createdAt: now, createdBy: this.actor, metadata: {}, wireUnknown: {} })); }
       const made = await get(uow, issue.id); await this.setCurrent(made.id); return made;
     });
@@ -301,6 +321,8 @@ class CommandService {
     else if (command === "label") { const label = args.positionals[3] ?? fail("label requires value"); patch = { labels: (tuicrLabel ? args.positionals[1] : args.positionals[2]) === "add" ? [...new Set([...issue.labels, label])] : issue.labels.filter((value) => value !== label) }; }
     else if (command === "update") { const fields: ReadonlyArray<readonly [string, keyof Issue, (value: string) => Issue[keyof Issue]]> = [["title", "title", issueTitle], ["description", "description", issueDescription], ["priority", "priority", (value) => issuePriority(Number(value))], ["type", "type", (value) => value], ["assignee", "assignee", (value) => value === "" ? null : value], ["owner", "owner", (value) => value], ["acceptance", "acceptanceCriteria", (value) => value], ["design", "design", (value) => value], ["spec-id", "specId", (value) => value], ["estimate", "estimate", (value) => Number(value)], ["external-ref", "externalRef", (value) => value === "" ? null : value], ["branch", "branch", (value) => value === "" ? null : value], ["parent", "parentId", (value) => value === "" ? null : issueId(value)]]; for (const [flagName, key, parse] of fields) { const raw = stringFlag(args, flagName); if (raw !== undefined) (patch as Record<string, unknown>)[key] = parse(raw); } const metadata = stringFlag(args, "metadata"); if (metadata !== undefined) { const parsed: Metadata = JSON.parse(metadata); patch = { ...patch, metadata: parsed }; } const setMetadata = stringFlag(args, "set-metadata"); if (setMetadata !== undefined) { const [key, value] = metadataEntry(setMetadata); patch = { ...patch, metadata: { ...issue.metadata, ...(patch.metadata ?? {}), [key]: value } }; } const unsetMetadata = stringFlag(args, "unset-metadata"); if (unsetMetadata !== undefined) { const next = { ...issue.metadata, ...(patch.metadata ?? {}) }; delete next[unsetMetadata]; patch = { ...patch, metadata: next }; } const labels = stringFlag(args, "label"); if (labels !== undefined) patch = { ...patch, labels: [...new Set([...issue.labels, ...labels.split(",")])] }; const addLabel = stringFlag(args, "add-label"); if (addLabel !== undefined) patch = { ...patch, labels: [...new Set([...(patch.labels ?? issue.labels), ...addLabel.split(",").filter(Boolean)])] }; const removeLabel = stringFlag(args, "remove-label"); if (removeLabel !== undefined) { const removed = new Set(removeLabel.split(",")); patch = { ...patch, labels: (patch.labels ?? issue.labels).filter((label) => !removed.has(label)) }; } let body = stringFlag(args, "body"); if (booleanFlag(args, "stdin")) body = await readInput(); if (body !== undefined) patch = { ...patch, description: issueDescription(body) }; const notes = stringFlag(args, "append-notes"); if (notes !== undefined) patch = { ...patch, notes: [issue.notes, notes].filter(Boolean).join("\n") }; } else fail(`unknown command: ${command}`);
     const status = stringFlag(args, "status"); if (status !== undefined) patch = { ...patch, status }; const due = parseDate(stringFlag(args, "due")); if (due !== undefined) patch = { ...patch, dueAt: due };
+    if (command === "update" && (args.flags.get("attach") !== undefined || stringFlag(args, "plan") !== undefined)) { const incoming = parseAttachments(args, this.root); const planPaths = new Set(stringFlag(args, "plan") === undefined ? [] : incoming.filter((entry) => entry.metadata["kind"] === "plan").map((entry) => entry.path)); const merged = [...issue.attachments.filter((entry) => !planPaths.has(entry.path) && !(planPaths.size > 0 && entry.metadata["kind"] === "plan"))]; for (const attachment of incoming) { const existing = merged.findIndex((entry) => entry.path === attachment.path); if (existing >= 0) merged[existing] = attachment; else merged.push(attachment); } patch = { ...patch, attachments: merged }; }
+    if (command === "update" && stringFlag(args, "detach") !== undefined) { const target = stringFlag(args, "detach")!; patch = { ...patch, attachments: issue.attachments.filter((entry) => entry.path !== target) }; }
     const result = changed(issue, patch); unwrap(await uow.save(result)); if (command === "close" || command === "reopen" || command === "set-state") await this.setCurrent(result.id); return result; }); }
   /** Quick capture (`bd q`): create and return only the new id. */
   async quick(args: ParsedArgs): Promise<string> { return (await this.create(args)).id; }
@@ -309,6 +331,32 @@ class CommandService {
   async fieldPatch(args: ParsedArgs, key: "priority", value: number): Promise<Issue>;
   async fieldPatch(args: ParsedArgs, key: "assignee" | "priority", value: string | number): Promise<Issue> { const id = await this.selected(args); return transaction(this.database, async (uow) => { const issue = await get(uow, id); const patch: Partial<Issue> = key === "assignee" ? { assignee: String(value) } : { priority: issuePriority(Number(value)) }; const result = changed(issue, patch); unwrap(await uow.save(result)); return result; }); }
   async note(args: ParsedArgs, body: string): Promise<Issue> { const id = await this.selected(args); return transaction(this.database, async (uow) => { const issue = await get(uow, id); const result = changed(issue, { notes: [issue.notes, body].filter(Boolean).join("\n") }); unwrap(await uow.save(result)); return result; }); }
+  /** `tk attach <id> <path>`: add a file-path attachment (deduped by path). */
+  async attach(args: ParsedArgs): Promise<Issue> {
+    const raw = args.positionals[2] ?? stringFlag(args, "attach") ?? fail("attach requires a file path");
+    const attachment = parseAttachments({ ...args, flags: new Map([...args.flags, ["attach", raw]]) }, this.root)[0] ?? fail("attach requires a file path");
+    const id = await this.selected(args);
+    return transaction(this.database, async (uow) => {
+      const issue = await get(uow, id);
+      if (issue.attachments.some((entry) => entry.path === attachment.path)) return issue;
+      const result = changed(issue, { attachments: [...issue.attachments, attachment] });
+      unwrap(await uow.save(result));
+      return result;
+    });
+  }
+  /** `tk detach <id> <path>`: remove one attachment by path; no-op when absent. */
+  async detach(args: ParsedArgs): Promise<Issue> {
+    const path = args.positionals[2] ?? stringFlag(args, "detach") ?? fail("detach requires a file path");
+    const id = await this.selected(args);
+    return transaction(this.database, async (uow) => {
+      const issue = await get(uow, id);
+      const attachments = issue.attachments.filter((entry) => entry.path !== path);
+      if (attachments.length === issue.attachments.length) return issue;
+      const result = changed(issue, { attachments });
+      unwrap(await uow.save(result));
+      return result;
+    });
+  }
   async tag(args: ParsedArgs, label: string): Promise<Issue> { const id = await this.selected(args); return transaction(this.database, async (uow) => { const issue = await get(uow, id); const result = changed(issue, { labels: [...new Set([...issue.labels, label])] }); unwrap(await uow.save(result)); return result; }); }
   /** Children of a parent issue. */
   async children(args: ParsedArgs): Promise<readonly Issue[]> { const id = await this.selected(args); return transaction(this.database, async (uow) => unwrap(await uow.list({ limit: 100_000 })).items.filter((issue) => issue.parentId === id)); }
@@ -437,7 +485,6 @@ class CommandService {
     }
     if (reviewRoot === null) fail("hunk sync requires a git repository");
     const session = await bunRunner.run(["hunk", "session", "comment", "list", "--repo", reviewRoot!, "--json"], reviewCwd);
-    if (session.code !== 0) fail(`hunk session comment list failed: ${session.stderr || "no active session"}`);
     const comments = parseHunkComments(session.stdout);
     const knownIds = readHunkCommentIds(issue);
     const pending = pendingHunkComments(comments, knownIds);
@@ -495,6 +542,9 @@ WORKING WITH ISSUES
   comment <id> <body>     Add comment (--stdin for pipe)
   comments <id>           View comments
   note <id> <text>        Append a note
+  attach <id> <path>      Attach a file path (--attach-metadata k=v,k2=v2)
+  detach <id> <path>      Remove an attachment
+  create/update --plan <path>  Set the issue plan file (kind=plan attachment; replaces prior plan)
   assign <id> <user>      Set assignee
   priority <id> <0-4>     Set priority
   tag <id> <label>        Add a label
@@ -553,11 +603,13 @@ SETUP
   version                 Print version information
   quickstart              Quick start guide
   prime                   AI-optimized workflow context
+  skill [path] [--install <dir>]  Print the tasks agent skill (LLM-facing docs: ops table, attachments/plans); path = location only, --install symlinks into an agent skills dir
   onboard                 Snippet for your agent instructions file
   human                   Focused help menu for human users
 
 GLOBAL FLAGS
   --json                  Output as JSON
+  --markdown, --md        Output as markdown (issue lists separated by ---)
   --readonly              Reject writes
   -C, --directory <path>  Change directory before running (like git -C)
   --actor <name>          Override actor identity
@@ -656,7 +708,7 @@ async function runHooks(args: ParsedArgs, start: string, json: boolean): Promise
   fail("usage: tk hooks install [--tasks|--shared] | uninstall | list | run <hook> [args]");
 }
 
-async function main(): Promise<void> { const args = parseArgs(process.argv.slice(2)); const command = args.positionals[0] ?? "help"; const json = booleanFlag(args, "json"); const start = directory(args, cwd()); let root = await rootFrom(start);
+async function main(): Promise<void> { const args = parseArgs(process.argv.slice(2)); const command = args.positionals[0] ?? "help"; const json = booleanFlag(args, "json"); const markdown = !json && (booleanFlag(args, "markdown") || booleanFlag(args, "md")); const start = directory(args, cwd()); let root = await rootFrom(start);
   if (command === "init" && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(INIT_HELP); return; }
   if (command === "help" && args.positionals[1] === "init") { process.stdout.write(INIT_HELP); return; }
   if (command === "switch-backend" && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(SWITCH_BACKEND_HELP); return; }
@@ -695,6 +747,7 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
   // any git repo, like bd hooks). Dispatch before workspace resolution.
   if (command === "hooks") { await runHooks(args, start, json); return; }
   if (command === "setup") { await runAgentHooksSetup(args, start, json); return; }
+  if (command === "skill") { const result = await runSkill(args, import.meta.dir); if (json) output({ path: result.path, skill: result.skill }, true); else if (markdown) process.stdout.write(formatMarkdown(result, false)); else console.log(result.text); return; }
   if (command === "codex-hook") { await runCodexHook(args.positionals[1] ?? fail("codex-hook requires event"), await readInput()); return; }
   if (command === "cursor-hook") { await runCursorHook(args.positionals[1] ?? fail("cursor-hook requires event"), await readInput()); return; }
   // migrate bootstraps its own workspace so a beads-only checkout needs no separate init,
@@ -739,9 +792,12 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
   const readonly = booleanFlag(args, "readonly");
   const storage = ephemeral ? await openEphemeralScratch() : await openStorage(tasksDir, await resolveStorageConfig(tasksDir, config), { readonly }); try { if (readonly) { if (unwrap(await storage.adapter.hasPendingMigrations())) fail("readonly mode requires current database; pending migrations detected"); } else unwrap(await storage.adapter.migrate()); const service = new CommandService(storage.adapter, workspace, config, stringFlag(args, "actor") ?? process.env["USER"] ?? "unknown", storage.backend, storage.backend === "postgres" ? null : storage.location);
     // Every dispatch produces the JSON value plus an optional human formatter.
-    // JSON stays byte-identical for agents; humans get colored, iconed output.
     let value: unknown; let human: (() => string) | null = null;
+    // JSON stays byte-identical for agents; humans get colored, iconed output.
     if (command === "create") { const issue = await service.create(args); value = issueWire(issue); human = () => confirmation("Created issue", issue); }
+    else if (command === "note") { const body = args.positionals.slice(2).join(" ") || fail("note requires text"); const issue = await service.note(args, body); value = issueWire(issue); human = () => confirmation("Note added to", issue); }
+    else if (command === "attach") { const issue = await service.attach(args); value = issueWire(issue); human = () => confirmation("Attached file to", issue); }
+    else if (command === "detach") { const issue = await service.detach(args); value = issueWire(issue); human = () => confirmation("Detached file from", issue); }
     else if (command === "q") { const id = await service.quick(args); value = { id }; human = () => id; }
     else if (command === "show") { const issue = await service.show(args); value = [issueWire(issue)]; human = () => formatShow(issue); }
     else if (command === "list" || command === "ready") { const issues = await service.list(args, command === "ready"); value = issues.map(issueWire); human = () => (command === "ready" ? formatReady(issues) : formatList(issues)); }
@@ -791,9 +847,11 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
     else if (command === "quickstart") { value = { text: QUICKSTART }; human = () => QUICKSTART; }
     else if (command === "prime") { value = { text: PRIME }; human = () => PRIME; }
     else if (command === "onboard") { value = { text: ONBOARD }; human = () => ONBOARD; }
-    else if (command === "human") { value = { text: HUMAN_HELP }; human = () => HUMAN_HELP; }
     else if (["update", "close", "reopen", "defer", "undefer", "label", "set-state"].includes(command)) { const issue = await service.mutate(args, command); value = issueWire(issue); const verbs: Readonly<Record<string, string>> = { update: "Updated issue", close: "Closed", reopen: "Reopened", defer: "Deferred", undefer: "Restored", label: "Labels updated on", "set-state": "State changed on" }; human = () => confirmation(verbs[command] ?? "Updated", issue, command === "close" && stringFlag(args, "reason") !== undefined ? `: ${stringFlag(args, "reason")}` : ""); }
     else if (command === "hunk") { const result = await service.hunk(args); value = result.value; human = result.human; }
     else fail(`unknown command: ${command}`);
-    if (command === "export" && !json) for (const record of value as readonly unknown[]) console.log(JSON.stringify(record)); else if (!json && human !== null) console.log(human()); else output(value, json); } finally { await storage.close(); } }
+    if (command === "export") { if (!json && !markdown) for (const record of value as readonly unknown[]) console.log(JSON.stringify(record)); else if (markdown) process.stdout.write(formatMarkdown(value, false)); else output(value, json); }
+    else if (markdown) process.stdout.write(formatMarkdown(value, false));
+    else if (!json && human !== null) console.log(human());
+    else output(value, json); } finally { await storage.close(); } }
 main().catch((error: unknown) => { const message = error instanceof Error ? error.message : String(error); if (process.argv.includes("--json")) { const kind: JsonError["error"]["kind"] = error instanceof ArgumentParseError ? "parse" : message.startsWith("readonly") ? "readonly" : message.includes("invalid") || message.startsWith("import line") ? "validation" : "runtime"; console.error(JSON.stringify({ error: { kind, message } } satisfies JsonError)); } else console.error(formatError(message)); exit(1); });

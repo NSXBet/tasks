@@ -49,4 +49,21 @@ describe("tasks surface", () => {
     expect(comments.ok && comments.value !== null && comments.value.commentCount).toBe(1);
     await surface.store.close();
   });
+
+  it("attaches file paths with metadata, dedupes, and detaches", async () => {
+    const root = workspace();
+    const surface = await createSurface({ root });
+    const created = await surface.create({ title: "with files", attachments: [{ path: "foo.yaml", metadata: { kind: "spec" } }] });
+    if (!created.ok) throw created.error;
+    expect(created.value.attachments).toEqual([{ path: "foo.yaml", metadata: { kind: "spec" }, wireUnknown: {} }]);
+    const again = await surface.attach(created.value.id, "foo.yaml");
+    expect(again.ok && again.value.attachments).toHaveLength(1);
+    const second = await surface.attach(created.value.id, "notes/plan.md");
+    expect(second.ok && second.value.attachments).toHaveLength(2);
+    const removed = await surface.detach(created.value.id, "foo.yaml");
+    expect(removed.ok && removed.value.attachments.map((attachment) => attachment.path)).toEqual(["notes/plan.md"]);
+    const shown = await surface.show(created.value.id);
+    expect(shown.ok && shown.value.attachments.map((attachment) => attachment.path)).toEqual(["notes/plan.md"]);
+    await surface.store.close();
+  });
 });

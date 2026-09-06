@@ -468,4 +468,96 @@ describe("tk executable", () => {
     const stats = json<{ ready_to_review: number; approved: number; rejected: number }>(directory, ["stats"]);
     expect(stats).toMatchObject({ ready_to_review: 1, approved: 1, rejected: 1 });
   });
+  it("renders --markdown for issue lists, singles, and non-issue commands", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const first = json<{ id: string }>(directory, ["create", "first md", "--type", "bug", "--priority", "1", "--labels", "mvp"]);
+    const second = json<{ id: string }>(directory, ["create", "second md"]);
+    json(directory, ["update", second.id, "--status", "in_progress"]);
+    // Two issues: one `---` rule between `##` sections; fields carry wire data.
+    const list = run(directory, ["list", "--markdown"]);
+    expect(list.status).toBe(0);
+    expect(list.stdout).toContain(`## ${first.id} — first md`);
+    expect(list.stdout).toContain(`## ${second.id} — second md 🔄`);
+    expect(list.stdout).toContain("**Status:** open · **Priority:** P1 · **Type:** bug");
+    expect(list.stdout).toContain("#mvp");
+    expect(list.stdout).toMatch(/^---$/m);
+    expect(list.stdout).not.toMatch(/\u001b\[/);
+    // A single issue renders one section, no rule.
+    const single = run(directory, ["show", first.id, "--md"]);
+    expect(single.status).toBe(0);
+    expect(single.stdout).toContain(`## ${first.id} — first md`);
+    expect(single.stdout).not.toMatch(/^---$/m);
+    // Empty list says so.
+    const empty = run(directory, ["list", "--closed", "--markdown"]);
+    expect(empty.status).toBe(0);
+    expect(empty.stdout).toContain("*(empty)*");
+    // Generic records: bullets for scalars, table for history.
+    const ping = run(directory, ["ping", "--markdown"]);
+    expect(ping.stdout).toContain("- **ok:** true");
+    const history = run(directory, ["history", first.id, "--markdown"]);
+    expect(history.status).toBe(0);
+    expect(history.stdout).toContain("| id |");
+  });
+
+  it("attaches file paths with metadata, dedupes, and detaches", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    writeFileSync(join(directory, "foo.yaml"), "kind: config\n");
+    // Bare path resolves to workspace-relative; inline JSON attaches metadata.
+    const created = json<{ id: string; attachments: ReadonlyArray<{ path: string; metadata: Record<string, unknown> }> }>(directory, ["create", "with files", "--attach", "foo.yaml", "--attach", "docs/plan.md={\"kind\":\"plan\"}"]);
+    expect(created.attachments).toEqual([
+      { path: "foo.yaml", metadata: {} },
+      { path: "docs/plan.md", metadata: { kind: "plan" } },
+    ]);
+    // Repeat attach of the same path is a no-op; new paths append.
+    const attached = json<{ attachments: ReadonlyArray<{ path: string }> }>(directory, ["attach", created.id, "foo.yaml"]);
+    expect(attached.attachments).toHaveLength(2);
+    const added = json<{ attachments: ReadonlyArray<{ path: string }> }>(directory, ["attach", created.id, "notes/spec.yaml", "--attach-metadata", "kind=spec"]);
+    expect(added.attachments.map((attachment) => attachment.path)).toEqual(["foo.yaml", "docs/plan.md", "notes/spec.yaml"]);
+    const shownIssue = json<ReadonlyArray<{ attachments: ReadonlyArray<{ path: string; metadata: Record<string, unknown> }> }>>(directory, ["show", created.id]);
+    expect(shownIssue[0]!.attachments[2]).toEqual({ path: "notes/spec.yaml", metadata: { kind: "spec" } });
+    // detach removes by path; removing an absent path is a no-op.
+    const removed = json<{ attachments: ReadonlyArray<{ path: string }> }>(directory, ["detach", created.id, "docs/plan.md"]);
+    expect(removed.attachments.map((attachment) => attachment.path)).toEqual(["foo.yaml", "notes/spec.yaml"]);
+    const again = json<{ attachments: ReadonlyArray<{ path: string }> }>(directory, ["update", created.id, "--detach", "missing.md"]);
+    expect(again.attachments).toHaveLength(2);
+    const shown = run(directory, ["show", created.id]);
+    expect(shown.stdout).toContain("ATTACHMENTS:");
+  });
+  it("sets the plan via the attachment system and replaces it on update", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    writeFileSync(join(directory, "v1.md"), "plan v1\n");
+    writeFileSync(join(directory, "v2.md"), "plan v2\n");
+    writeFileSync(join(directory, "side.md"), "side\n");
+    // --plan attaches with kind=plan metadata.
+    const created = json<{ id: string; attachments: ReadonlyArray<{ path: string; metadata: Record<string, unknown> }> }>(directory, ["create", "planned", "--plan", "v1.md"]);
+    expect(created.attachments).toEqual([{ path: "v1.md", metadata: { kind: "plan" } }]);
+    // A plain attachment coexists with the plan.
+    json(directory, ["attach", created.id, "side.md"]);
+    // Setting a new plan replaces the old plan attachment only.
+    const updated = json<{ attachments: ReadonlyArray<{ path: string; metadata: Record<string, unknown> }> }>(directory, ["update", created.id, "--plan", "v2.md"]);
+    expect(updated.attachments).toEqual([
+      { path: "side.md", metadata: {} },
+      { path: "v2.md", metadata: { kind: "plan" } },
+    ]);
+  });
+
+  it("prints and installs the agent skill", () => {
+    const directory = workspace();
+    // Default: full SKILL.md content; works outside a workspace.
+    const printed = run(directory, ["skill"]);
+    expect(printed.status).toBe(0);
+    expect(printed.stdout).toContain("name: tasks");
+    expect(printed.stdout).toContain("## File attachments and plans");
+    // path subcommand: location only.
+    const path = run(directory, ["skill", "path"]);
+    expect(path.stdout.trim()).toMatch(/SKILL\.md$/);
+    // --install symlinks the skill into the target directory.
+    const installDir = join(directory, "skills");
+    const installed = run(directory, ["skill", "--install", installDir]);
+    expect(installed.status).toBe(0);
+    expect(readFileSync(join(installDir, "tasks"), "utf8")).toContain("name: tasks");
+  });
 });

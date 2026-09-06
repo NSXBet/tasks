@@ -1,12 +1,14 @@
 import { resolve } from "node:path";
 
-export type FlagValue = string | true;
+export type FlagValue = string | true | readonly string[];
 export interface ParsedArgs { readonly positionals: readonly string[]; readonly flags: ReadonlyMap<string, FlagValue>; }
 
 const aliases: Readonly<Record<string, string>> = { C: "directory", p: "priority", t: "type", d: "description" };
 const valueFlags = new Set([
-  "directory", "prefix", "title", "description", "status", "priority", "type", "owner", "assignee", "due", "defer-until", "parent", "labels", "label", "notes", "design", "acceptance", "estimate", "spec-id", "external-ref", "metadata", "deps", "limit", "body", "actor", "until", "append-notes", "reason", "add-label", "remove-label", "set-metadata", "unset-metadata", "on-conflict", "bd", "source", "days", "depth", "min-similarity", "of", "with", "field", "editor", "backend", "filename", "url-env", "branch",
+  "directory", "prefix", "title", "description", "status", "priority", "type", "owner", "assignee", "due", "defer-until", "parent", "labels", "label", "notes", "design", "acceptance", "estimate", "spec-id", "external-ref", "metadata", "deps", "limit", "body", "actor", "until", "append-notes", "reason", "add-label", "remove-label", "set-metadata", "unset-metadata", "on-conflict", "bd", "source", "days", "depth", "min-similarity", "of", "with", "field", "editor", "backend", "filename", "url-env", "branch", "attach", "attach-metadata", "plan", "detach", "install",
 ]);
+/** Flags that may repeat: each occurrence appends instead of replacing. */
+const repeatableFlags = new Set(["attach"]);
 
 export class ArgumentParseError extends Error {
   constructor(message: string) { super(message); this.name = "ArgumentParseError"; }
@@ -22,11 +24,11 @@ export function parseArgs(tokens: readonly string[]): ParsedArgs {
     const raw = token.startsWith("--") ? token.slice(2) : token.slice(1);
     const [rawName, inline] = raw.split("=", 2);
     const name = aliases[rawName!] ?? rawName!;
-    if (inline !== undefined) { flags.set(name, inline); continue; }
+    if (inline !== undefined) { setOrAppend(flags, name, inline); continue; }
     if (valueFlags.has(name)) {
       const next = tokens[index + 1];
       if (next === undefined || next.startsWith("-")) throw new ArgumentParseError(`--${name} requires value`);
-      flags.set(name, next); index += 1;
+      setOrAppend(flags, name, next); index += 1;
     } else flags.set(name, true);
   }
   return { positionals, flags };
@@ -37,3 +39,12 @@ export const stringFlag = (args: ParsedArgs, name: string): string | undefined =
 };
 export const booleanFlag = (args: ParsedArgs, name: string): boolean => flag(args, name) === true;
 export const directory = (args: ParsedArgs, fallback: string): string => resolve(stringFlag(args, "directory") ?? fallback);
+/** Repeatable flags accumulate string values; everything else replaces. */
+const setOrAppend = (flags: Map<string, FlagValue>, name: string, value: string): void => {
+  if (!repeatableFlags.has(name)) { flags.set(name, value); return; }
+  const existing = flags.get(name);
+  if (existing === undefined) flags.set(name, value);
+  else if (Array.isArray(existing)) flags.set(name, [...existing, value]);
+  else if (typeof existing === "string") flags.set(name, [existing, value]);
+  else flags.set(name, value);
+};

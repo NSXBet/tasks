@@ -82,6 +82,7 @@ export function issueWire(issue: Issue): Record<string, unknown> {
     due_at: iso(issue.dueAt), defer_until: iso(issue.deferUntil), parent: issue.parentId, labels: [...issue.labels],
     notes: issue.notes, design: issue.design, acceptance_criteria: issue.acceptanceCriteria, estimated_minutes: issue.estimate,
     spec_id: issue.specId, external_ref: issue.externalRef, branch: issue.branch, metadata: issue.metadata,
+    attachments: issue.attachments.map((attachment) => ({ path: attachment.path, metadata: attachment.metadata })),
     dependencies: issue.dependencies.map((edge) => ({ issue_id: edge.issueId, depends_on_id: edge.target, type: edge.type, created_at: edge.createdAt.toISOString(), created_by: edge.createdBy, metadata: edge.metadata })),
     dependency_count: issue.dependencyCount, dependent_count: issue.dependentCount,
     comments: issue.comments.map((comment) => ({ id: comment.id, issue_id: comment.issueId, author: comment.author, text: comment.text, created_at: comment.createdAt.toISOString() })),
@@ -160,6 +161,7 @@ export function formatShow(issue: Issue): string {
   if (issue.acceptanceCriteria !== null) sections.push(formatSection("ACCEPTANCE CRITERIA", issue.acceptanceCriteria.trimEnd()));
   if (issue.notes !== null) sections.push(formatSection("NOTES", issue.notes.trimEnd()));
   if (issue.branch !== null) sections.push(`${bold("BRANCH:")} ${cyan(issue.branch)}`);
+  if (issue.attachments.length > 0) sections.push(`${bold("ATTACHMENTS:")} ${issue.attachments.map((attachment) => cyan(attachment.path)).join(", ")}`);
   if (issue.dependencies.length > 0) sections.push(formatSection("DEPENDENCIES", issue.dependencies.map((edge) => `→ ${cyan(edge.target)} (${edge.type})`).join("\n")));
   if (issue.parentId !== null) sections.push(`${bold("PARENT:")} ${cyan(issue.parentId)}`);
   if (issue.comments.length > 0) sections.push(formatSection(`COMMENTS (${issue.comments.length})`, issue.comments.map((comment) => `${dim(datetime(comment.createdAt))} ${green(comment.author)}\n${indent(comment.text.trimEnd())}`).join("\n\n")));
@@ -237,6 +239,101 @@ export function formatMigration(report: Record<string, unknown>): string {
   const carried = (report["carried"] as readonly unknown[]).length;
   if (carried > 0) lines.push(field("Carried:", `${carried} non-issue records`));
   return lines.join("\n");
+}
+
+/* ------------------------------------------------------------------ */
+/* Markdown formatters — `--markdown` output for humans and agents.    */
+/* Lists render as `##` sections separated by `---` rules.             */
+/* ------------------------------------------------------------------ */
+
+const mdCell = (text: string): string => text.replace(/\|/g, "\\|").replace(/\n/g, " ");
+const mdDate = (value: string | null | undefined): string => (value ? value.slice(0, 10) : "");
+
+/** One wire issue as a `## <id> — <title>` section; `verbose` adds long-form fields. */
+function markdownIssue(record: Readonly<Record<string, unknown>>, verbose: boolean): string[] {
+  const status = String(record["status"] ?? "open");
+  const icon = status === "closed" ? "✅" : status === "in_progress" ? "🔄" : status === "blocked" ? "⛔" : status === "deferred" ? "💤" : status === "approved" ? "👍" : status === "rejected" ? "👎" : status === "ready-to-review" ? "👀" : "○";
+  const heading = `## ${record["id"]} — ${record["title"]} ${icon}`;
+  const fields: string[] = [`**Status:** ${status} · **Priority:** P${String(record["priority"] ?? 2)} · **Type:** ${String(record["issue_type"] ?? "task")}`];
+  if (record["description"] !== null && record["description"] !== undefined && String(record["description"]) !== "") fields.push(String(record["description"]).trimEnd());
+  const extras: string[] = [];
+  if (record["assignee"] !== null && record["assignee"] !== undefined) extras.push(`Assignee: ${record["assignee"]}`);
+  if (record["owner"] !== null && record["owner"] !== undefined) extras.push(`Owner: ${record["owner"]}`);
+  if (Array.isArray(record["labels"]) && record["labels"].length > 0) extras.push(`Labels: ${(record["labels"] as readonly unknown[]).map((label) => `#${String(label)}`).join(" ")}`);
+  if (record["branch"] !== null && record["branch"] !== undefined) extras.push(`Branch: \`${String(record["branch"])}\``);
+  if (Array.isArray(record["attachments"]) && record["attachments"].length > 0) extras.push(`Attachments: ${(record["attachments"] as readonly Readonly<Record<string, unknown>>[]).map((attachment) => `\`${String(attachment["path"])}\``).join(", ")}`);
+  if (record["parent"] !== null && record["parent"] !== undefined) extras.push(`Parent: ${record["parent"]}`);
+  if (record["due_at"] !== null && record["due_at"] !== undefined) extras.push(`Due: ${mdDate(record["due_at"] as string)}`);
+  if (Array.isArray(record["dependencies"]) && record["dependencies"].length > 0) extras.push(`Depends on: ${(record["dependencies"] as readonly Readonly<Record<string, unknown>>[]).map((edge) => `\`${String(edge["depends_on_id"])}\` (${String(edge["type"])})`).join(", ")}`);
+  if (extras.length > 0) fields.push(extras.join(" · "));
+  if (verbose) {
+    if (record["notes"] !== null && record["notes"] !== undefined && String(record["notes"]) !== "") fields.push(`**Notes:**\n\n${String(record["notes"]).trimEnd()}`);
+    if (record["design"] !== null && record["design"] !== undefined && String(record["design"]) !== "") fields.push(`**Design:**\n\n${String(record["design"]).trimEnd()}`);
+    if (record["acceptance_criteria"] !== null && record["acceptance_criteria"] !== undefined && String(record["acceptance_criteria"]) !== "") fields.push(`**Acceptance criteria:**\n\n${String(record["acceptance_criteria"]).trimEnd()}`);
+    fields.push(`Created ${mdDate(record["created_at"] as string)} · Updated ${mdDate(record["updated_at"] as string)}`);
+  }
+  if (Array.isArray(record["comments"]) && record["comments"].length > 0) {
+    const comments = (record["comments"] as readonly Readonly<Record<string, unknown>>[]).map((comment) => `- **${String(comment["author"])}** (${mdDate(comment["created_at"] as string)}): ${mdCell(String(comment["text"] ?? ""))}`);
+    fields.push(`**Comments (${comments.length}):**\n\n${comments.join("\n")}`);
+  }
+  return [heading, "", ...fields];
+}
+
+/** Key/value records (history, counts, reports) as a markdown table. */
+function markdownTable(records: readonly Readonly<Record<string, unknown>>[]): string[] {
+  const keys = [...new Set(records.flatMap((record) => Object.keys(record)))];
+  if (keys.length === 0) return [];
+  const cells = (record: Readonly<Record<string, unknown>>): string => keys.map((key) => mdCell(String(record[key] ?? ""))).join(" | ");
+  return [`| ${keys.map(mdCell).join(" | ")} |`, `| ${keys.map(() => "---").join(" | ")} |`, ...records.map((record) => `| ${cells(record)} |`)];
+}
+
+/** Generic scalar array (ids, types, statuses) as a bullet list. */
+function markdownBullets(values: readonly unknown[]): string[] {
+  return values.map((value) => (typeof value === "object" && value !== null ? markdownAny(value, false).trimStart() : `- ${String(value)}`));
+}
+
+/** Recursive renderer for any command value; dispatches on shape. */
+function markdownAny(value: unknown, verbose: boolean): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const items = value as readonly unknown[];
+    if (items.length === 0) return "*(empty)*";
+    if (items.every((item) => typeof item === "object" && item !== null && "id" in item && "title" in item)) return items.map((item) => markdownIssue(item as Readonly<Record<string, unknown>>, verbose).join("\n")).join("\n\n---\n\n");
+    if (items.every((item) => typeof item === "object" && item !== null && !Array.isArray(item))) {
+      const records = items as readonly Readonly<Record<string, unknown>>[];
+      // Comment records (`tk comments <id>`) read better as bullets than tables.
+      if (records.every((record) => typeof record["author"] === "string" && typeof record["text"] === "string")) {
+        return records.map((record) => `- **${String(record["author"])}** (${mdDate(record["created_at"] as string)}): ${mdCell(String(record["text"]))}`).join("\n");
+      }
+      const table = markdownTable(records);
+      if (table.length > 0) return table.join("\n");
+      return "*(empty)*";
+    }
+    return markdownBullets(items).join("\n");
+  }
+  if (typeof value === "object" && value !== null) {
+    const record = value as Readonly<Record<string, unknown>>;
+    // A lone issue record nested under a key (`epic`) renders as a section, no prefix heading.
+    if (typeof record["id"] === "string" && typeof record["title"] === "string" && typeof record["status"] === "string") return markdownIssue(record, verbose).join("\n");
+    const lines: string[] = [];
+    for (const [key, nested] of Object.entries(record)) {
+      const label = key.replace(/_/g, " ");
+      if (nested === null || nested === "" || key === "schema_version" || key === "_type") continue;
+      if (Array.isArray(nested) && nested.length > 0 && nested.every((item) => typeof item === "object" && item !== null && "id" in item && "title" in item)) {
+        lines.push(`### ${label}`, "", markdownAny(nested, verbose));
+      } else if (typeof nested === "object" && nested !== null) {
+        lines.push(`### ${label}`, "", markdownAny(nested, verbose));
+      } else lines.push(`- **${label}:** ${mdCell(String(nested))}`);
+    }
+    return lines.length === 0 ? "*(empty)*" : lines.join("\n");
+  }
+  return String(value);
+}
+
+/** `--markdown` entrypoint: renders the same wire value `--json` would print. */
+export function formatMarkdown(value: unknown, verbose: boolean): string {
+  const body = markdownAny(value, verbose);
+  return `${body}\n`;
 }
 
 /* ---------------- New bd-parity views ---------------- */
@@ -437,6 +534,7 @@ export const PRIME = `# tk workflow context
 - Typical loop: ${cyan("tk ready")} → ${cyan("tk show <id>")} → ${cyan("tk update <id> --status in_progress")} → ${cyan("tk comment <id> ...")} → ${cyan("tk close <id>")}.
 - Use ${cyan("tk dep add <id> <blocker>")} to record blockers; ${cyan("tk tree")} renders the tree; ${cyan("tk stale")}/${cyan("tk orphans")}/${cyan("tk duplicates")}/${cyan("tk lint")} for hygiene.
 - Review changes with Hunk: link its branch via ${cyan("tk update <id> --branch <name>")}, open the review with ${cyan("tk hunk <id>")}, pull reviewer comments back with ${cyan("tk hunk <id> sync")}.
+- File references attach to issues: ${cyan("tk attach <id> <path>")} (paths are stored workspace-relative; bare name = repo root). ${cyan("--plan <path>")} on create/update sets the issue's plan through the same system (replaces prior plan). ${cyan("tk skill")} prints the full agent skill.
 - Run ${cyan("tk help")} for the full command list.
 `;
 

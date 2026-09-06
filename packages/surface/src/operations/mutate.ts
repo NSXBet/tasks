@@ -1,5 +1,5 @@
-import type { Issue } from '@tasks/domain';
-import { issuePriority, issueTitle, issueDescription, issueId, dependencyTarget } from '@tasks/domain';
+import type { Issue, IssueAttachment } from '@tasks/domain';
+import { issuePriority, issueTitle, issueDescription, issueId, dependencyTarget, IssueAttachmentSchema } from '@tasks/domain';
 import type { SurfaceStore } from '../store.js';
 import { getOrThrow, readCurrentId, writeCurrentId } from '../store.js';
 import { MessageError } from '../errors.js';
@@ -24,7 +24,32 @@ export interface UpdatePatch {
   readonly notes?: string | null;
   readonly dueAt?: string | null;
   readonly status?: string;
+  readonly notes?: string | null;
+  /** Replace the full attachment list; empty array clears. */
+  readonly attachments?: readonly IssueAttachment[];
 }
+
+/** Attach a file path (deduped by path); metadata optional. */
+export const attachFile = (store: SurfaceStore, id: string, path: string, metadata?: IssueAttachment['metadata']) => store.transact(async (uow) => {
+  const issue = await getOrThrow(uow, id);
+  if (issue.attachments.some(attachment => attachment.path === path)) return issue;
+  const attachment = IssueAttachmentSchema.parse({ path, ...(metadata === undefined ? {} : { metadata }) });
+  const next = changed(issue, { attachments: [...issue.attachments, attachment] });
+  const saved = await uow.save(next);
+  if (!saved.ok) throw new MessageError('save failed');
+  return next;
+});
+
+/** Remove one attachment by path; no-op when absent. */
+export const detachFile = (store: SurfaceStore, id: string, path: string) => store.transact(async (uow) => {
+  const issue = await getOrThrow(uow, id);
+  const attachments = issue.attachments.filter(attachment => attachment.path !== path);
+  if (attachments.length === issue.attachments.length) return issue;
+  const next = changed(issue, { attachments });
+  const saved = await uow.save(next);
+  if (!saved.ok) throw new MessageError('save failed');
+  return next;
+});
 
 const nullableString = (value: string | null | undefined): string | null | undefined => value === '' ? null : value;
 
@@ -51,8 +76,8 @@ export const updateIssue = (store: SurfaceStore, id: string, patch: UpdatePatch)
   if (patch.estimate !== undefined) next.estimate = patch.estimate;
   if (patch.externalRef !== undefined) next.externalRef = nullableString(patch.externalRef) ?? null;
   if (patch.branch !== undefined) next.branch = nullableString(patch.branch) ?? null;
-  if (patch.parent !== undefined) next.parentId = patch.parent === null || patch.parent === '' ? null : issueId(patch.parent);
   if (patch.notes !== undefined) next.notes = patch.notes;
+  if (patch.attachments !== undefined) next.attachments = patch.attachments.map(attachment => IssueAttachmentSchema.parse(attachment));
   const due = parseDate(patch.dueAt);
   if (due !== undefined) next.dueAt = due;
   if (patch.status !== undefined) next.status = patch.status;

@@ -27,14 +27,14 @@ function adapter(client: MockClient) { return new PostgresAdapter({ client: clie
 
 describe('@tasks/postgres contract surface', () => {
   it('uses public schema in DDL and migration history reads/writes', async () => {
-    expect(postgresMigrations).toHaveLength(3);
+    expect(postgresMigrations).toHaveLength(4);
     expect(postgresMigrations[0]?.sql).toContain('CREATE TABLE public.schema_migrations');
     expect(postgresMigrations[0]?.sql).toContain('CREATE TABLE public.issues');
     expect(postgresMigrations[0]?.sql).toContain('REFERENCES public.issues');
-    const client = new MockClient(c => c.text.includes('to_regclass') ? { rows: [{ name: 'public.schema_migrations' }] } : { rows: [{ id: '003-issue-branch', migration_order: 3, checksum: 'x', applied_at: at.getTime() }] });
+    const client = new MockClient(c => c.text.includes('to_regclass') ? { rows: [{ name: 'public.schema_migrations' }] } : { rows: [{ id: '004-issue-attachments', migration_order: 4, checksum: 'x', applied_at: at.getTime() }] });
     const store = adapter(client);
-    expect(await store.currentVersion()).toEqual({ ok: true, value: '003-issue-branch' });
-    expect(await store.history()).toMatchObject({ ok: true, value: [{ id: '003-issue-branch', appliedAt: at }] });
+    expect(await store.currentVersion()).toEqual({ ok: true, value: '004-issue-attachments' });
+    expect(await store.history()).toMatchObject({ ok: true, value: [{ id: '004-issue-attachments', appliedAt: at }] });
     expect(text(client)).toContain('FROM public.schema_migrations');
     expect(text(client)).not.toMatch(/FROM schema_migrations/);
   });
@@ -54,7 +54,7 @@ describe('@tasks/postgres contract surface', () => {
     const client = new MockClient(c => c.text.includes('to_regclass') ? { rows: [{ name: null }] } : { rows: [] });
     const pool = { connect: async () => client };
     const result = await new PostgresAdapter({ pool: pool as never, now: () => at }).migrate();
-    expect(result).toMatchObject({ ok: true, value: { currentVersion: '003-issue-branch' } });
+    expect(result).toMatchObject({ ok: true, value: { currentVersion: '004-issue-attachments' } });
     expect(text(client)).toContain('INSERT INTO public.schema_migrations');
     expect(text(client)).toContain('COMMIT');
     expect(client.released).toBe(1);

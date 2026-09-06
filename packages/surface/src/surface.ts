@@ -20,7 +20,7 @@ import {
 import {
   updateIssue, changeStatus, deferIssue, undeferIssue, claimIssue, assignIssue,
   setPriority, addLabel, removeLabel, appendNote, markDuplicate, markSuperseded,
-  closeMany, renameIssue, deleteIssues, type UpdatePatch, type StatusChange,
+  closeMany, renameIssue, deleteIssues, attachFile, detachFile, type UpdatePatch, type StatusChange,
 } from './operations/mutate.js';
 import { depList, depAdd, depRemove, link, type DependencyRow } from './operations/deps.js';
 import { addComment, commentsOf } from './operations/comments.js';
@@ -83,7 +83,9 @@ export interface TasksSurface {
   depRemove(id: string, target: string, type?: string): ReturnType<typeof depRemove>;
   link(id1: string, id2: string, type?: string): ReturnType<typeof link>;
   // comments
-  comment(id: string, body: string): ReturnType<typeof addComment>;
+  note(id: string, body: string): ReturnType<typeof appendNote>;
+  attach(id: string, path: string, metadata?: Record<string, unknown>): ReturnType<typeof attachFile>;
+  detach(id: string, path: string): ReturnType<typeof detachFile>;
   comments(id: string): ReturnType<typeof commentsOf>;
   // views
   all(): ReturnType<typeof allIssues>;
@@ -126,8 +128,9 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     assign: (id, assignee) => assignIssue(store, id, assignee),
     priority: (id, priority) => setPriority(store, id, priority),
     labelAdd: (id, label) => addLabel(store, id, label),
-    labelRemove: (id, label) => removeLabel(store, id, label),
     note: (id, body) => appendNote(store, id, body),
+    attach: (id, path, metadata) => attachFile(store, id, path, metadata),
+    detach: (id, path) => detachFile(store, id, path),
     duplicate: (id, canonical) => markDuplicate(store, id, canonical),
     supersede: (id, replacement) => markSuperseded(store, id, replacement),
     closeMany: (ids, reason) => closeMany(store, ids, reason),

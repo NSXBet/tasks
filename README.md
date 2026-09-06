@@ -62,6 +62,8 @@ tk show <id>                  # Show issue details
 tk close <id>                 # Close issue
 tk update <id> [--branch <name>]  # Update fields; link the issue branch
 tk dep <id> add <target>      # Add dependency
+tk attach <id> <path>        # Attach a file path (--attach-metadata k=v,k2=v2)
+tk detach <id> <path>        # Remove an attachment
 tk watch [--kinds a,b] [--ids x,y]   # Stream issue-change events as NDJSON (foreground)
 tk tree [--all] [--depth N]  # Tree view: epics, subtasks, dependency fan-out
 tk search <text>              # Full-text search
@@ -72,7 +74,20 @@ tk switch-backend <name>       # Move data to file/sqlite/postgres, then update 
 tk --help                     # Full command list
 ```
 
-`tk` discovers `.tasks/` by walking upward from cwd. Use `-C DIR` to override. `--json` for structured output. `--readonly` rejects mutations.
+`tk` discovers `.tasks/` by walking upward from cwd. Use `-C DIR` to override. `--json` for structured output, `--markdown` (or `--md`) for markdown — issue lists render as `## id — title` sections separated by `---`. `--readonly` rejects mutations.
+
+### File attachments
+
+Issues can carry file-path attachments — references, not copies. Paths resolve
+against the current directory and are stored workspace-relative, so
+`tk create "x" --attach foo.yaml` attaches the repo-root `foo.yaml`. Attachments
+can carry metadata: inline `--attach 'docs/plan.md={"kind":"plan"}'` (repeatable)
+or a trailing `--attach-metadata kind=input,k2=v2` applying to the last path.
+`tk update <id> --attach <path>` and `--detach <path>` work ad hoc; attaching an
+existing path replaces its metadata.
+`--plan <path>` (on `create`/`update`) sets the issue's plan through the same
+system — it attaches the file with `kind: "plan"` metadata and replaces any
+prior plan attachment, leaving other attachments untouched.
 
 ### Hunk integration
 
@@ -90,6 +105,20 @@ The issue's title and description are injected as a Hunk `--agent-context` sidec
 the diff. With a live Hunk session open on the repo, `tk hunk tk-abc sync` imports the review comments as
 task comments (`[hunk file:line] summary`); a `hunkComments` list in the issue's metadata keeps repeated
 syncs idempotent.
+
+### Agent skill
+
+tk ships an LLM-facing skill — the authoritative machine docs for every op and
+flag (ops table, attachment/plan semantics, JSON contracts). Like Hunk's
+`hunk-review` skill, it is printed or installed from the CLI so guidance never
+drifts from the binary:
+
+```bash
+tk skill                     # print the full SKILL.md
+tk skill --json              # { path, skill } for programmatic loading
+tk skill path                # installed skill file location only
+tk skill --install ~/.pi/agent/skills   # symlink into an agent skills dir
+```
 
 ### Storage backend
 
