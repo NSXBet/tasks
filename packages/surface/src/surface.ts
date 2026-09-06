@@ -1,5 +1,6 @@
 import { openSurfaceStore, type SurfaceOptions, type SurfaceStore } from './store.js';
 import { rootFrom } from './discover.js';
+import type { Metadata } from '@tasks/domain';
 
 export * from './errors.js';
 export * from './store.js';
@@ -84,9 +85,10 @@ export interface TasksSurface {
   link(id1: string, id2: string, type?: string): ReturnType<typeof link>;
   // comments
   note(id: string, body: string): ReturnType<typeof appendNote>;
-  attach(id: string, path: string, metadata?: Record<string, unknown>): ReturnType<typeof attachFile>;
+  attach(id: string, path: string, metadata?: Metadata): ReturnType<typeof attachFile>;
   detach(id: string, path: string): ReturnType<typeof detachFile>;
   comments(id: string): ReturnType<typeof commentsOf>;
+  comment(id: string, body: string): ReturnType<typeof addComment>;
   // views
   all(): ReturnType<typeof allIssues>;
   counts(): ReturnType<typeof counts>;
@@ -128,6 +130,7 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     assign: (id, assignee) => assignIssue(store, id, assignee),
     priority: (id, priority) => setPriority(store, id, priority),
     labelAdd: (id, label) => addLabel(store, id, label),
+    labelRemove: (id, label) => removeLabel(store, id, label),
     note: (id, body) => appendNote(store, id, body),
     attach: (id, path, metadata) => attachFile(store, id, path, metadata),
     detach: (id, path) => detachFile(store, id, path),
@@ -140,11 +143,11 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     depAdd: (id, target, type) => depAdd(store, id, target, type),
     depRemove: (id, target, type) => depRemove(store, id, target, type),
     link: (id1, id2, type) => link(store, id1, id2, type),
-    comment: (id, body) => addComment(store, id, body),
-    comments: (id) => commentsOf(store, id),
     all: () => allIssues(store),
     counts: () => counts(store),
     stats: () => stats(store),
+    comment: (id, body) => addComment(store, id, body),
+    comments: (id) => commentsOf(store, id),
     tree: (options) => boardTree(store, options),
     graph: () => dependencyGraph(store),
     duplicates: (minSimilarity) => duplicatePairs(store, minSimilarity),

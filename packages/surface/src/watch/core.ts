@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import type { IssueUnitOfWork } from '@tasks/application';
 import type { Issue } from '@tasks/domain';
 import type { SurfaceError } from '../errors.js';
+import type { SurfaceStore } from '../store.js';
 import type { WatchCounts, WatchEvent, WatchEventKind, WatchFrame, WatchSubscription } from './protocol.js';
 import { DEFAULT_POLL_INTERVAL_MS, MAX_EVENTS_PER_TICK, MIN_POLL_INTERVAL_MS } from './protocol.js';
 

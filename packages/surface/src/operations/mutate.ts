@@ -24,7 +24,6 @@ export interface UpdatePatch {
   readonly notes?: string | null;
   readonly dueAt?: string | null;
   readonly status?: string;
-  readonly notes?: string | null;
   /** Replace the full attachment list; empty array clears. */
   readonly attachments?: readonly IssueAttachment[];
 }
