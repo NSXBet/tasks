@@ -37,7 +37,7 @@ bun packages/cli/src/tk.ts ready --claim --json
 | `@tasks/beads` | Beads migration: record decoding, parent ordering, transactional import |
 | `@tasks/cli` | `tk` CLI executable |
 | `@tasks/surface` | Host-agnostic typed command surface: JSON-in/JSON-out operations shared by the CLI and the pi/omp extension |
-| `@tasks/extension` | Installable pi/omp extension: `tasks`/`tasks_watch_*` tools, skill injection, and the tk-watch child process |
+| `@tasks/tui` | OpenTUI-based terminal UI: list, kanban board, dependency graph, insights |
 
 ## Architecture
 
@@ -64,6 +64,7 @@ tk update <id> [--branch <name>]  # Update fields; link the issue branch
 tk dep <id> add <target>      # Add dependency
 tk attach <id> <path>        # Attach a file path (--attach-metadata k=v,k2=v2)
 tk detach <id> <path>        # Remove an attachment
+tk tui [workspace]            # Launch the terminal UI (list/kanban/graph/insights)
 tk watch [--kinds a,b] [--ids x,y]   # Stream issue-change events as NDJSON (foreground)
 tk tree [--all] [--depth N]  # Tree view: epics, subtasks, dependency fan-out
 tk search <text>              # Full-text search
@@ -75,6 +76,32 @@ tk --help                     # Full command list
 ```
 
 `tk` discovers `.tasks/` by walking upward from cwd. Use `-C DIR` to override. `--json` for structured output, `--markdown` (or `--md`) for markdown — issue lists render as `## id — title` sections separated by `---`. `--readonly` rejects mutations.
+
+### Terminal UI
+
+`tk tui` launches a full terminal UI (OpenTUI + React, alternate screen, mouse-aware):
+
+```bash
+tk tui                  # discover workspace from cwd like the CLI
+tk tui /path/to/ws      # or point it at a workspace
+```
+
+Four views (`1-4`), a persistent nav rail with live counts, and a statusbar:
+
+| View | Key | What it shows |
+|------|-----|---------------|
+| List | `1` | filter chips (`all/ready/open/wip/review/closed/mine`), glyph+priority rows, right-aligned ages, detail pane |
+| Board | `2` | kanban columns (Open / In Progress / Review / Closed, Parked when non-empty), `h/l/j/k` movement, in-place status moves (`s/r/o/d`) |
+| Graph | `3` | dependency tree centered on selection, `▲ BLOCKED BY` / `▼ BLOCKS` sections, `(cycle)` markers |
+| Insights | `4` | ready picks, blocked panel with unblock-gain, critical chain, cycles / DAG health |
+
+![List view with nav rail and detail pane](packages/tui/design/shots/list.png)
+
+![Kanban board](packages/tui/design/shots/board.png)
+
+Global surfaces: `:` command palette (fuzzy-filtered commands with keycaps), `/` search,
+`n` new issue, `?` key reference, `ctrl+q` quit. Selection ↔ detail stays in sync, edits
+go through the same surface as the CLI, and the watch-poll picks up external `tk` changes live.
 
 ### File attachments
 
@@ -266,7 +293,6 @@ workflow above (tools-over-shell, claim/comment/close conventions, watcher
 etiquette). It loads through the same manifest mechanism as the extension
 bundle; no separate configuration.
 
-## File backend
 
 The file adapter (the default backend) stores each issue as an individual JSON file:
 
@@ -293,6 +319,9 @@ bun test packages/beads/test/beads.test.ts
 bun test packages/cli/test/tk.test.ts
 npx vitest run packages/file/test/file.test.ts
 npx vitest run packages/domain/test/issue.test.ts
+bun test packages/cli/test/tk.test.ts
+bun test --timeout 30000 packages/tui/test/app.test.tsx   # renderer tests (OpenTUI test-utils)
+bun packages/tui/test/smoke.ts                            # pty E2E via tmux (real binary, real storage)
 ```
 
 ## Credits
