@@ -1,0 +1,30 @@
+{
+  "name": "@tasks/tui",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "tk-tui": "./src/main.tsx"
+  },
+  "exports": {
+    ".": "./src/main.tsx",
+    "./app": "./src/app/App.tsx"
+  },
+  "scripts": {
+    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/workspace build && bun run --filter @tasks/surface build && tsc -p tsconfig.json",
+    "check": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/workspace build && bun run --filter @tasks/surface build && tsc --noEmit -p tsconfig.json",
+    "test": "bun run build && cd ../.. && bun test --timeout 15000 packages/tui/test"
+  },
+  "dependencies": {
+    "@opentui/core": "0.5.11",
+    "@opentui/react": "0.5.11",
+    "react": "^19.2.0",
+    "@tasks/application": "workspace:*",
+    "@tasks/domain": "workspace:*",
+    "@tasks/surface": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "ws": "^8.18.0"
+  }
+}

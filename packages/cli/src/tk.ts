@@ -563,6 +563,7 @@ WORKING WITH ISSUES
   hunk <id> [--print]     Open a Hunk review of the issue's branch/WIP (--print shows the command)
   hunk <id> sync          Import live Hunk review comments into the issue (deduped)
 
+  tui [workspace]         Launch the terminal UI (board, kanban, graph, insights)
   watch [--kinds k1,k2] [--ids id1,id2] [--label l] [--interval ms]
                           Watch for changes (NDJSON events on stdout)
   tree [--all] [--depth N]  Tree view: epics first, priority-ordered dependency fan-out
@@ -643,6 +644,19 @@ ENVIRONMENT
  * closed), 2 when no workspace, 3 after repeated backend errors. The
  * pi/omp extension spawns this same loop as a child process.
  */
+/**
+ * `tk tui [workspace]` — launch the terminal UI over the resolved workspace
+ * (positional overrides discovery). Spawned as a child process so the
+ * alternate-screen renderer owns its terminal state end to end.
+ */
+async function runTui(args: ParsedArgs, root: string | null, start: string): Promise<void> {
+  const workspace = args.positionals[1] ?? root;
+  if (workspace === null) fail(await beadsHint(start));
+  const entry = join(import.meta.dir, "..", "..", "tui", "src", "main.tsx");
+  const child = Bun.spawn(["bun", entry, workspace!], { cwd: workspace!, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+  exit(await child.exited);
+}
+
 async function runWatch(args: ParsedArgs, start: string): Promise<void> {
   const root = await rootFrom(start);
   if (root === null) fail(await beadsHint(start));
@@ -715,7 +729,7 @@ async function main(): Promise<void> { const args = parseArgs(process.argv.slice
   if (command === "help" && args.positionals[1] === "switch-backend") { process.stdout.write(SWITCH_BACKEND_HELP); return; }
   if (command === "help" || booleanFlag(args, "help") || booleanFlag(args, "h")) { process.stdout.write(HELP); return; }
   if (command === "watch") { await runWatch(args, start); return; }
-  if (command === "worktree") { await runWorktree(args, start, json); return; }
+  if (command === "tui") { await runTui(args, root, start); return; }
 /**
  * `tk setup cursor|codex [--global] [--remove]` — agent lifecycle hooks.json
  * management (hooks only; rules/skill templates are agent-specific and are

@@ -1,0 +1,1 @@
+{"extends":"../../tsconfig.json","compilerOptions":{"rootDir":"src","outDir":"dist","jsx":"react-jsx","jsxImportSource":"@opentui/react","lib":["ES2024","DOM"],"types":["bun-types"]},"include":["src"],"references":[{"path":"../domain"},{"path":"../application"},{"path":"../workspace"},{"path":"../surface"}]}

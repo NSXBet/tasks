@@ -29,6 +29,8 @@
     "test": "bun test packages/*/test/*.test.ts",
     "test:sqlite": "bun run --filter @tasks/sqlite test",
     "test:cli": "bun run --filter @tasks/cli test",
+    "test:tui": "bun run --filter @tasks/tui test",
+    "tk:tui": "bun packages/tui/src/main.tsx",
     "tk": "bun packages/cli/src/tk.ts"
   },
   "devDependencies": {
