@@ -19,9 +19,9 @@ Local-first issue tracker with dependency chains. Inspired by [beads](https://gi
 bun install
 
 # Run CLI directly from source
-bun packages/cli/src/tk.ts init
-bun packages/cli/src/tk.ts create "Fix login bug"
-bun packages/cli/src/tk.ts ready --claim --json
+tk init
+tk create "Fix login bug"
+tk ready --claim --json
 ```
 
 ## Packages
