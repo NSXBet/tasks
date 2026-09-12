@@ -1,0 +1,52 @@
+name: Nightly
+
+# Nightly channel: every push to main builds the binaries and republishes the
+# rolling `nightly` pre-release (old nightly release replaced, tag force-moved).
+# Stable releases always win the "Latest" badge; nightlies are opt-in via
+# `tk update --latest` or `install.sh --latest`.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-binaries.yml
+    with:
+      ref: ${{ github.sha }}
+      build-ref: nightly
+
+  release:
+    name: Publish nightly release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Replace rolling nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          short="${SHORT_SHA:0:12}"
+          gh release delete nightly --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          gh release create nightly \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "nightly $short" \
+            --notes "Automated build of $GITHUB_REPOSITORY@$short ($(date -u +%Y-%m-%dT%H:%M:%SZ)). Pre-release — expect rough edges; stable installs use the latest v*.*.* tag." \
+            --prerelease \
+            dist/tk-linux-x64 dist/tk-linux-arm64 dist/tk-darwin-x64 dist/tk-darwin-arm64 dist/checksums.txt

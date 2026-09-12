@@ -22,6 +22,7 @@ import { buildTree, type TreeOptions } from "./tree.js";
 import { checkGitHooks, installHooks, managedHookNames, runHookCommand, uninstallHooks } from "./hooks.js";
 import { CODEX_EVENTS, installCodexHooks, codexHooksPath, installCursorHooks, cursorHooksTargetPath, removeCodexHooks, removeCursorHooks } from "./hooks-json.js";
 import { runCodexHook, runCursorHook } from "./agent-hooks.js";
+import { runSelfUpdate, UPDATER_HELP } from "./update.js";
 import { runSkill } from "./skill.js";
 
 /** bd-style collision-resistant issue IDs: <prefix>-<base36 hash>, short like bd (bd-0t0, bd-45g). */
@@ -602,6 +603,7 @@ SETUP
   hooks run <hook> [args] Execute a hook (called by installed shims)
   setup cursor|codex [--global] [--remove]  Install agent lifecycle hooks
   version                 Print version information
+  update                  Self-update the binary (--latest for nightlies; tk update <id> updates an issue)
   quickstart              Quick start guide
   prime                   AI-optimized workflow context
   skill [path] [--install <dir>]  Print the tasks agent skill (LLM-facing docs: ops table, attachments/plans); path = location only, --install symlinks into an agent skills dir
@@ -727,6 +729,7 @@ async function main(): Promise<void> { const args = parseArgs(process.argv.slice
   if (command === "help" && args.positionals[1] === "init") { process.stdout.write(INIT_HELP); return; }
   if (command === "switch-backend" && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(SWITCH_BACKEND_HELP); return; }
   if (command === "help" && args.positionals[1] === "switch-backend") { process.stdout.write(SWITCH_BACKEND_HELP); return; }
+  if (command === "update" && args.positionals.length === 1 && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(UPDATER_HELP); return; }
   if (command === "help" || booleanFlag(args, "help") || booleanFlag(args, "h")) { process.stdout.write(HELP); return; }
   if (command === "watch") { await runWatch(args, start); return; }
   if (command === "tui") { await runTui(args, root, start); return; }
@@ -762,6 +765,9 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
   if (command === "hooks") { await runHooks(args, start, json); return; }
   if (command === "setup") { await runAgentHooksSetup(args, start, json); return; }
   if (command === "skill") { const result = await runSkill(args, import.meta.dir); if (json) output({ path: result.path, skill: result.skill }, true); else if (markdown) process.stdout.write(formatMarkdown(result, false)); else console.log(result.text); return; }
+  // Bare `tk update` (no issue id) self-updates the binary; it must dispatch
+  // before workspace resolution so it works outside any .tasks/ workspace.
+  if (command === "update" && args.positionals.length === 1) { await runSelfUpdate(args, json); return; }
   if (command === "codex-hook") { await runCodexHook(args.positionals[1] ?? fail("codex-hook requires event"), await readInput()); return; }
   if (command === "cursor-hook") { await runCursorHook(args.positionals[1] ?? fail("cursor-hook requires event"), await readInput()); return; }
   // migrate bootstraps its own workspace so a beads-only checkout needs no separate init,
@@ -857,7 +863,7 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
     else if (command === "lint") { const results = await service.lint(args); value = results.map(({ issue, missing }) => ({ id: issue.id, title: issue.title, type: issue.type, missing: missing.map((section) => `## ${section}`), warnings: missing.length })); human = () => formatLint(results); }
     else if (command === "backup") { const info = await service.backup(args); value = info; human = () => formatBackup(info); }
     else if (command === "rename-prefix") { const result = await service.renamePrefix(args); value = result; human = () => formatRenamePrefix(result); }
-    else if (command === "version") { value = { version: "0.1.0", service: "tk" }; human = () => formatVersion(); }
+    else if (command === "version") { value = { version: VERSION, service: "tk" }; human = () => formatVersion(); }
     else if (command === "quickstart") { value = { text: QUICKSTART }; human = () => QUICKSTART; }
     else if (command === "prime") { value = { text: PRIME }; human = () => PRIME; }
     else if (command === "onboard") { value = { text: ONBOARD }; human = () => ONBOARD; }

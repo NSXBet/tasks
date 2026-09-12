@@ -1,0 +1,70 @@
+name: Build binaries
+
+# Reusable build: compiles the self-contained `tk` binaries for all four
+# release targets, runs the test suite, and uploads one `dist` artifact
+# (tk-<os>-<arch> + checksums.txt). Called by release.yml (stable tags) and
+# nightly.yml (every push to main).
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit to build"
+        required: false
+        type: string
+        default: ""
+      build-ref:
+        description: "Value baked into binaries as TK_BUILD_REF (tag or channel name)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: nsx-actions/oven-sh_setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build packages (tests import compiled dist)
+        run: |
+          find packages -name 'tsconfig.tsbuildinfo' -delete
+          bun run --filter '*' build
+
+      - name: Run tests
+        run: bun test packages/*/test/*.test.ts
+
+      - name: Compile single binaries
+        run: |
+          mkdir dist
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            bun build --compile --minify --sourcemap=none \
+              --target="bun-${target}" \
+              --define "TK_BUILD_REF='${{ inputs.build-ref }}'" \
+              packages/cli/src/tk.ts \
+              --outfile "dist/tk-${target}"
+          done
+
+      - name: Smoke test native binary
+        run: ./dist/tk-linux-x64 version
+
+      - name: Generate checksums
+        working-directory: dist
+        run: shasum -a 256 tk-* > checksums.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error

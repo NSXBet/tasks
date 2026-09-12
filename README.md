@@ -9,9 +9,31 @@ Local-first issue tracker with dependency chains. Inspired by [beads](https://gi
 - **Bun-native**: runs directly from TypeScript source via `bun`, no build step required for CLI
 - **Beads migration**: `tk migrate` imports a `.beads/` workspace issue-by-issue, non-destructively
 
+## Install
+
+Prebuilt self-contained binaries (no Bun required) for linux/darwin on arm64/x64:
+
+```bash
+# Homebrew (macOS and Linux)
+brew install nsxbet/tap/tasks
+
+# One-line script — latest stable release, checksum-verified
+curl -fsSL https://raw.githubusercontent.com/NSXBet/tasks/main/install.sh | sh
+
+# Nightly pre-release from every push to main
+curl -fsSL https://raw.githubusercontent.com/NSXBet/tasks/main/install.sh | sh -s -- --latest
+
+# Pinned version
+curl -fsSL https://raw.githubusercontent.com/NSXBet/tasks/main/install.sh | sh -s -- v0.3.0
+```
+
+The script installs to `~/.local/bin/tk` (override with `TK_BIN_DIR`). Later,
+`tk update` self-updates in place — or `brew upgrade nsxbet/tap/tasks` for
+Homebrew installs — and `tk update --latest` moves to the newest nightly.
+
 ## Requirements
 
-- [Bun](https://bun.sh) 1.3+
+- [Bun](https://bun.sh) 1.3+ (only for running from source; the installed binary is self-contained)
 
 ## Quick start
 
@@ -71,7 +93,7 @@ tk search <text>              # Full-text search
 tk hunk <id> [--print]        # Open a Hunk review of the issue's branch/WIP
 tk hunk <id> sync             # Import live Hunk review comments into the issue
 tk export                     # Export all as JSONL
-tk switch-backend <name>       # Move data to file/sqlite/postgres, then update config.json
+tk update                     # Self-update the binary (--latest for nightlies, --check to inspect)
 tk --help                     # Full command list
 ```
 
