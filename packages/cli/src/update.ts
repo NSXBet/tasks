@@ -118,9 +118,10 @@ const fetchJson = async (url: string): Promise<unknown> => {
 };
 
 /**
- * Newest release to update into. The stable channel uses the GitHub "latest"
- * release (pre-releases excluded); the nightly channel takes the newest
- * release of any kind.
+ * Release to update into. The stable channel uses the GitHub "latest"
+ * release (pre-releases excluded); the nightly channel resolves the rolling
+ * `nightly` release by tag — the releases list is ordered by creation date,
+ * so "first item" is not reliably the nightly.
  */
 export const latestRelease = async (channel: "stable" | "nightly"): Promise<ReleaseInfo> => {
   if (channel === "stable") {
@@ -128,12 +129,9 @@ export const latestRelease = async (channel: "stable" | "nightly"): Promise<Rele
     if (isRelease(release)) return release;
     return fail("no stable release found");
   }
-  const releases = await fetchJson(`${RELEASES_API}?per_page=10`);
-  if (Array.isArray(releases)) {
-    const newest = releases.find(isRelease);
-    if (newest !== undefined) return newest;
-  }
-  return fail("no releases found");
+  const release = await fetchJson(`${RELEASES_API}/tags/nightly`);
+  if (isRelease(release)) return release;
+  return fail("no nightly release found (published by every push to main)");
 };
 
 const assetUrl = (release: ReleaseInfo, name: string): string => {
@@ -153,9 +151,11 @@ const streamSha256 = async (path: string): Promise<string> => {
 const downloadTo = async (url: string, destination: string): Promise<void> => {
   const response = await fetch(url, { headers: { "User-Agent": HTTP_USER_AGENT } });
   if (!response.ok) fail(`download failed: ${response.status} ${response.statusText} (${url})`);
-  await Bun.write(destination, response);
+  // Buffer fully before writing: Bun.write's streaming-response path stalls
+  // on large GitHub release assets (64 MiB binaries hang mid-transfer).
+  const bytes = await response.arrayBuffer();
+  await Bun.write(destination, bytes);
 };
-
 /**
  * Download the release asset, verify it against the release's checksums.txt,
  * and atomically replace `execPath`.
