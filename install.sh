@@ -86,7 +86,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 
 case "$CHANNEL" in
   stable) release_ref="latest" ;;
-  nightly) release_ref="nightly" ;;
+  nightly) release_ref="tags/nightly" ;;
   *) release_ref="tags/$CHANNEL" ;;
 esac
 RELEASE_JSON="${TMP_DIR}/release.json"
