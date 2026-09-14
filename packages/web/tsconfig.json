@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "lib": ["ES2024"],
+    "types": ["bun-types"]
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../domain" },
+    { "path": "../application" },
+    { "path": "../workspace" },
+    { "path": "../surface" }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@tasks/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/server.ts"
+  },
+  "scripts": {
+    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/workspace build && bun run --filter @tasks/surface build && tsc -p tsconfig.json",
+    "check": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/workspace build && bun run --filter @tasks/surface build && tsc --noEmit -p tsconfig.json",
+    "test": "bun run build && cd ../.. && bun test --timeout 15000 packages/web/test"
+  },
+  "dependencies": {
+    "@tasks/application": "workspace:*",
+    "@tasks/domain": "workspace:*",
+    "@tasks/surface": "workspace:*"
+  },
+  "devDependencies": {}
+}

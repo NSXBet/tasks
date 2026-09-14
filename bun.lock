@@ -122,6 +122,15 @@
         "ws": "^8.18.0",
       },
     },
+    "packages/web": {
+      "name": "@tasks/web",
+      "version": "0.1.0",
+      "dependencies": {
+        "@tasks/application": "workspace:*",
+        "@tasks/domain": "workspace:*",
+        "@tasks/surface": "workspace:*",
+      },
+    },
     "packages/workspace": {
       "name": "@tasks/workspace",
       "version": "0.2.0",
@@ -216,6 +225,8 @@
     "@tasks/surface": ["@tasks/surface@workspace:packages/surface"],
 
     "@tasks/tui": ["@tasks/tui@workspace:packages/tui"],
+
+    "@tasks/web": ["@tasks/web@workspace:packages/web"],
 
     "@tasks/workspace": ["@tasks/workspace@workspace:packages/workspace"],
 

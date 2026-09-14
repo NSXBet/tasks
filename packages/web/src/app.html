@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tk web</title>
+<style>
+  :root {
+    --bg: #0e1117; --panel: #151a23; --panel2: #1b2130; --border: #262d40;
+    --border-hi: #3a4460; --text: #e6e9f2; --dim: #8a93a8; --faint: #5b6379;
+    --accent: #a78bfa; --accent-bg: #241f38;
+    --open: #7dd3fc; --run: #e5c07b; --review: #c792ea; --closed: #7ad19a;
+    --blocked: #e5655e; --p0: #e5655e; --p1: #e5c07b; --p2: #8a93a8; --p3: #5b6379;
+    --radius: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: .92em; }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  ::placeholder { color: var(--faint); }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    display: flex; align-items: center; gap: 14px; padding: 10px 18px;
+    background: var(--panel); border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .brand { font-weight: 700; font-size: 15px; letter-spacing: .02em; display: flex; align-items: baseline; gap: 7px; }
+  .brand em { font-style: normal; color: var(--accent); }
+  .brand .ws { color: var(--faint); font-size: 12px; font-weight: 500; }
+  .search { flex: 1; max-width: 420px; position: relative; }
+  .search input {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font: inherit; font-size: 13px; padding: 7px 30px 7px 32px;
+  }
+  .search input:focus { border-color: var(--border-hi); outline: none; }
+  .search::before { content: "⌕"; position: absolute; left: 10px; top: 6px; color: var(--faint); font-size: 15px; }
+  .search kbd { position: absolute; right: 8px; top: 7px; }
+  .topbar .spacer { flex: 1; }
+  #conn { width: 8px; height: 8px; border-radius: 50%; background: var(--closed); flex-shrink: 0; }
+  #conn.stale { background: var(--blocked); }
+  .btn {
+    border: 1px solid var(--border-hi); border-radius: 8px; padding: 6px 13px; font-size: 13px;
+    color: var(--dim); background: var(--panel2); cursor: pointer; display: inline-flex; gap: 7px; align-items: center;
+    transition: border-color .12s, color .12s, background .12s; white-space: nowrap;
+  }
+  .btn:hover { color: var(--text); border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #171226; font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.1); }
+  kbd {
+    display: inline-block; padding: 1px 6px; border: 1px solid var(--border-hi); border-bottom-width: 2px;
+    border-radius: 5px; background: var(--panel2); color: var(--faint); font-family: inherit; font-size: 11px;
+  }
+
+  /* ---------- app frame ---------- */
+  .app { display: flex; flex: 1; min-height: 0; }
+  .sidebar {
+    width: 200px; background: var(--panel); border-right: 1px solid var(--border);
+    padding: 14px 8px; display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; overflow-y: auto;
+  }
+  .label { font-size: 10.5px; letter-spacing: .1em; color: var(--faint); padding: 6px 12px 6px; text-transform: uppercase; font-weight: 600; }
+  .navitem {
+    display: flex; align-items: center; gap: 10px; padding: 7px 12px; color: var(--dim);
+    border-radius: 8px; text-align: left; width: 100%;
+  }
+  .navitem .ico { width: 17px; text-align: center; color: var(--faint); }
+  .navitem .name { flex: 1; }
+  .navitem .count {
+    font-size: 11px; color: var(--faint); background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 9px; padding: 1px 8px; min-width: 22px; text-align: center;
+  }
+  .navitem:hover { color: var(--text); background: var(--panel2); }
+  .navitem.active { color: var(--text); background: var(--accent-bg); }
+  .navitem.active .ico { color: var(--accent); }
+  .navitem.active .count { color: var(--accent); border-color: var(--accent); background: transparent; }
+  .sidebar .spacer { flex: 1; }
+  .actor { padding: 10px 12px; border-top: 1px solid var(--border); color: var(--faint); font-size: 12px; }
+  .actor b { color: var(--dim); font-weight: 600; }
+
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+  .filterbar { display: flex; align-items: center; gap: 6px; padding: 10px 18px 0; flex-wrap: wrap; }
+  .fchip {
+    border: 1px solid var(--border); border-radius: 15px; padding: 3px 12px; color: var(--dim);
+    font-size: 12px; cursor: pointer; background: var(--panel); transition: all .12s;
+  }
+  .fchip:hover { color: var(--text); border-color: var(--border-hi); }
+  .fchip.on { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); }
+  .fchip .n { opacity: .7; margin-left: 4px; font-size: 11px; }
+
+  /* ---------- board ---------- */
+  .board { flex: 1; display: flex; gap: 14px; padding: 14px 18px 18px; overflow-x: auto; align-items: flex-start; }
+  .col {
+    flex: 1 1 0; min-width: 230px; max-width: 380px; display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    transition: border-color .12s, background .12s; min-height: 120px; max-height: 100%;
+  }
+  .col.drop { border-color: var(--accent); background: var(--accent-bg); }
+  .colhead {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; color: var(--text);
+    font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .colhead .cdot { width: 8px; height: 8px; border-radius: 50%; }
+  .colhead .cnt { color: var(--faint); font-weight: 500; font-size: 12px; }
+  .colhead .add {
+    margin-left: auto; color: var(--faint); width: 22px; height: 22px; border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 15px;
+  }
+  .colhead .add:hover { color: var(--accent); background: var(--panel2); }
+  .cards { display: flex; flex-direction: column; gap: 8px; padding: 10px; overflow-y: auto; min-height: 46px; }
+  .card {
+    border: 1px solid var(--border); border-radius: 9px; background: var(--panel2);
+    padding: 9px 11px; cursor: grab; position: relative; transition: border-color .12s, box-shadow .12s, transform .06s;
+  }
+  .card:hover { border-color: var(--border-hi); box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+  .card:active { cursor: grabbing; }
+  .card.dragging { opacity: .45; border-color: var(--accent); }
+  .card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .card .top { display: flex; gap: 8px; align-items: baseline; }
+  .card .id { color: var(--faint); font-size: 11.5px; }
+  .card .id:hover { color: var(--text); }
+  .card .pchip { font-size: 10.5px; padding: 0 6px; border-radius: 5px; border: 1px solid; font-weight: 600; }
+  .card .age { margin-left: auto; color: var(--faint); font-size: 11px; }
+  .card .title { color: var(--text); margin-top: 3px; line-height: 1.35; }
+  .card .meta { display: flex; gap: 8px; margin-top: 7px; color: var(--faint); font-size: 11.5px; align-items: center; flex-wrap: wrap; }
+  .card .meta .who { color: var(--dim); }
+  .card .meta .lbl { border: 1px solid var(--border); border-radius: 5px; padding: 0 6px; font-size: 10.5px; }
+  .card .flag { color: var(--blocked); font-size: 11px; cursor: pointer; }
+  .card .flag:hover { text-decoration: underline; }
+  .card.blocked { border-left: 3px solid var(--blocked); }
+  .card.closed { opacity: .55; }
+  .empty { color: var(--faint); font-size: 12px; text-align: center; padding: 14px 6px; border: 1px dashed var(--border); border-radius: 8px; }
+
+  /* ---------- list ---------- */
+  .list { flex: 1; overflow: auto; padding: 12px 18px 18px; }
+  .lrow {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px;
+    color: var(--dim); font-size: 13.5px; width: 100%; text-align: left; border: 1px solid transparent;
+  }
+  .lrow:hover { background: var(--panel); }
+  .lrow.sel { background: var(--accent-bg); border-color: var(--accent); }
+  .lrow .id { color: var(--faint); font-size: 12px; width: 86px; flex-shrink: 0; }
+  .lrow .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .lrow.closed .title { color: var(--faint); }
+  .lrow .who { color: var(--dim); font-size: 12px; width: 90px; text-align: right; }
+  .lrow .age { color: var(--faint); font-size: 12px; width: 48px; text-align: right; }
+  .statchip { font-size: 11px; padding: 1px 9px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid; white-space: nowrap; }
+  .pchip { font-size: 10.5px; padding: 0 6px; border-radius: 5px; border: 1px solid; font-weight: 600; flex-shrink: 0; }
+
+  /* ---------- graph + insights ---------- */
+  .pane { flex: 1; overflow: auto; padding: 16px 20px 20px; }
+  .pane h3 { font-size: 11.5px; color: var(--faint); letter-spacing: .1em; text-transform: uppercase; margin: 14px 0 8px; font-weight: 600; }
+  .gnode, .irow {
+    display: flex; gap: 10px; align-items: baseline; padding: 5px 10px; border-radius: 8px;
+    color: var(--dim); font-size: 13.5px; width: fit-content; min-width: 60%; text-align: left;
+  }
+  .gnode:hover, .irow:hover { background: var(--panel); color: var(--text); }
+  .gnode.center, .irow.hl { background: var(--accent-bg); color: var(--text); }
+  .gnode .id, .irow .id { color: var(--faint); font-size: 12px; }
+  .gnode .stem { color: var(--faint); font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .ipanel { border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); padding: 12px 14px; margin-bottom: 14px; }
+  .ipanel .head { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .ipanel .head .cnt { margin-left: auto; color: var(--faint); font-weight: 500; font-size: 12px; }
+  .iempty { color: var(--faint); font-size: 12.5px; padding: 4px 8px; }
+
+  /* ---------- overlays ---------- */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(4,6,11,.66); display: none;
+    align-items: flex-start; justify-content: center; padding: 6vh 24px 24px; z-index: 50;
+  }
+  .overlay.show { display: flex; }
+  .modal {
+    width: 680px; max-width: 100%; background: var(--panel2);
+    border: 1px solid var(--border-hi); border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,.6);
+    padding: 16px 18px 14px; max-height: 84vh; overflow-y: auto;
+  }
+  .modal .mid { display: flex; align-items: center; gap: 10px; }
+  .modal .mid .id { color: var(--faint); font-size: 12.5px; }
+  .modal .mid .close { margin-left: auto; color: var(--faint); font-size: 15px; width: 30px; height: 30px; border-radius: 7px; }
+  .modal .mid .close:hover { color: var(--text); background: var(--panel); }
+  .modal h2 input {
+    width: 100%; background: var(--panel); border: 1px solid transparent; border-radius: 8px;
+    color: var(--text); font: inherit; font-size: 17px; font-weight: 650; padding: 7px 11px; margin: 6px 0 12px;
+  }
+  .modal h2 input:hover { border-color: var(--border); }
+  .modal h2 input:focus { border-color: var(--accent); outline: none; }
+  .fieldrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .seg { display: inline-flex; border: 1px solid var(--border-hi); border-radius: 8px; overflow: hidden; }
+  .seg button { padding: 4px 12px; font-size: 12px; color: var(--dim); border-right: 1px solid var(--border-hi); }
+  .seg button:last-child { border-right: none; }
+  .seg button:hover { color: var(--text); background: var(--panel); }
+  .seg button.on { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+  .fchip2 {
+    display: inline-flex; gap: 7px; align-items: center; border: 1px solid var(--border-hi);
+    border-radius: 7px; padding: 3px 10px; color: var(--dim); font-size: 12px; background: var(--panel);
+  }
+  .fchip2 b { color: var(--text); font-weight: 600; }
+  .fchip2.danger { color: var(--blocked); }
+  .fchip2.link { cursor: pointer; }
+  .fchip2.link:hover { border-color: var(--accent); color: var(--text); }
+  .stepbtn { width: 26px; height: 26px; border: 1px solid var(--border-hi); border-radius: 7px; color: var(--dim); font-size: 14px; }
+  .stepbtn:hover, .stepbtn:hover { color: var(--accent); border-color: var(--accent); }
+  .descbox { border: 1px solid var(--border); border-radius: 9px; background: var(--panel); margin-bottom: 12px; }
+  .descbox textarea {
+    width: 100%; min-height: 110px; background: transparent; border: none; outline: none; resize: vertical;
+    color: var(--text); font: inherit; font-size: 13.5px; padding: 10px 12px; line-height: 1.55;
+  }
+  .descbox .view { padding: 10px 12px; color: var(--dim); font-size: 13.5px; white-space: pre-wrap; cursor: text; min-height: 40px; }
+  .comments { margin: 4px 0 10px; display: flex; flex-direction: column; gap: 8px; }
+  .comment { border-left: 2px solid var(--border-hi); padding: 2px 12px; font-size: 13px; color: var(--dim); }
+  .comment .who { color: var(--text); font-weight: 600; font-size: 12.5px; }
+  .comment .at { color: var(--faint); font-size: 11px; margin-left: 6px; }
+  .cbox { display: flex; gap: 8px; margin-bottom: 12px; }
+  .cbox input {
+    flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font: inherit; font-size: 13px; padding: 7px 11px;
+  }
+  .cbox input:focus { border-color: var(--border-hi); outline: none; }
+  .modal .foot { display: flex; gap: 10px; align-items: center; color: var(--faint); font-size: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .modal .foot .saved { margin-left: auto; color: var(--closed); opacity: 0; transition: opacity .2s; }
+  .modal .foot .saved.show { opacity: 1; }
+  /* new issue */
+  .nform { width: 460px; }
+  .nform label { display: block; color: var(--faint); font-size: 11px; margin: 12px 0 5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; }
+  .nform input, .nform select {
+    width: 100%; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font: inherit; font-size: 14px; padding: 7px 11px;
+  }
+  .nform input:focus, .nform select:focus { border-color: var(--accent); outline: none; }
+  /* palette */
+  .palette {
+    width: 540px; max-width: 100%; background: var(--panel2); border: 1px solid var(--border-hi); border-radius: 12px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.6); overflow: hidden; margin-top: 2vh;
+  }
+  .palette input {
+    width: 100%; background: transparent; border: none; outline: none; color: var(--text);
+    font: inherit; padding: 13px 16px; border-bottom: 1px solid var(--border);
+  }
+  #palRows { max-height: 320px; overflow: auto; }
+  .prow { display: flex; align-items: center; gap: 10px; padding: 8px 16px; color: var(--dim); cursor: pointer; font-size: 13.5px; width: 100%; text-align: left; }
+  .prow .glyph { color: var(--faint); width: 16px; }
+  .prow .grp { margin-left: auto; color: var(--faint); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+  .prow:hover, .prow.hot { background: var(--accent-bg); color: var(--text); }
+  .pempty { padding: 14px 16px; color: var(--faint); font-size: 13px; }
+  .pfoot { padding: 8px 16px; color: var(--faint); font-size: 11.5px; border-top: 1px solid var(--border); display: flex; gap: 14px; }
+
+  #toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    background: var(--panel2); border: 1px solid var(--border-hi); color: var(--dim);
+    border-radius: 9px; padding: 8px 16px; font-size: 13px; opacity: 0; transition: opacity .18s; pointer-events: none; z-index: 90;
+    box-shadow: 0 8px 30px rgba(0,0,0,.4);
+  }
+  #toast.show { opacity: 1; }
+  #toast.err { color: var(--blocked); border-color: var(--blocked); }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">tk<em>·</em>web <span class="ws" id="wsName"></span></div>
+    <div class="search">
+      <input id="searchInput" placeholder="Search issues…">
+      <kbd>/</kbd>
+    </div>
+    <div class="spacer"></div>
+    <span id="conn" title="live · polling every 2s"></span>
+    <button class="btn" id="cmdBtn" title="Command palette (Ctrl+K or :)"><kbd>:</kbd> commands</button>
+    <button class="btn primary" id="newBtn">＋ New issue <kbd>n</kbd></button>
+  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="label">Views</div>
+      <button class="navitem" data-view="list"><span class="ico">≡</span><span class="name">List</span><span class="count" data-count="list"></span></button>
+      <button class="navitem" data-view="board"><span class="ico">▦</span><span class="name">Board</span><span class="count" data-count="board"></span></button>
+      <button class="navitem" data-view="graph"><span class="ico">⟐</span><span class="name">Graph</span><span class="count" data-count="graph"></span></button>
+      <button class="navitem" data-view="insights"><span class="ico">◎</span><span class="name">Insights</span><span class="count"></span></button>
+      <div class="spacer"></div>
+      <div class="actor">actor <b id="actorName">—</b></div>
+    </aside>
+    <main class="main">
+      <div class="filterbar" id="filterbar"></div>
+      <div id="views">
+        <div class="board" id="boardView" style="display:none"></div>
+        <div class="list" id="listView" style="display:none"></div>
+        <div class="pane" id="graphView" style="display:none"></div>
+        <div class="pane" id="insightsView" style="display:none"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- task modal -->
+  <div class="overlay" id="modalOverlay">
+    <div class="modal" id="taskModal"></div>
+  </div>
+
+  <!-- new issue modal -->
+  <div class="overlay" id="newOverlay">
+    <div class="modal nform">
+      <div class="mid"><span class="id">new issue</span><button class="close" id="newClose" title="esc">✕</button></div>
+      <label>title</label>
+      <input id="newTitle" placeholder="What needs doing?">
+      <label>status</label>
+      <select id="newStatus">
+        <option value="open" selected>Open</option>
+        <option value="in_progress">In progress</option>
+        <option value="ready-to-review">Review</option>
+      </select>
+      <label>priority</label>
+      <select id="newPriority">
+        <option value="0">P0 — urgent</option>
+        <option value="1">P1 — high</option>
+        <option value="2" selected>P2 — normal</option>
+        <option value="3">P3 — low</option>
+      </select>
+      <div class="fieldrow" style="margin-top:16px">
+        <button class="btn primary" id="newCreate">Create issue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- command palette -->
+  <div class="overlay" id="paletteOverlay">
+    <div class="palette">
+      <input id="palInput" placeholder="Type a command… (view, status, priority, create)">
+      <div id="palRows"></div>
+      <div class="pfoot"><span>↑↓ select</span><span>↵ run</span><span>esc close</span></div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+<script type="module">
+  const $ = (id) => document.getElementById(id);
+  const state = {
+    view: "board", issues: [], actor: "—", selected: null, query: "",
+    filter: "all", pal: { rows: [], cursor: 0 }, newStatus: "open",
+  };
+  const STATUS_COLOR = { open: "var(--open)", in_progress: "var(--run)", "ready-to-review": "var(--review)", closed: "var(--closed)" };
+  const STATUS_NAME = { open: "Open", in_progress: "In progress", "ready-to-review": "Review", closed: "Closed" };
+  const COLUMNS = ["open", "in_progress", "ready-to-review", "closed"];
+  const P_COLOR = ["var(--p0)", "var(--p1)", "var(--p2)", "var(--p3)"];
+
+  const esc = (s) => { const d = document.createElement("span"); d.textContent = s ?? ""; return d.innerHTML; };
+  const age = (iso) => {
+    if (!iso) return "";
+    const s = Math.max(1, (Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 60) return `${Math.floor(s)}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h`;
+    return `${Math.floor(s / 86400)}d`;
+  };
+  const blockerIds = (issue) => issue.dependencies.filter((e) => e.type === "blocks").map((e) => e.target);
+  const isBlocked = (issue) => blockerIds(issue).some((id) => state.issues.some((i) => i.id === id && i.status !== "closed"));
+  const matches = (issue) => {
+    if (state.filter !== "all" && issue.status !== state.filter) return false;
+    if (!state.query) return true;
+    const hay = `${issue.id} ${issue.title} ${issue.labels.join(" ")} ${issue.assignee ?? ""}`.toLowerCase();
+    return state.query.toLowerCase().split(/\s+/).every((t) => hay.includes(t));
+  };
+  const visible = () => state.issues.filter(matches);
+  const selectIssue = (id) => { state.selected = id; render(); };
+
+  const statchip = (issue) => {
+    const c = STATUS_COLOR[issue.status] ?? "var(--dim)";
+    return `<span class="statchip" style="color:${c};border-color:${c}"><span class="cdot" style="width:7px;height:7px;border-radius:50%;background:${c}"></span>${esc(STATUS_NAME[issue.status] ?? issue.status)}</span>`;
+  };
+  const pchip = (issue) => `<span class="pchip" style="color:${P_COLOR[issue.priority] ?? P_COLOR[3]};border-color:${P_COLOR[issue.priority] ?? P_COLOR[3]}">P${issue.priority}</span>`;
+
+  /* ---------- board (drag & drop) ---------- */
+  const cardHtml = (issue) => {
+    const blocked = isBlocked(issue);
+    const who = issue.assignee;
+    return `<article class="card ${state.selected === issue.id ? "sel" : ""} ${blocked ? "blocked" : ""} ${issue.status === "closed" ? "closed" : ""}" draggable="true" data-id="${esc(issue.id)}">
+      <div class="top"><span class="id mono">${esc(issue.id)}</span>${pchip(issue)}<span class="age" style="margin-left:auto">${age(issue.updatedAt)}</span></div>
+      <div class="title">${esc(issue.title)}</div>
+      <div class="meta">
+        ${who ? `<span class="who">${esc(who)}</span>` : ""}
+        ${issue.labels.slice(0, 2).map((l) => `<span class="lbl">${esc(l)}</span>`).join("")}
+        ${issue.labels.length > 2 ? `<span class="lbl">+${issue.labels.length - 2}</span>` : ""}
+        ${blocked ? `<span class="flag" data-blocked="${esc(blockerIds(issue)[0])}" title="click to open the blocker">⚠ ${blockerIds(issue).length} blocker${blockerIds(issue).length === 1 ? "" : "s"}</span>` : ""}
+      </div>
+    </article>`;
+  };
+
+  const renderBoard = (issues) => {
+    const cols = COLUMNS.map((key) => ({ key, cards: issues.filter((i) => i.status === key) }));
+    const parked = issues.filter((i) => !COLUMNS.includes(i.status));
+    if (parked.length > 0) cols.push({ key: "parked", cards: parked });
+    $("boardView").innerHTML = cols.map((col) => `
+      <section class="col" data-col="${esc(col.key)}">
+        <header class="colhead">
+          <span class="cdot" style="background:${STATUS_COLOR[col.key] ?? "var(--dim)"}"></span>
+          ${esc(STATUS_NAME[col.key] ?? col.key)}<span class="cnt">${col.cards.length}</span>
+          ${col.key !== "closed" ? `<button class="add" data-add="${esc(col.key)}" title="new issue in ${esc(STATUS_NAME[col.key] ?? col.key)}">+</button>` : ""}
+        </header>
+        <div class="cards">${col.cards.map(cardHtml).join("") || `<div class="empty">drop here</div>`}</div>
+      </section>`).join("");
+
+    document.querySelectorAll("#boardView .card").forEach((card) => {
+      const id = card.dataset.id;
+      card.addEventListener("click", () => { selectIssue(id); openModal(id); });
+      card.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("text/plain", id);
+        e.dataTransfer.effectAllowed = "move";
+        card.classList.add("dragging");
+      });
+      card.addEventListener("dragend", () => card.classList.remove("dragging"));
+    });
+    document.querySelectorAll("#boardView .col").forEach((zone) => {
+      zone.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; zone.classList.add("drop"); });
+      zone.addEventListener("dragleave", (e) => { if (!zone.contains(e.relatedTarget)) zone.classList.remove("drop"); });
+      zone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        zone.classList.remove("drop");
+        moveIssue(e.dataTransfer.getData("text/plain"), zone.dataset.col);
+      });
+    });
+    document.querySelectorAll("#boardView [data-add]").forEach((btn) => {
+      btn.addEventListener("click", () => { openNew(btn.dataset.add); });
+    });
+  };
+
+  const moveIssue = async (id, status) => {
+    const issue = state.issues.find((i) => i.id === id);
+    if (!issue || issue.status === status) return;
+    const before = issue.status;
+    issue.status = status;                       // optimistic
+    if (state.selected === id) state.selected = id;
+    render();
+    try {
+      await api(`/api/issue/${encodeURIComponent(id)}`, { status });
+      toast(`${id} → ${STATUS_NAME[status] ?? status}`);
+    } catch (cause) {
+      issue.status = before;                     // revert on failure
+      render();
+      toast(cause.message, true);
+    }
+  };
+
+  /* ---------- list ---------- */
+  const renderList = (issues) => {
+    const glyph = (i) => i.status === "closed" ? "✓" : isBlocked(i) ? "⛔" : i.status === "in_progress" ? "▶" : i.status === "ready-to-review" ? "👀" : "⚡";
+    $("listView").innerHTML = issues.map((i) => `
+      <button class="lrow ${state.selected === i.id ? "sel" : ""} ${i.status === "closed" ? "closed" : ""}" data-id="${esc(i.id)}">
+        <span class="ico" style="width:16px;text-align:center">${glyph(i)}</span>
+        <span class="id mono">${esc(i.id)}</span>
+        <span class="title">${esc(i.title)}</span>
+        ${statchip(i)}
+        <span class="who">${esc(i.assignee ?? "")}</span>
+        <span class="age">${age(i.updatedAt)}</span>
+      </button>`).join("") || `<div class="empty" style="max-width:300px">no issues match</div>`;
+    document.querySelectorAll("#listView .lrow").forEach((el) => {
+      el.addEventListener("click", () => { selectIssue(el.dataset.id); openModal(el.dataset.id); });
+    });
+  };
+
+  /* ---------- graph ---------- */
+  const renderGraph = () => {
+    const center = state.issues.find((i) => i.id === state.selected) ?? state.issues.find((i) => i.status !== "closed") ?? state.issues[0];
+    if (!center) { $("graphView").innerHTML = `<div class="empty" style="max-width:300px">no issues yet</div>`; return; }
+    const row = (issue, stem) => `
+      <button class="gnode ${issue.id === center.id ? "center" : ""}" data-id="${esc(issue.id)}">
+        <span class="stem">${stem}</span><span class="id mono">${esc(issue.id)}</span><span>${esc(issue.title)}</span>
+      </button>`;
+    const up = blockerIds(center).map((id) => state.issues.find((i) => i.id === id)).filter(Boolean);
+    const down = state.issues.filter((i) => i.dependencies.some((e) => e.type === "blocks" && e.target === center.id));
+    $("graphView").innerHTML = `
+      <h3>▲ blocked by</h3>
+      ${up.length ? up.map((i, ix) => row(i, ix === up.length - 1 ? "└─" : "├─")).join("") : `<div class="iempty">nothing blocks ${esc(center.id)}</div>`}
+      <h3>${esc(center.id)} · ${esc(center.title)}</h3>
+      <h3>▼ blocks</h3>
+      ${down.length ? down.map((i, ix) => row(i, ix === down.length - 1 ? "└─" : "├─")).join("") : `<div class="iempty">${esc(center.id)} blocks nothing</div>`}
+      <h3>metrics</h3>
+      <div class="iempty">deps ${center.dependencyCount} · dependents ${center.dependentCount} · click a node to re-center</div>`;
+    document.querySelectorAll("#graphView .gnode").forEach((el) => {
+      el.addEventListener("click", () => { selectIssue(el.dataset.id); renderGraph(); });
+    });
+  };
+
+  /* ---------- insights ---------- */
+  const renderInsights = (issues) => {
+    const open = issues.filter((i) => i.status !== "closed");
+    const ready = open.filter((i) => !isBlocked(i)).sort((a, b) => a.priority - b.priority || new Date(b.updatedAt) - new Date(a.updatedAt));
+    const blocked = open.filter((i) => isBlocked(i));
+    const row = (i) => `<button class="irow" data-id="${esc(i.id)}"><span class="id mono">${esc(i.id)}</span><span>${esc(i.title)}</span><span style="margin-left:auto;color:var(--faint);font-size:12px">${age(i.updatedAt)}</span></button>`;
+    const pct = issues.length ? Math.round(issues.filter((i) => i.status === "closed").length / issues.length * 100) : 0;
+    $("insightsView").innerHTML = `
+      <div class="ipanel"><div class="head"><span style="color:var(--closed)">⚡</span>Ready now<span class="cnt">${ready.length}</span></div>
+        ${ready.slice(0, 8).map(row).join("") || `<div class="iempty">nothing ready — close blockers first</div>`}</div>
+      <div class="ipanel"><div class="head"><span style="color:var(--blocked)">⛔</span>Blocked<span class="cnt">${blocked.length}</span></div>
+        ${blocked.slice(0, 8).map((i) => `<button class="irow" data-id="${esc(i.id)}"><span class="id mono">${esc(i.id)}</span><span>${esc(i.title)}</span><span style="margin-left:auto;color:var(--blocked);font-size:12px">⛔ ${blockerIds(i).length}</span></button>`).join("") || `<div class="iempty">nothing blocked</div>`}</div>
+      <div class="ipanel"><div class="head">Health<span class="cnt">${pct}% done</span></div>
+        <div class="iempty">${open.length} open · ${issues.filter((i) => i.status === "in_progress").length} in progress · ${issues.filter((i) => i.status === "ready-to-review").length} in review · ${issues.length} total</div></div>`;
+    document.querySelectorAll("#insightsView .irow").forEach((el) => {
+      el.addEventListener("click", () => { selectIssue(el.dataset.id); openModal(el.dataset.id); });
+    });
+  };
+
+  /* ---------- frame ---------- */
+  const FILTERS = ["all", "open", "in_progress", "ready-to-review", "closed"];
+  const renderFilters = () => {
+    $("filterbar").innerHTML = FILTERS.map((f) => {
+      const n = f === "all" ? state.issues.length : state.issues.filter((i) => i.status === f).length;
+      return `<button class="fchip ${state.filter === f ? "on" : ""}" data-filter="${f}">${esc(STATUS_NAME[f] ?? "All")}<span class="n">${n}</span></button>`;
+    }).join("");
+    document.querySelectorAll("#filterbar .fchip").forEach((el) => {
+      el.addEventListener("click", () => { state.filter = el.dataset.filter; render(); });
+    });
+  };
+
+  const railCounts = (issues) => {
+    document.querySelector('[data-count="list"]').textContent = issues.length;
+    document.querySelector('[data-count="board"]').textContent = issues.filter((i) => i.status !== "closed").length;
+    document.querySelector('[data-count="graph"]').textContent = issues.filter((i) => i.dependencies.length > 0).length;
+  };
+
+  const render = () => {
+    const issues = visible();
+    railCounts(state.issues);
+    renderFilters();
+    for (const v of ["board", "list", "graph", "insights"]) {
+      $(v + "View").style.display = state.view === v ? "flex" : "none";
+      if (v === "list" || v === "graph" || v === "insights") $(v + "View").style.display = state.view === v ? "block" : "none";
+    }
+    if (state.view === "board") renderBoard(issues);
+    if (state.view === "list") renderList(issues);
+    if (state.view === "graph") renderGraph();
+    if (state.view === "insights") renderInsights(issues);
+    document.querySelectorAll(".navitem[data-view]").forEach((el) => {
+      el.classList.toggle("active", el.dataset.view === state.view);
+    });
+    document.title = `tk web · ${state.view}`;
+  };
+
+  const switchView = (view) => { state.view = view; render(); };
+  document.querySelectorAll(".navitem[data-view]").forEach((el) => {
+    el.addEventListener("click", () => switchView(el.dataset.view));
+  });
+  $("searchInput").addEventListener("input", (e) => { state.query = e.target.value; render(); });
+
+  const toast = (message, isErr) => {
+    const t = $("toast");
+    t.textContent = message;
+    t.classList.toggle("err", Boolean(isErr));
+    t.classList.add("show");
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => t.classList.remove("show"), 2600);
+  };
+
+  const api = async (path, input) => {
+    const res = await fetch(path, { method: input === undefined ? "GET" : "POST", headers: { "content-type": "application/json" }, body: input === undefined ? undefined : JSON.stringify(input) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error?.message ?? `HTTP ${res.status}`);
+    return data;
+  };
+  const run = async (fn) => {
+    try { return await fn(); }
+    catch (cause) { toast(cause instanceof Error ? cause.message : "request failed", true); return null; }
+  };
+
+  /* ---------- task modal ---------- */
+  let modalIssue = null;
+  const openModal = (id) => {
+    const issue = state.issues.find((i) => i.id === id);
+    if (!issue) return;
+    modalIssue = issue;
+    const blockers = blockerIds(issue).map((b) => state.issues.find((i) => i.id === b)).filter(Boolean);
+    const openBlockers = blockers.filter((b) => b.status !== "closed");
+    const saved = `<span class="saved" id="mSaved">✓ saved</span>`;
+    const seg = ["open", "in_progress", "ready-to-review", "closed"].map((s) =>
+      `<button data-status="${s}" class="${issue.status === s ? "on" : ""}">${esc(STATUS_NAME[s])}</button>`).join("");
+    $("taskModal").innerHTML = `
+      <div class="mid">
+        <span class="id mono">${esc(issue.id)} · updated ${age(issue.updatedAt)} ago</span>
+        <button class="close" id="modalClose" title="esc">✕</button>
+      </div>
+      <h2><input id="mTitle" value="${esc(issue.title)}"></h2>
+      <div class="fieldrow">
+        <span class="seg">${seg}</span>
+        <span style="display:inline-flex;gap:4px;align-items:center">
+          <button class="stepbtn" data-prio="-1" title="lower priority">−</button>
+          ${pchip(issue)}
+          <button class="stepbtn" data-prio="1" title="raise priority">+</button>
+        </span>
+        <button class="fchip2 link" data-act="claim" title="assign to me">assign to me</button>
+        <span class="fchip2">assignee <b>${esc(issue.assignee ?? "—")}</b></span>
+      </div>
+      ${openBlockers.length ? `<div class="fieldrow"><span class="fchip2 danger">⚠ blocked by ${openBlockers.map((b) => `<button class="fchip2 link" data-open="${esc(b.id)}" style="padding:1px 8px">${esc(b.id)}</button>`).join(" ")}</span></div>` : ""}
+      <div class="descbox"><textarea id="mDesc" placeholder="Describe the work… (markdown-ish)">${esc(issue.description ?? "")}</textarea></div>
+      <div class="fieldrow">
+        <span class="fchip2">labels <b>${esc(issue.labels.join(", ") || "none")}</b></span>
+        <span class="fchip2">deps <b>${issue.dependencyCount}</b></span>
+        <span class="fchip2">comments <b>${issue.commentCount}</b></span>
+      </div>
+      <div class="comments">${issue.comments.map((c) => `<div class="comment"><span class="who">${esc(c.author)}</span><span class="at">${age(c.createdAt)} ago</span><br>${esc(c.text)}</div>`).join("")}</div>
+      <div class="cbox"><input id="mComment" placeholder="Add a comment…"><button class="btn" id="mCommentBtn">Comment</button></div>
+      <div class="foot">
+        <span>created ${age(issue.createdAt)} ago</span>
+        ${issue.externalRef ? `<span class="mono">${esc(issue.externalRef)}</span>` : ""}
+        ${saved}
+      </div>`;
+    $("modalOverlay").classList.add("show");
+    $("modalClose").addEventListener("click", closeModal);
+    $("mTitle").addEventListener("change", () => saveIssue({ title: $("mTitle").value }));
+    $("mDesc").addEventListener("change", () => saveIssue({ description: $("mDesc").value }));
+    document.querySelectorAll("#taskModal [data-status]").forEach((el) => {
+      el.addEventListener("click", () => saveIssue({ status: el.dataset.status }));
+    });
+    document.querySelectorAll("#taskModal [data-prio]").forEach((el) => {
+      el.addEventListener("click", () => saveIssue({ priority: Math.max(0, Math.min(3, modalIssue.priority + Number(el.dataset.prio))) }));
+    });
+    document.querySelector('[data-act="claim"]')?.addEventListener("click", () =>
+      run(() => api(`/api/issue/${issue.id}/claim`, {})).then(refresh));
+    document.querySelectorAll("#taskModal [data-open]").forEach((el) => {
+      el.addEventListener("click", () => { selectIssue(el.dataset.open); openModal(el.dataset.open); });
+    });
+    $("mCommentBtn").addEventListener("click", async () => {
+      const input = $("mComment");
+      if (!input.value.trim()) return;
+      await run(() => api(`/api/issue/${encodeURIComponent(modalIssue.id)}/comment`, { text: input.value }));
+      input.value = "";
+      await refresh();
+    });
+  };
+  const closeModal = () => { $("modalOverlay").classList.remove("show"); modalIssue = null; };
+  const saveIssue = async (patch) => {
+    await run(() => api(`/api/issue/${encodeURIComponent(modalIssue.id)}`, patch));
+    const saved = $("mSaved");
+    if (saved) { saved.classList.add("show"); setTimeout(() => saved.classList.remove("show"), 1600); }
+    await refresh();
+  };
+
+  /* ---------- new issue ---------- */
+  const openNew = (presetStatus) => {
+    $("newOverlay").classList.add("show");
+    $("newTitle").value = "";
+    $("newPriority").value = "2";
+    if (presetStatus) $("newStatus").value = presetStatus;
+    $("newTitle").focus();
+  };
+  const closeNew = () => $("newOverlay").classList.remove("show");
+  const createIssue = async () => {
+    const title = $("newTitle").value.trim();
+    if (!title) return;
+    const out = await run(() => api("/api/issue", { title, priority: Number($("newPriority").value) }));
+    if (!out?.id) return;
+    const status = $("newStatus").value;
+    if (status !== "open") await run(() => api(`/api/issue/${encodeURIComponent(out.id)}`, { status }));
+    closeNew();
+    state.selected = out.id;
+    await refresh();
+    toast(`created ${out.id}`);
+  };
+  $("newBtn").addEventListener("click", () => openNew());
+  $("newClose").addEventListener("click", closeNew);
+  $("newCreate").addEventListener("click", createIssue);
+  $("newTitle").addEventListener("keydown", (e) => { if (e.key === "Enter") createIssue(); });
+
+  /* ---------- palette ---------- */
+  const commands = () => {
+    const issue = state.issues.find((i) => i.id === state.selected);
+    const rows = [
+      ...["list", "board", "graph", "insights"].map((v, ix) => ({ glyph: ["≡", "▦", "⟐", "◎"][ix], label: `go to ${v[0].toUpperCase() + v.slice(1)}`, group: "view", run: () => switchView(v) })),
+      { glyph: "+", label: "new issue", group: "global", run: () => openNew() },
+      { glyph: "/", label: "search issues", group: "global", run: () => $("searchInput").focus() },
+    ];
+    if (issue) rows.push(
+      { glyph: "⚡", label: `start ${issue.id}`, group: "status", run: () => moveIssue(issue.id, "in_progress") },
+      { glyph: "👀", label: `send ${issue.id} to review`, group: "status", run: () => moveIssue(issue.id, "ready-to-review") },
+      { glyph: "☑", label: `reopen ${issue.id}`, group: "status", run: () => moveIssue(issue.id, "open") },
+      { glyph: "✓", label: `close ${issue.id}`, group: "status", run: () => moveIssue(issue.id, "closed") },
+      { glyph: "👤", label: `claim ${issue.id}`, group: "task", run: () => run(() => api(`/api/issue/${encodeURIComponent(issue.id)}/claim`, {})).then(refresh) },
+    );
+    return rows;
+  };
+  const openPalette = () => {
+    state.pal = { rows: commands(), cursor: 0 };
+    $("palInput").value = "";
+    renderPalette();
+    $("paletteOverlay").classList.add("show");
+    setTimeout(() => $("palInput").focus(), 30);
+  };
+  const closePalette = () => $("paletteOverlay").classList.remove("show");
+  const renderPalette = () => {
+    const needle = $("palInput").value.trim().toLowerCase();
+    state.pal.rows = commands().filter((c) => `${c.label} ${c.group}`.toLowerCase().includes(needle));
+    state.pal.cursor = Math.min(state.pal.cursor, Math.max(0, state.pal.rows.length - 1));
+    $("palRows").innerHTML = state.pal.rows.map((c, ix) => `
+      <button class="prow ${ix === state.pal.cursor ? "hot" : ""}" data-ix="${ix}">
+        <span class="glyph">${esc(c.glyph)}</span>${esc(c.label)}<span class="grp">${esc(c.group)}</span>
+      </button>`).join("") || `<div class="pempty">no matching commands</div>`;
+    document.querySelectorAll("#palRows .prow").forEach((el) => {
+      el.addEventListener("click", () => { closePalette(); state.pal.rows[Number(el.dataset.ix)].run(); });
+      el.addEventListener("mouseenter", () => { state.pal.cursor = Number(el.dataset.ix); renderPalette(); });
+    });
+  };
+  $("palInput").addEventListener("input", () => { state.pal.cursor = 0; renderPalette(); });
+  $("palInput").addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { state.pal.cursor = Math.min(state.pal.rows.length - 1, state.pal.cursor + 1); renderPalette(); }
+    else if (e.key === "ArrowUp") { state.pal.cursor = Math.max(0, state.pal.cursor - 1); renderPalette(); }
+    else if (e.key === "Enter") { const row = state.pal.rows[state.pal.cursor]; closePalette(); row?.run(); }
+  });
+  $("cmdBtn").addEventListener("click", openPalette);
+
+  /* ---------- keys ---------- */
+  document.addEventListener("keydown", (e) => {
+    const inField = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
+    if (e.key === "Escape") { closePalette(); closeNew(); closeModal(); if (inField) document.activeElement.blur(); return; }
+    if (inField) return;
+    if (e.key === ":" || (e.key === "k" && (e.metaKey || e.ctrlKey))) { e.preventDefault(); openPalette(); }
+    else if (e.key === "1") switchView("list");
+    else if (e.key === "2") switchView("board");
+    else if (e.key === "3") switchView("graph");
+    else if (e.key === "4") switchView("insights");
+    else if (e.key === "n") { e.preventDefault(); openNew(); }
+    else if (e.key === "/") { e.preventDefault(); $("searchInput").focus(); }
+    else if (e.key === "Enter" && state.selected) openModal(state.selected);
+  });
+
+  /* ---------- data loop ---------- */
+  const refresh = async () => {
+    try {
+      const data = await api("/api/board");
+      state.issues = data.issues ?? [];
+      state.actor = data.actor ?? "—";
+      $("actorName").textContent = state.actor;
+      $("wsName").textContent = data.root ? `· ${String(data.root).split("/").pop()}` : "";
+      $("conn").classList.remove("stale");
+      if (modalIssue && $("modalOverlay").classList.contains("show")) {
+        const fresh = state.issues.find((i) => i.id === modalIssue.id);
+        const focusKept = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+        if (fresh && !focusKept) openModal(fresh.id);
+        else if (!fresh) closeModal();
+      }
+      render();
+    } catch {
+      $("conn").classList.add("stale");
+    }
+  };
+
+  await refresh();
+  setInterval(refresh, 2000);
+  if ("EventSource" in window) {
+    const events = new EventSource("/events");
+    events.onmessage = (m) => { if (m.data === "reload") location.reload(); };
+  }
+</script>
+</body>
+</html>

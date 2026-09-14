@@ -122,7 +122,8 @@ Four views (`1-4`), a persistent nav rail with live counts, and a statusbar:
 ![Kanban board](packages/tui/design/shots/board.png)
 
 Global surfaces: `:` command palette (fuzzy-filtered commands with keycaps), `/` search,
-`n` new issue, `?` key reference, `ctrl+q` quit. Selection ↔ detail stays in sync, edits
+`n` new issue, `?` key reference, `ctrl+c`/`ctrl+q` quit. Confirmation prompts take
+`↵`/`y` to accept, `n`/esc to cancel. Selection ↔ detail stays in sync, edits
 go through the same surface as the CLI, and the watch-poll picks up external `tk` changes live.
 
 ### File attachments

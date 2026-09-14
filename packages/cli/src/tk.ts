@@ -565,6 +565,7 @@ WORKING WITH ISSUES
   hunk <id> sync          Import live Hunk review comments into the issue (deduped)
 
   tui [workspace]         Launch the terminal UI (board, kanban, graph, insights)
+  web [workspace] [-d] [--port N]  Web UI over the workspace (-d: dev mode — open browser + live reload)
   watch [--kinds k1,k2] [--ids id1,id2] [--label l] [--interval ms]
                           Watch for changes (NDJSON events on stdout)
   tree [--all] [--depth N]  Tree view: epics first, priority-ordered dependency fan-out
@@ -659,6 +660,21 @@ async function runTui(args: ParsedArgs, root: string | null, start: string): Pro
   exit(await child.exited);
 }
 
+/**
+ * `tk web [workspace] [-d|--dev] [--port N]` — serve the web UI over the
+ * resolved workspace. Spawned as a child process so the server lifetime is
+ * the CLI lifetime (Ctrl-C stops it). Dev mode auto-opens the browser and
+ * live-reloads on shell edits.
+ */
+async function runWeb(args: ParsedArgs, root: string | null, start: string): Promise<void> {
+  const workspace = args.positionals[1] ?? root;
+  if (workspace === null) fail(await beadsHint(start));
+  const entry = join(import.meta.dir, "..", "..", "web", "src", "main.ts");
+  const dev = booleanFlag(args, "dev");
+  const port = stringFlag(args, "port");
+  const child = Bun.spawn(["bun", entry, workspace!, ...(dev ? ["--dev"] : []), ...(port !== undefined ? ["--port", port] : [])], { cwd: workspace!, stdin: "ignore", stdout: "inherit", stderr: "inherit" });
+  exit(await child.exited);
+}
 async function runWatch(args: ParsedArgs, start: string): Promise<void> {
   const root = await rootFrom(start);
   if (root === null) fail(await beadsHint(start));
@@ -724,15 +740,16 @@ async function runHooks(args: ParsedArgs, start: string, json: boolean): Promise
   fail("usage: tk hooks install [--tasks|--shared] | uninstall | list | run <hook> [args]");
 }
 
-async function main(): Promise<void> { const args = parseArgs(process.argv.slice(2)); const command = args.positionals[0] ?? "help"; const json = booleanFlag(args, "json"); const markdown = !json && (booleanFlag(args, "markdown") || booleanFlag(args, "md")); const start = directory(args, cwd()); let root = await rootFrom(start);
+async function main(): Promise<void> { const rawTokens = process.argv.slice(2); // `tk web -d` reclaims the global -d (description) alias as dev mode
+  const args = parseArgs(rawTokens[0] === "web" ? rawTokens.map((token) => token === "-d" ? "--dev" : token) : rawTokens); const command = args.positionals[0] ?? "help"; const json = booleanFlag(args, "json"); const markdown = !json && (booleanFlag(args, "markdown") || booleanFlag(args, "md")); const start = directory(args, cwd()); let root = await rootFrom(start);
   if (command === "init" && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(INIT_HELP); return; }
   if (command === "help" && args.positionals[1] === "init") { process.stdout.write(INIT_HELP); return; }
   if (command === "switch-backend" && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(SWITCH_BACKEND_HELP); return; }
   if (command === "help" && args.positionals[1] === "switch-backend") { process.stdout.write(SWITCH_BACKEND_HELP); return; }
   if (command === "update" && args.positionals.length === 1 && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(UPDATER_HELP); return; }
   if (command === "help" || booleanFlag(args, "help") || booleanFlag(args, "h")) { process.stdout.write(HELP); return; }
-  if (command === "watch") { await runWatch(args, start); return; }
   if (command === "tui") { await runTui(args, root, start); return; }
+  if (command === "web") { await runWeb(args, root, start); return; }
 /**
  * `tk setup cursor|codex [--global] [--remove]` — agent lifecycle hooks.json
  * management (hooks only; rules/skill templates are agent-specific and are

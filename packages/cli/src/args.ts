@@ -5,7 +5,7 @@ export interface ParsedArgs { readonly positionals: readonly string[]; readonly 
 
 const aliases: Readonly<Record<string, string>> = { C: "directory", p: "priority", t: "type", d: "description" };
 const valueFlags = new Set([
-  "directory", "prefix", "title", "description", "status", "priority", "type", "owner", "assignee", "due", "defer-until", "parent", "labels", "label", "notes", "design", "acceptance", "estimate", "spec-id", "external-ref", "metadata", "deps", "limit", "body", "actor", "until", "append-notes", "reason", "add-label", "remove-label", "set-metadata", "unset-metadata", "on-conflict", "bd", "source", "days", "depth", "min-similarity", "of", "with", "field", "editor", "backend", "filename", "url-env", "branch", "attach", "attach-metadata", "plan", "detach", "install",
+  "directory", "prefix", "title", "description", "status", "priority", "type", "owner", "assignee", "due", "defer-until", "parent", "labels", "label", "notes", "design", "acceptance", "estimate", "spec-id", "external-ref", "metadata", "deps", "limit", "body", "actor", "until", "append-notes", "reason", "add-label", "remove-label", "set-metadata", "unset-metadata", "on-conflict", "bd", "source", "days", "depth", "min-similarity", "of", "with", "field", "editor", "backend", "filename", "url-env", "branch", "attach", "attach-metadata", "plan", "detach", "install", "port",
 ]);
 /** Flags that may repeat: each occurrence appends instead of replacing. */
 const repeatableFlags = new Set(["attach"]);
