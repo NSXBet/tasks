@@ -128,6 +128,21 @@ const hasSession = tmux(["has-session", "-t", session]);
 const quitCode = await hasSession.exited;
 check("ctrl-q quits the app", quitCode !== 0);
 
+// Ctrl+c is the primary exit path: relaunch and verify it tears down cleanly.
+const relaunch = Bun.spawnSync(["tmux", "-S", sock, "-f", "/dev/null", "new-session", "-d", "-s", session, "-x", "100", "-y", "24",
+  "bun", join(REPO, "packages/tui/src/main.tsx"), workspace], { cwd: REPO, env: { ...process.env, TERM: "xterm-256color" } });
+if (relaunch.exitCode !== 0) {
+  console.error("tmux relaunch failed:", new TextDecoder().decode(relaunch.stderr));
+  rmSync(workspace, { recursive: true, force: true });
+  process.exit(1);
+}
+await waitFor((text) => text.includes("e2e smoke issue"));
+await sendKey("C-c");
+await Bun.sleep(1500);
+const hasSessionAfterCtrlC = tmux(["has-session", "-t", session]);
+const ctrlCQuitCode = await hasSessionAfterCtrlC.exited;
+check("ctrl-c quits the app", ctrlCQuitCode !== 0);
+
 tmux(["kill-server"]);
 rmSync(workspace, { recursive: true, force: true });
 if (fail > 0) process.exit(1);

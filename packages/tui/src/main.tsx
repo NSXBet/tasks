@@ -6,7 +6,7 @@ import { openTuiStore } from "./store.js";
 
 /**
  * tk-tui entry: owns renderer lifecycle, store lifetime, and global keys
- * (ctrl+q quit). Usage: `bun packages/tui/src/main.tsx [workspace-root]`.
+ * (ctrl+c/ctrl+q quit). Usage: `bun packages/tui/src/main.tsx [workspace-root]`.
  * Without an argument the workspace is discovered from cwd like the tk CLI.
  */
 
@@ -30,7 +30,7 @@ const quit = (): void => { process.exitCode = 0; void shutdown(); };
 
 const GlobalKeys = (): null => {
   useKeyboard((key) => {
-    if ((key.name === "q" && key.ctrl) || (key.name === "c" && key.ctrl && key.meta)) quit();
+    if ((key.name === "q" && key.ctrl) || (key.name === "c" && key.ctrl)) quit();
   });
   return null;
 };

@@ -5,11 +5,11 @@ const sections: readonly { readonly title: string; readonly lines: readonly stri
   { title: "navigate", lines: [
     "nav rail (left): click views or use 1/2/3/4 · b/g/i shortcuts too",
     ": command palette — every command with its key, type to filter",
-    "/ search · n new issue · ? this help · ctrl+q quit",
+    "/ search · n new issue · ? this help · ctrl+c/ctrl+q quit",
   ] },
   { title: "task modal (enter on a board card, or e)", lines: [
     "board stays visible behind; esc closes; ↵ edit title in composer",
-    "s/r/o status · +/- priority · a claim · d close (asks y/n)",
+    "s/r/o status · +/- priority · a claim · d close (asks ↵/y · n)",
     "E description · c comment · @ assignee · , labels · D/X dependencies",
   ] },
   { title: "list", lines: ["j/k move · enter detail · tab filters"] },

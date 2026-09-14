@@ -90,7 +90,7 @@ export const Composer = () => {
       return;
     }
     if (mode === "confirm") {
-      if (key.sequence === "y" && confirm !== null) {
+      if ((key.sequence === "y" || key.name === "return" || key.name === "enter") && confirm !== null) {
         if (confirm.kind === "close") void actions.setStatus(confirm.id, "closed");
         else if (confirm.kind === "dep-remove" && confirm.target !== null) void actions.depRemove(confirm.id, confirm.target);
         finish();
@@ -103,7 +103,7 @@ export const Composer = () => {
   if (mode === "confirm") {
     return (
       <box style={{ height: 3, paddingLeft: 1, backgroundColor: colors.panel }} borderStyle="rounded" borderColor={colors.red} title={` ${modeLabels.confirm} `}>
-        <text fg={colors.text} content={`${confirm?.label ?? "confirm?"} y/n`} />
+        <text fg={colors.text} content={`${confirm?.label ?? "confirm?"} ↵/y · n`} />
       </box>
     );
   }

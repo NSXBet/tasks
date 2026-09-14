@@ -205,4 +205,28 @@ describe("tui app", () => {
       await store.close();
     }
   });
+
+  test("confirm prompt closes the issue on enter without modal hijacking keys", async () => {
+    const root = workspace();
+    const store = await openTuiStore(root);
+    const first = await store.surface.create({ title: "confirm target", priority: 1 });
+    if (!first.ok) throw first.error;
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24 });
+    try {
+      await setup.waitForFrame((value) => value.includes("confirm target"), { maxPasses: 40 });
+      await setup.mockInput.pressKey("2");
+      await setup.waitForFrame((value) => value.includes("Open ("), { maxPasses: 40 });
+      await setup.mockInput.pressKey("\r");
+      await setup.waitForFrame((value) => value.includes("esc ✕"), { maxPasses: 40 });
+      await setup.mockInput.pressKey("d");
+      const prompt = await setup.waitForFrame((value) => value.includes("↵/y · n"), { maxPasses: 40 });
+      expect(prompt).toContain("close tk-");
+      await setup.mockInput.pressKey("\r");
+      const frame = await setup.waitForFrame((value) => value.includes("done 1"), { maxPasses: 60 });
+      expect(frame).not.toContain("✎ title");
+    } finally {
+      setup.renderer.destroy();
+      await store.close();
+    }
+  });
 });

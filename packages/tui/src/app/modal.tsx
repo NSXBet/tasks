@@ -25,7 +25,7 @@ export const TaskModal = () => {
 
   useKeyboard((key) => {
     if (state.modalId === null) return;
-    if (key.name === "escape") { actions.closeModal(); return; }
+    if (state.composer.mode !== "closed") return;
     if (key.name === "return" || key.name === "enter") { actions.closeModal(); actions.openComposer("title", issue.id, issue.title); return; }
     switch (key.sequence) {
       case "o": void actions.setStatus(issue.id, "open"); break;
