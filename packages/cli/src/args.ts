@@ -4,11 +4,12 @@ export type FlagValue = string | true | readonly string[];
 export interface ParsedArgs { readonly positionals: readonly string[]; readonly flags: ReadonlyMap<string, FlagValue>; }
 
 const aliases: Readonly<Record<string, string>> = { C: "directory", p: "priority", t: "type", d: "description" };
-const valueFlags = new Set([
-  "directory", "prefix", "title", "description", "status", "priority", "type", "owner", "assignee", "due", "defer-until", "parent", "labels", "label", "notes", "design", "acceptance", "estimate", "spec-id", "external-ref", "metadata", "deps", "limit", "body", "actor", "until", "append-notes", "reason", "add-label", "remove-label", "set-metadata", "unset-metadata", "on-conflict", "bd", "source", "days", "depth", "min-similarity", "of", "with", "field", "editor", "backend", "filename", "url-env", "branch", "attach", "attach-metadata", "plan", "detach", "install", "port",
-]);
+/** Flags that take a value: `--<flag> <value>` consumes the next token instead of marking a boolean. */
+const valueFlags: Record<string, true> = {
+  "directory": true, "prefix": true, "title": true, "description": true, "status": true, "priority": true, "type": true, "owner": true, "assignee": true, "due": true, "defer-until": true, "parent": true, "labels": true, "label": true, "notes": true, "design": true, "acceptance": true, "estimate": true, "spec-id": true, "external-ref": true, "metadata": true, "deps": true, "limit": true, "body": true, "actor": true, "until": true, "append-notes": true, "reason": true, "add-label": true, "remove-label": true, "set-metadata": true, "unset-metadata": true, "on-conflict": true, "bd": true, "source": true, "days": true, "depth": true, "min-similarity": true, "of": true, "with": true, "field": true, "editor": true, "backend": true, "filename": true, "url-env": true, "branch": true, "attach": true, "attach-metadata": true, "plan": true, "detach": true, "install": true, "port": true, "sprint": true, "runtime": true, "access": true, "mode": true, "instructions": true, "name": true, "state": true, "issue": true, "skill": true, "env": true,
+};
 /** Flags that may repeat: each occurrence appends instead of replacing. */
-const repeatableFlags = new Set(["attach"]);
+const appendableFlags: Record<string, true> = { "attach": true, "skill": true, "env": true };
 
 export class ArgumentParseError extends Error {
   constructor(message: string) { super(message); this.name = "ArgumentParseError"; }
@@ -25,7 +26,7 @@ export function parseArgs(tokens: readonly string[]): ParsedArgs {
     const [rawName, inline] = raw.split("=", 2);
     const name = aliases[rawName!] ?? rawName!;
     if (inline !== undefined) { setOrAppend(flags, name, inline); continue; }
-    if (valueFlags.has(name)) {
+    if (valueFlags[name] === true) {
       const next = tokens[index + 1];
       if (next === undefined || next.startsWith("-")) throw new ArgumentParseError(`--${name} requires value`);
       setOrAppend(flags, name, next); index += 1;
@@ -41,7 +42,7 @@ export const booleanFlag = (args: ParsedArgs, name: string): boolean => flag(arg
 export const directory = (args: ParsedArgs, fallback: string): string => resolve(stringFlag(args, "directory") ?? fallback);
 /** Repeatable flags accumulate string values; everything else replaces. */
 const setOrAppend = (flags: Map<string, FlagValue>, name: string, value: string): void => {
-  if (!repeatableFlags.has(name)) { flags.set(name, value); return; }
+  if (appendableFlags[name] !== true) { flags.set(name, value); return; }
   const existing = flags.get(name);
   if (existing === undefined) flags.set(name, value);
   else if (Array.isArray(existing)) flags.set(name, [...existing, value]);

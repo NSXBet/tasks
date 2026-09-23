@@ -15,6 +15,7 @@
     "@tasks/application": "workspace:*",
     "@tasks/beads": "workspace:*",
     "@tasks/domain": "workspace:*",
+    "@tasks/file": "workspace:*",
     "@tasks/workspace": "workspace:*",
     "@tasks/surface": "workspace:*"
   }

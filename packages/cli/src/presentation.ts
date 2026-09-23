@@ -1,6 +1,7 @@
 import { writeSync } from "node:fs";
 import { exit } from "node:process";
-import type { Issue } from "@tasks/domain";
+import type { Agent, Issue, Run } from "@tasks/domain";
+import type { ActivityRow, InboxEntry, RuntimeRow } from "@tasks/surface";
 import type { IssueTree, TreeNode } from "./tree.js";
 
 const iso = (value: Date | null): string | null => value?.toISOString() ?? null;
@@ -35,6 +36,7 @@ const STATUS_ICON: Readonly<Record<string, string>> = {
   rejected: "✗",
   blocked: "●",
   closed: "✓",
+  archived: "▦",
   pinned: "📌",
   hooked: "◇",
 };
@@ -42,6 +44,7 @@ const statusIcon = (status: string): string => STATUS_ICON[status] ?? "○";
 const statusColored = (status: string): string => {
   const icon = statusIcon(status);
   if (status === "closed") return green(icon);
+  if (status === "archived") return dim(icon);
   if (status === "ready-to-review") return magenta(icon);
   if (status === "approved") return green(icon);
   if (status === "rejected") return red(icon);
@@ -79,7 +82,7 @@ export function issueWire(issue: Issue): Record<string, unknown> {
     status: issue.status, priority: issue.priority, issue_type: issue.type, owner: issue.owner,
     assignee: issue.assignee, created_by: issue.createdBy, created_at: issue.createdAt.toISOString(),
     updated_at: issue.updatedAt.toISOString(), started_at: iso(issue.startedAt), closed_at: iso(issue.closedAt),
-    due_at: iso(issue.dueAt), defer_until: iso(issue.deferUntil), parent: issue.parentId, labels: [...issue.labels],
+    due_at: iso(issue.dueAt), defer_until: iso(issue.deferUntil), parent: issue.parentId, sprint: issue.sprintId, labels: [...issue.labels],
     notes: issue.notes, design: issue.design, acceptance_criteria: issue.acceptanceCriteria, estimated_minutes: issue.estimate,
     spec_id: issue.specId, external_ref: issue.externalRef, branch: issue.branch, metadata: issue.metadata,
     attachments: issue.attachments.map((attachment) => ({ path: attachment.path, metadata: attachment.metadata })),
@@ -98,7 +101,7 @@ export function commentWire(issue: Issue): readonly Record<string, unknown>[] { 
 const date = (value: Date | null): string => (value === null ? "" : value.toISOString().slice(0, 10));
 const datetime = (value: Date): string => value.toISOString().slice(0, 16).replace("T", " ");
 const RULE = dim("─".repeat(80));
-export const LEGEND = dim(`Status: ${statusIcon("open")} open  ${statusIcon("in_progress")} in_progress  ${statusIcon("blocked")} blocked  ${statusIcon("closed")} closed  ${statusIcon("deferred")} deferred`);
+export const LEGEND = dim(`Status: ${statusIcon("open")} open  ${statusIcon("in_progress")} in_progress  ${statusIcon("blocked")} blocked  ${statusIcon("closed")} closed  ${statusIcon("deferred")} deferred  ${statusIcon("archived")} archived`);
 
 const indent = (text: string, pad = "  "): string => text.split("\n").map((line) => (line === "" ? "" : pad + line)).join("\n");
 const field = (name: string, value: string): string => `${dim(name.padEnd(12))} ${value}`;
@@ -196,9 +199,84 @@ export function formatStatus(counts: Record<string, number>): string {
   return [`📊 ${bold("Issue Database Status")}`, "", ...lines].join("\n");
 }
 
-export function formatStats(stats: { readonly total: number; readonly open: number; readonly in_progress: number; readonly ready_to_review: number; readonly approved: number; readonly rejected: number; readonly blocked: number; readonly closed: number; readonly deferred: number; readonly ready: number }): string {
+export function formatStats(stats: { readonly total: number; readonly open: number; readonly in_progress: number; readonly ready_to_review: number; readonly approved: number; readonly rejected: number; readonly blocked: number; readonly closed: number; readonly deferred: number; readonly archived: number; readonly ready: number }): string {
   const row = (name: string, value: number): string => `  ${name.padEnd(22)}${value}`;
-  return ["", `📊 ${bold("Issue Database Status")}`, "", bold("Summary:"), row("Total Issues:", stats.total), row("Open:", stats.open), row("In Progress:", stats.in_progress), row("Ready to Review:", stats.ready_to_review), row("Approved:", stats.approved), row("Rejected:", stats.rejected), row("Blocked:", stats.blocked), row("Closed:", stats.closed), row("Deferred:", stats.deferred), green(row("Ready to Work:", stats.ready)), "", dim("For more details, use 'tk list' to see individual issues.")].join("\n");
+  return ["", `📊 ${bold("Issue Database Status")}`, "", bold("Summary:"), row("Total Issues:", stats.total), row("Open:", stats.open), row("In Progress:", stats.in_progress), row("Ready to Review:", stats.ready_to_review), row("Approved:", stats.approved), row("Rejected:", stats.rejected), row("Blocked:", stats.blocked), row("Closed:", stats.closed), row("Deferred:", stats.deferred), dim(row("Archived:", stats.archived)), green(row("Ready to Work:", stats.ready)), "", dim("For more details, use 'tk list' to see individual issues.")].join("\n");
+}
+
+/** Human view of `tk sprint list`: active focus first, then the archive of completed sprints. */
+export function formatSprintList(sprints: readonly { readonly id: string; readonly name: string; readonly status: string; readonly completedAt: Date | null }[]): string {
+  if (sprints.length === 0) return dim("No sprints. Start one: tk sprint start <name>");
+  const active = sprints.filter((sprint) => sprint.status === "active");
+  const rest = sprints.filter((sprint) => sprint.status !== "active");
+  const line = (sprint: { readonly id: string; readonly name: string; readonly status: string; readonly completedAt: Date | null }): string => `  ${sprint.status === "active" ? green("▸") : dim("·")} ${cyan(sprint.id)} ${sprint.name}${sprint.completedAt === null ? "" : dim(`  (completed ${datetime(sprint.completedAt)})`)}`;
+  return [bold("Sprints:"), ...active.map(line), ...(rest.length === 0 ? [] : ["", dim("Completed:"), ...rest.map(line)]), "", dim(`Scope lists: tk list --sprint active | backlog | <slug>`)].join("\n");
+}
+
+/** Human view of `tk agent list`: online presence first, then the rest. */
+export function formatAgentList(agents: readonly Agent[]): string {
+  if (agents.length === 0) return dim("No agents. Register one: tk agent create <name>");
+  const line = (agent: Agent): string => `  ${agent.status === "online" ? green("●") : dim("○")} ${cyan(agent.id)} ${agent.name}  ${dim(`[${agent.access}${agent.mode === "autopilot" ? ", autopilot" : ""}${agent.runtime === null ? "" : `, ${agent.runtime}`}]`)}  ${dim(`owner ${agent.owner ?? "-"} · updated ${datetime(agent.updatedAt)}`)}`;
+  const online = agents.filter((agent) => agent.status === "online");
+  const rest = agents.filter((agent) => agent.status !== "online");
+  return [bold("Agents:"), ...online.map(line), ...(rest.length === 0 ? [] : ["", dim("Offline:"), ...rest.map(line)])].join("\n");
+}
+
+/** Human view of `tk agent show`: identity, access, and exec-time fields. */
+export function formatAgentShow(agent: Agent): string {
+  const head = `${agent.status === "online" ? green("●") : dim("○")} ${cyan(agent.id)} · ${bold(agent.name)}   [${agent.access} · ${agent.mode}]`;
+  const meta = [agent.owner === null ? "" : `owner ${agent.owner}`, agent.runtime === null ? "" : `runtime ${agent.runtime}`, agent.archivedAt === null ? "" : `archived ${datetime(agent.archivedAt)}`, `updated ${datetime(agent.updatedAt)}`].filter(Boolean).join(" · ");
+  const skills = agent.skills.length === 0 ? dim("(none)") : agent.skills.join(", ");
+  const env = Object.entries(agent.env).length === 0 ? dim("(none)") : Object.entries(agent.env).map(([key, value]) => `${key}=${value}`).join(", ");
+  return [head, dim(meta), agent.description, "", `${bold("Instructions")}: ${agent.instructions || dim("(none)")}`, `${bold("Skills")}: ${skills}`, `${bold("Env")}: ${env}`].join("\n");
+}
+
+/** Human view of `tk runs`: one line per run, newest first. */
+export function formatRunList(runs: readonly Run[]): string {
+  if (runs.length === 0) return dim("No runs.");
+  const line = (run: Run): string => `  ${isActiveRunState(run.state) ? green("▸") : dim("·")} ${cyan(run.id)}  ${run.state}  ${dim(`trigger ${run.trigger} · agent ${run.agentId ?? "-"} · updated ${datetime(run.updatedAt)}`)}`;
+  return [bold("Runs:"), ...runs.map(line)].join("\n");
+}
+
+/** Human view of `tk run show`: state, usage, and the message log. */
+export function formatRunShow(run: Run): string {
+  const head = `${isActiveRunState(run.state) ? green("●") : dim("○")} ${cyan(run.id)} · ${run.state}   [${run.trigger} · agent ${run.agentId ?? "-"}]`;
+  const meta = [`issue ${run.issueId}`, run.startedAt === null ? "" : `started ${datetime(run.startedAt)}`, run.closedAt === null ? "" : `closed ${datetime(run.closedAt)}`, `updated ${datetime(run.updatedAt)}`].filter(Boolean).join(" · ");
+  const usage = run.usage.tokens === null && run.usage.cost === null ? dim("no usage reported") : `tokens ${run.usage.tokens ?? "-"} · cost ${run.usage.cost ?? "-"}`;
+  const messages = run.messages.length === 0 ? dim("(no messages)") : run.messages.map((message) => `${green(`[${message.kind}]`)} ${dim(`at ${datetime(message.at)}`)}\n${indent(message.text.trimEnd())}`).join("\n\n");
+  return [head, dim(meta), usage, "", messages].join("\n");
+}
+
+const isActiveRunState = (state: string): boolean => state === "queued" || state === "running";
+
+/** Coarse relative age ("3s", "2m", "5h", "6d") for heartbeat displays. */
+function relAge(iso: string): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86_400)}d`;
+}
+
+/** Human view of `tk runtime list`: one line per registered watcher. */
+export function formatRuntimeList(rows: readonly RuntimeRow[]): string {
+  if (rows.length === 0) return dim("No live runtimes.");
+  const line = (row: RuntimeRow): string => `  ${green("●")} ${cyan(row.id)}  ${row.kind}  ${row.label === null || row.label === "" ? dim("(no label)") : bold(row.label)}  ${dim(`pid ${row.pid} · up ${relAge(row.startedAt)} · heartbeat ${relAge(row.heartbeatAt)} · ${row.subscriptions.length === 0 ? "all" : row.subscriptions.join(", ")}`)}`;
+  return [bold("Runtimes:"), ...rows.map(line)].join("\n");
+}
+
+/** Human view of `tk runtime activity`: newest-last trail of watcher events. */
+export function formatRuntimeActivity(rows: readonly ActivityRow[]): string {
+  if (rows.length === 0) return dim("No activity.");
+  const line = (row: ActivityRow): string => `  ${dim(row.at)}  ${cyan(row.runtimeId.slice(0, 8))}  ${row.kind}${row.detail === "" ? "" : ` — ${row.detail}`}`;
+  return [bold(`Activity (last ${rows.length}):`), ...rows.map(line)].join("\n");
+}
+
+/** Human view of `tk inbox`: unread first, then read, then archived. */
+export function formatInbox(entries: readonly InboxEntry[]): string {
+  if (entries.length === 0) return dim("Inbox empty.");
+  const line = (entry: InboxEntry): string => `  ${entry.unread ? green("●") : dim("○")} ${cyan(entry.runId)}  ${entry.state}  ${dim(`${entry.trigger} · issue ${entry.issueId} · agent ${entry.agentId ?? "-"} · updated ${datetime(new Date(entry.lastUpdatedAt))}${entry.archived ? " · archived" : ""}`)}`;
+  return [bold("Inbox:"), ...entries.map(line)].join("\n");
 }
 
 export function formatTypes(used: readonly string[]): string {
@@ -209,7 +287,7 @@ export function formatTypes(used: readonly string[]): string {
 }
 
 export function formatStatuses(used: readonly string[]): string {
-  const core: ReadonlyArray<readonly [string, string, string]> = [["open", "active", "Available to work (default)"], ["in_progress", "wip", "Actively being worked on"], ["ready-to-review", "wip", "Work committed, awaiting review"], ["approved", "done", "Review passed; ready to close or merge"], ["rejected", "wip", "Review failed; needs rework"], ["blocked", "wip", "Blocked by a dependency"], ["deferred", "frozen", "Deliberately put on ice for later"], ["closed", "done", "Completed"]];
+  const core: ReadonlyArray<readonly [string, string, string]> = [["open", "active", "Available to work (default)"], ["in_progress", "wip", "Actively being worked on"], ["ready-to-review", "wip", "Work committed, awaiting review"], ["approved", "done", "Review passed; ready to close or merge"], ["rejected", "wip", "Review failed; needs rework"], ["blocked", "wip", "Blocked by a dependency"], ["deferred", "frozen", "Deliberately put on ice for later"], ["archived", "frozen", "Iceboxed: hidden from default views, kept for reference"], ["closed", "done", "Completed"]];
   const rows = core.map(([status, category, description]) => `  ${statusColored(status!)} ${status!.padEnd(12)} ${dim(`[${(category ?? "").padEnd(6)}]`)} ${dim(description ?? "")}`);
   const custom = used.filter((status) => !core.some(([name]) => name === status));
   return [bold("Built-in statuses:"), ...rows, ...(custom.length === 0 ? [] : ["", bold("In use (custom):"), ...custom.map((status) => `  ${statusColored(status)} ${status}`)])].join("\n");
@@ -564,6 +642,14 @@ export const HUMAN_HELP = `${bold("tk — essentials")}
   tk search <text>        Find something
   tk stats                Board overview
   tk tree                 Tree of epics, tasks and dependencies
+  tk sprint start <name>  Focus a sprint (list/add/remove/move/close)
+  tk archive <id>         Icebox it (tk unarchive <id> restores)
+
+${bold("Agents & runs")}
+  tk agent create <name>  Register an agent (list/show/update/copy/archive)
+  tk runs                 List agent runs (--issue <id>, --state <s>)
+  tk run show <id>        Run detail incl. messages and usage
+  tk run cancel <id>      Cancel an active run (rerun/message subcommands)
 
 Full list: ${cyan("tk help")}
 `;

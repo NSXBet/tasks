@@ -22,7 +22,7 @@ it("emits large JSON intact through a pipe with a slow reader", async () => {
   const records = Array.from({ length: 60 }, (_, index) => ({ _type: "issue", id: `demo-${index}`, title: `issue ${index}`, description: "d".repeat(2000), status: "open", priority: 2, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }));
   const imported = run(directory, ["import", "--json"], records.map((record) => JSON.stringify(record)).join("\n"));
   expect(imported.status, imported.stderr).toBe(0);
-  expect(JSON.parse(imported.stdout)).toEqual({ imported: 60 });
+  expect(JSON.parse(imported.stdout)).toEqual({ imported: 60, sprints: 0 });
   const child = Bun.spawn([process.execPath, executable, "-C", directory, "list", "--json"], { stdout: "pipe", stderr: "pipe" });
   const chunks: Uint8Array[] = [];
   const reader = child.stdout.getReader();
@@ -48,7 +48,7 @@ describe("tk executable", () => {
 
   it("exports JSON array with --json and JSONL only to stdout otherwise", () => { const directory = workspace(); json(directory, ["init"]); const created = json<{ id: string }>(directory, ["create", "wire"]); const exported = json<readonly Record<string, unknown>[]>(directory, ["export"]); expect(exported).toHaveLength(1); expect(exported[0]!["id"]).toBe(created.id); const plain = run(directory, ["export"]); expect(plain.status, plain.stderr).toBe(0); expect(plain.stdout.trim()).toBe(JSON.stringify(exported[0])); expect(run(directory, ["migrate", "--json"]).status).not.toBe(0); });
 
-  it("imports JSONL from stdin and returns only imported count", () => { const source = workspace(); const target = workspace(); json(source, ["init"]); json(source, ["create", "stdin wire"]); const input = run(source, ["export"]).stdout; json(target, ["init"]); expect(json<{ imported: number }>(target, ["import"], input)).toEqual({ imported: 1 }); expect(json<readonly Record<string, unknown>[]>(target, ["export"])).toHaveLength(1); });
+  it("imports JSONL from stdin and returns only imported count", () => { const source = workspace(); const target = workspace(); json(source, ["init"]); json(source, ["create", "stdin wire"]); const input = run(source, ["export"]).stdout; json(target, ["init"]); expect(json<{ imported: number; sprints: number }>(target, ["import"], input)).toEqual({ imported: 1, sprints: 0 }); expect(json<readonly Record<string, unknown>[]>(target, ["export"])).toHaveLength(1); });
 
   it("round-trips complete wire records and rolls back invalid nested input", () => { const source = workspace(); const target = workspace(); json(source, ["init"]); const created = json<{ id: string }>(source, ["create", "wire"]); const wire = json<readonly Record<string, unknown>[]>(source, ["export"])[0]!; wire["future_top"] = { keep: true }; (wire["dependencies"] as Record<string, unknown>[]).push({ issue_id: created.id, depends_on_id: "external:other:cap", type: "blocks", created_at: wire["created_at"], created_by: "actor", metadata: { nested: [1] }, future_edge: "yes" }); wire["dependency_count"] = 1; (wire["comments"] as Record<string, unknown>[]).push({ id: "external-comment", issue_id: created.id, author: "actor", text: "hi", created_at: wire["created_at"], future_comment: "yes" }); wire["comment_count"] = 1; json(target, ["init"]); expect(json<{ imported: number }>(target, ["import"], JSON.stringify(wire)).imported).toBe(1); expect(json<readonly Record<string, unknown>[]>(target, ["export"])[0]).toMatchObject(wire); const invalid = { ...wire, id: "tk-invalid", dependencies: [{ ...(wire["dependencies"] as Record<string, unknown>[])[0]!, created_at: "nope" }] }; const failed = run(target, ["import", "--json"], JSON.stringify(invalid)); expect(failed.status).not.toBe(0); expect(JSON.parse(failed.stderr).error.message).toMatch(/import line 1 field/); expect(json<readonly unknown[]>(target, ["list"])).toHaveLength(1); });
 
@@ -58,7 +58,7 @@ describe("tk executable", () => {
     const file = join(directory, "source.jsonl");
     writeFileSync(file, `${JSON.stringify({ _type: "issue", id: "demo-1", title: "redirected", status: "open", priority: 2, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" })}\n`);
     const result = Bun.spawnSync([process.execPath, executable, "-C", directory, "import", "--json"], { stdin: Bun.file(file), stdout: "pipe", stderr: "pipe" });
-    expect(new TextDecoder().decode(result.stdout).trim()).toBe(JSON.stringify({ imported: 1 }));
+    expect(new TextDecoder().decode(result.stdout).trim()).toBe(JSON.stringify({ imported: 1, sprints: 0 }));
     expect(json<readonly unknown[]>(directory, ["list"])).toHaveLength(1);
   });
 
@@ -70,8 +70,93 @@ describe("tk executable", () => {
       JSON.stringify({ _type: "issue", id: "demo-2", title: "child", status: "open", priority: 2, parent: "demo-1", created_at: at, updated_at: at }),
       JSON.stringify({ _type: "issue", id: "demo-1", title: "parent", status: "open", priority: 2, created_at: at, updated_at: at }),
     ].join("\n");
-    expect(json<{ imported: number }>(directory, ["import"], input)).toEqual({ imported: 2 });
+    expect(json<{ imported: number; sprints: number }>(directory, ["import"], input)).toEqual({ imported: 2, sprints: 0 });
     expect(json<readonly Record<string, unknown>[]>(directory, ["show", "demo-2"])[0]!["parent"]).toBe("demo-1");
+  });
+
+  it("starts a sprint, scopes lists to it, and enforces the single-active invariant on restart", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const first = json<{ id: string }>(directory, ["create", "in focus"]);
+    const backlogged = json<{ id: string }>(directory, ["create", "not in focus"]);
+    const started = json<{ sprint: { id: string }; closed: unknown[]; moved: string[] }>(directory, ["sprint", "start", "Week 34"]);
+    expect(started.sprint.id).toBe("week-34");
+    expect(started.closed).toEqual([]);
+    json(directory, ["sprint", "add", first.id]);
+    expect(json<readonly { id: string }[]>(directory, ["list", "--sprint", "active"]).map((issue) => issue.id)).toEqual([first.id]);
+    expect(json<readonly { id: string }[]>(directory, ["list", "--sprint", "week-34"])).toHaveLength(1);
+    expect(json<readonly { id: string }[]>(directory, ["list", "--sprint", "backlog"]).map((issue) => issue.id)).toEqual([backlogged.id]);
+    expect(json<readonly { id: string }[]>(directory, ["list"])).toHaveLength(2);
+    // Restart closes the previous focus; without --carry its issues return to the backlog.
+    const restarted = json<{ sprint: { id: string }; closed: readonly { id: string }[]; moved: string[] }>(directory, ["sprint", "start", "week-35"]);
+    expect(restarted.closed.map((sprint) => sprint.id)).toEqual(["week-34"]);
+    expect(restarted.closed[0]).toMatchObject({ status: "completed" });
+    expect(json<readonly { id: string; sprint: string | null }[]>(directory, ["list"]).find((issue) => issue.id === first.id)?.sprint).toBeNull();
+    expect(json<readonly { id: string }[]>(directory, ["sprint", "list"])).toHaveLength(2);
+    expect(json<readonly { id: string; status: string }[]>(directory, ["sprint", "list"]).filter((sprint) => sprint.status === "active")).toHaveLength(1);
+  });
+
+  it("carries unfinished issues into the next sprint with --carry and drops them to backlog on close", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const carried = json<{ id: string }>(directory, ["create", "carried"]);
+    json(directory, ["sprint", "start", "one", "--carry"]);
+    json(directory, ["sprint", "add", carried.id]);
+    const next = json<{ sprint: { id: string }; moved: string[] }>(directory, ["sprint", "start", "two", "--carry"]);
+    expect(next.moved).toEqual([carried.id]);
+    expect(json<readonly { id: string; sprint: string | null }[]>(directory, ["list"]).find((issue) => issue.id === carried.id)?.sprint).toBe("two");
+    const closed = json<{ sprint: { id: string; status: string }; moved: string[] }>(directory, ["sprint", "close"]);
+    expect(closed.sprint).toMatchObject({ id: "two", status: "completed" });
+    expect(closed.moved).toEqual([carried.id]);
+    expect(json<readonly { id: string; sprint: string | null }[]>(directory, ["list"]).find((issue) => issue.id === carried.id)?.sprint).toBeNull();
+    expect(json<readonly { id: string }[]>(directory, ["list", "--sprint", "active"])).toEqual([]);
+  });
+
+  it("moves an issue between named sprints and rejects unknown sprints", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const issue = json<{ id: string }>(directory, ["create", "shuttling"]);
+    json(directory, ["sprint", "start", "alpha"]);
+    json(directory, ["sprint", "add", issue.id]);
+    json(directory, ["sprint", "start", "beta"]);
+    json(directory, ["sprint", "move", issue.id, "beta"]);
+    expect(json<readonly { id: string; sprint: string | null }[]>(directory, ["list"]).find((row) => row.id === issue.id)?.sprint).toBe("beta");
+    const missing = run(directory, ["sprint", "move", issue.id, "gamma", "--json"]);
+    expect(missing.status).not.toBe(0);
+  });
+
+  it("archives hides from default views and unarchive restores the prior status", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const openIssue = json<{ id: string }>(directory, ["create", "iceboxed later"]);
+    const closedIssue = json<{ id: string }>(directory, ["create", "closed then iceboxed"]);
+    json(directory, ["close", closedIssue.id]);
+    json(directory, ["archive", openIssue.id]);
+    json(directory, ["archive", closedIssue.id]);
+    expect(json<readonly { id: string }[]>(directory, ["list"])).toEqual([]);
+    expect(json<readonly { id: string }[]>(directory, ["list", "--all"])).toHaveLength(2);
+    expect(json<readonly { id: string }[]>(directory, ["list", "--archived"]).map((issue) => issue.id).sort()).toEqual([openIssue.id, closedIssue.id].sort());
+    expect(json<readonly { id: string }[]>(directory, ["ready"])).toEqual([]);
+    expect(json<readonly Record<string, unknown>[]>(directory, ["show", openIssue.id])[0]).toMatchObject({ status: "archived", metadata: { archivedFrom: "open" } });
+    const restored = json<{ status: string }>(directory, ["unarchive", closedIssue.id]);
+    expect(restored).toMatchObject({ status: "closed" });
+    expect(json<readonly Record<string, unknown>[]>(directory, ["show", closedIssue.id])[0]!["metadata"]).not.toHaveProperty("archivedFrom");
+  });
+
+  it("round-trips sprints through export and import with issues keeping membership", () => {
+    const source = workspace();
+    const target = workspace();
+    json(source, ["init"]);
+    json(target, ["init"]);
+    const issue = json<{ id: string }>(source, ["create", "sprinted"]);
+    json(source, ["sprint", "start", "round-trip"]);
+    json(source, ["sprint", "add", issue.id]);
+    const input = run(source, ["export"]).stdout;
+    const imported = json<{ imported: number; sprints: number }>(target, ["import"], input);
+    expect(imported).toEqual({ imported: 1, sprints: 1 });
+    const sprints = json<readonly { id: string; status: string }[]>(target, ["sprint", "list"]);
+    expect(sprints).toMatchObject([{ id: "round-trip", status: "active" }]);
+    expect(json<readonly { id: string; sprint: string | null }[]>(target, ["list", "--sprint", "active"])[0]).toMatchObject({ id: issue.id, sprint: "round-trip" });
   });
 
   it("preserves estimated_minutes across a beads import round trip", () => {

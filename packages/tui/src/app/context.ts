@@ -93,6 +93,8 @@ export interface AppActions {
   readonly setPriority: (id: string, priority: number) => Promise<void>;
   readonly labelAdd: (id: string, label: string) => Promise<void>;
   readonly labelRemove: (id: string, label: string) => Promise<void>;
+  /** Move the issue into the active sprint, or back to the backlog when already there. */
+  readonly sprintToggle: (id: string) => Promise<void>;
   readonly depAdd: (id: string, target: string, type?: string) => Promise<void>;
   readonly depRemove: (id: string, target: string) => Promise<void>;
   readonly setBoardSel: (sel: { readonly col: number; readonly row: number }) => void;

@@ -125,6 +125,11 @@ export default function tasksExtension(pi: ExtensionAPI) {
     Type.Literal("counts"), Type.Literal("stats"), Type.Literal("tree"), Type.Literal("graph"),
     Type.Literal("duplicates"), Type.Literal("lint"), Type.Literal("children"), Type.Literal("epic"),
     Type.Literal("attach"), Type.Literal("detach"),
+    Type.Literal("sprint-list"), Type.Literal("sprint-start"), Type.Literal("sprint-close"),
+    Type.Literal("sprint-add"), Type.Literal("sprint-remove"), Type.Literal("sprint-move"),
+    Type.Literal("archive"), Type.Literal("unarchive"),
+    Type.Literal("runtime-list"), Type.Literal("runtime-activity"),
+    Type.Literal("inbox"), Type.Literal("inbox-read"), Type.Literal("inbox-archive"),
   ]);
   const Id = Type.Optional(Type.String({ description: "Issue id (e.g. tk-abc). Use `--current` semantics via op show without id to read the current pointer." }));
 
@@ -145,6 +150,9 @@ export default function tasksExtension(pi: ExtensionAPI) {
       "todo(title) · todo-done(ids) — task-type shortcuts",
       "search(text) · query(expr: 'status=open', 'title~bug') · history(id) → audit entries",
       "counts() · stats() · tree(all?, depth?) · graph() · duplicates() · lint(ids?)",
+      "sprint-list() · sprint-start(name, carry?) · sprint-close() · sprint-add(id) · sprint-remove(id) · sprint-move(id, sprint) — sprint focus: one active sprint; lists scope via list(sprint: 'active'|'backlog'|slug)",
+      "archive(id) · unarchive(id) — icebox without deleting; archived issues vanish from default views (list all/archived:true to see them)",
+      "runtime-list() · runtime-activity(limit?) · inbox(all?) · inbox-read(runId) · inbox-archive(runId) — watcher registry, activity trail, and the run inbox (unread first; inbox-read/inbox-archive take id=runId)",
     ].join("\n"),
     parameters: Type.Object({
       op: Op,
@@ -188,6 +196,9 @@ export default function tasksExtension(pi: ExtensionAPI) {
       plan: Type.Optional(Type.String({ description: "For create/update ops: path to the issue's plan file. Attaches it with kind=plan metadata and replaces any prior plan. Bare path = repo root. Use when the user says 'plan', 'plan file', or hands you a markdown plan." })),
       attachments: Type.Optional(Type.Array(Type.Object({ path: Type.String(), metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())) }, { additionalProperties: false }), { description: "For create/update ops: full attachment list [{ path, metadata? }]. Prefer --plan or the attach op for single files." })),
       user: Type.Optional(Type.String({ description: "assign user." })),
+      name: Type.Optional(Type.String({ description: "sprint-start: sprint name (e.g. 'Week 34')." })),
+      carry: Type.Optional(Type.Boolean({ description: "sprint-start: move the previous sprint's issues into the new sprint instead of the backlog." })),
+      sprint: Type.Optional(Type.String({ description: "sprint scope: 'active', 'backlog', or a sprint slug (list filter, sprint-move target)." })),
     }),
     async execute(_id, params) {
       const surface = await resolveSurface();
@@ -226,6 +237,8 @@ export default function tasksExtension(pi: ExtensionAPI) {
               ...(p["parent"] === undefined ? {} : { parent: p["parent"] as string }),
               ...(p["assignee"] === undefined ? {} : { assignee: p["assignee"] as string }),
               ...(p["label"] === undefined ? {} : { label: p["label"] as string }),
+              ...(p["sprint"] === undefined ? {} : { sprint: p["sprint"] as string }),
+              ...(p["archived"] === undefined ? {} : { archived: p["archived"] as boolean }),
               ...(p["limit"] === undefined ? {} : { limit: p["limit"] as number }),
             });
             case "ready": return s.ready({ ...(p["limit"] === undefined ? {} : { limit: p["limit"] as number }) });
@@ -270,6 +283,19 @@ export default function tasksExtension(pi: ExtensionAPI) {
             case "epic": return s.epic(id ?? "");
             case "attach": return s.attach(id ?? "", p["path"] as string, p["attachmentMetadata"] as Record<string, unknown> | undefined);
             case "detach": return s.detach(id ?? "", p["path"] as string);
+            case "sprint-list": return s.sprintList();
+            case "sprint-start": return s.sprintStart((p["name"] ?? p["title"]) as string, { carry: p["carry"] === true });
+            case "sprint-close": return s.sprintClose();
+            case "sprint-add": return s.sprintAdd(id ?? "");
+            case "sprint-remove": return s.sprintRemove(id ?? "");
+            case "sprint-move": return s.sprintMove(id ?? "", (p["sprint"] ?? p["target"]) as string);
+            case "archive": return s.archive(id ?? "");
+            case "unarchive": return s.unarchive(id ?? "");
+            case "runtime-list": return s.runtimeList();
+            case "runtime-activity": return s.runtimeActivity({ ...(p["limit"] === undefined ? {} : { limit: p["limit"] as number }) });
+            case "inbox": return s.inbox({ all: p["all"] === true });
+            case "inbox-read": return s.inboxRead(id ?? "");
+            case "inbox-archive": return s.inboxArchive(id ?? "");
             default: return { ok: false, error: { kind: "validation", message: `unknown op: ${op}` } } as never;
           }
         });
@@ -296,7 +322,7 @@ export default function tasksExtension(pi: ExtensionAPI) {
   const Kinds = Type.Optional(Type.Array(Type.Union([
     Type.Literal("issue.created"), Type.Literal("issue.updated"), Type.Literal("issue.status_changed"),
     Type.Literal("issue.commented"), Type.Literal("issue.deleted"), Type.Literal("ready.changed"),
-    Type.Literal("counts.changed"),
+    Type.Literal("counts.changed"), Type.Literal("run.changed"),
   ]), { description: "Event kinds to subscribe to (default all)." }));
 
   pi.registerTool({

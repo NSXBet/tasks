@@ -13,6 +13,8 @@ const tabs: readonly { readonly name: string; readonly filter: FilterKind }[] = 
   { name: "review", filter: "ready-to-review" },
   { name: "closed", filter: "closed" },
   { name: "mine", filter: "mine" },
+  { name: "sprint", filter: "sprint" },
+  { name: "icebox", filter: "archived" },
 ];
 
 /**

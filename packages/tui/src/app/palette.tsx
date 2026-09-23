@@ -28,7 +28,7 @@ export const CommandPalette = () => {
 
   const targetId = useMemo((): string | null => {
     if (state.view === "board") {
-      const groups = kanbanGroups(state.board.issues, state.board.fetchedAt);
+      const groups = kanbanGroups(visibleIssues(state.board, state.filter, state.search, state.actor), state.board.fetchedAt);
       return kanbanCardAt(groups, state.boardSel.col, state.boardSel.row);
     }
     const rows = visibleIssues(state.board, state.filter, state.search, state.actor);

@@ -103,7 +103,9 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
       if (request.method === "GET" && url.pathname === "/api/board") {
         const page = await surface.all();
         if (!page.ok) return json({ error: page.error }, 500);
-        return json({ issues: page.value, actor, now: new Date().toISOString() });
+        const sprints = await surface.sprintList();
+        const activeSprint = sprints.ok ? sprints.value.find((sprint) => sprint.status === "active") ?? null : null;
+        return json({ issues: page.value, actor, now: new Date().toISOString(), sprints: sprints.ok ? sprints.value : [], activeSprint });
       }
       const body = async (): Promise<Record<string, unknown>> => {
         try {
@@ -122,6 +124,10 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         const outcome: { ok: true; value: unknown } | { ok: false; error: SurfaceError } = await (async (): Promise<{ ok: true; value: unknown } | { ok: false; error: SurfaceError }> => {
           if (action === "/comment") return surface.comment(id, text("text") ?? "");
           if (action === "/claim") return surface.claim(id);
+          if (action === "/archive") return surface.archive(id);
+          if (action === "/unarchive") return surface.unarchive(id);
+          if (action === "/sprint-add") return surface.sprintAdd(id);
+          if (action === "/sprint-remove") return surface.sprintRemove(id);
           const patch: Record<string, unknown> = {};
           if (input["title"] !== undefined) patch["title"] = text("title");
           if (input["description"] !== undefined) patch["description"] = text("description");
@@ -132,6 +138,17 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         })();
         if (!outcome.ok) return json({ error: outcome.error }, 400);
         return json({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/api/sprint/start") {
+        const input = await body();
+        const started = await surface.sprintStart(typeof input["name"] === "string" ? input["name"] : "", { carry: input["carry"] === true });
+        if (!started.ok) return json({ error: started.error }, 400);
+        return json({ ok: true, sprint: started.value.sprint, moved: started.value.moved });
+      }
+      if (request.method === "POST" && url.pathname === "/api/sprint/close") {
+        const closed = await surface.sprintClose();
+        if (!closed.ok) return json({ error: closed.error }, 400);
+        return json({ ok: true, sprint: closed.value.sprint, moved: closed.value.moved });
       }
       if (request.method === "POST" && url.pathname === "/api/issue") {
         const input = await body();

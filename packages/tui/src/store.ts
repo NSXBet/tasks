@@ -9,7 +9,9 @@ import { createSurface, type TasksSurface, type WatchEvent } from "@tasks/surfac
 export interface Board {
   readonly issues: readonly Issue[];
   readonly currentId: string | null;
-  readonly counts: { readonly open: number; readonly inProgress: number; readonly readyToReview: number; readonly blocked: number; readonly closed: number };
+  /** Slug of the workspace's single active sprint; null when no focus bucket. */
+  readonly activeSprintId: string | null;
+  readonly counts: { readonly open: number; readonly inProgress: number; readonly readyToReview: number; readonly blocked: number; readonly closed: number; readonly archived: number };
   readonly fetchedAt: Date;
 }
 
@@ -22,34 +24,41 @@ export const isReady = (issue: Issue, all: readonly Issue[]): boolean =>
   && (issue.deferUntil === null || issue.deferUntil <= new Date())
   && !isBlocked(issue, all);
 
-export const buildBoard = (issues: readonly Issue[], currentId: string | null): Board => {
+export const buildBoard = (issues: readonly Issue[], currentId: string | null, activeSprintId: string | null = null): Board => {
   const tally = (predicate: (issue: Issue) => boolean): number => issues.filter(predicate).length;
   return {
     issues,
     currentId,
+    activeSprintId,
     counts: {
       open: tally((issue) => issue.status === "open"),
       inProgress: tally((issue) => issue.status === "in_progress"),
       readyToReview: tally((issue) => issue.status === "ready-to-review"),
       blocked: tally((issue) => isBlocked(issue, issues) && issue.status !== "closed"),
       closed: tally((issue) => issue.status === "closed"),
+      archived: tally((issue) => issue.status === "archived"),
     },
     fetchedAt: new Date(),
   };
 };
 
-export type FilterKind = "all" | "ready" | "open" | "in_progress" | "ready-to-review" | "closed" | "mine";
+export type FilterKind = "all" | "ready" | "open" | "in_progress" | "ready-to-review" | "closed" | "mine" | "sprint" | "archived";
+
+/** Archived issues stay loaded but out of every default view; only the icebox tab surfaces them. */
+const notArchived = (issue: Issue): boolean => issue.status !== "archived";
 
 export const applyFilter = (board: Board, filter: FilterKind, actor: string): readonly Issue[] => {
   const issues = board.issues;
   switch (filter) {
-    case "ready": return issues.filter((issue) => isReady(issue, issues));
-    case "open": return issues.filter((issue) => issue.status === "open");
-    case "in_progress": return issues.filter((issue) => issue.status === "in_progress");
-    case "ready-to-review": return issues.filter((issue) => issue.status === "ready-to-review");
-    case "closed": return issues.filter((issue) => issue.status === "closed");
-    case "mine": return issues.filter((issue) => issue.assignee === actor);
-    default: return issues;
+    case "ready": return issues.filter((issue) => notArchived(issue) && isReady(issue, issues));
+    case "open": return issues.filter((issue) => notArchived(issue) && issue.status === "open");
+    case "in_progress": return issues.filter((issue) => notArchived(issue) && issue.status === "in_progress");
+    case "ready-to-review": return issues.filter((issue) => notArchived(issue) && issue.status === "ready-to-review");
+    case "closed": return issues.filter((issue) => notArchived(issue) && issue.status === "closed");
+    case "mine": return issues.filter((issue) => notArchived(issue) && issue.assignee === actor);
+    case "sprint": return issues.filter((issue) => notArchived(issue) && board.activeSprintId !== null && issue.sprintId === board.activeSprintId);
+    case "archived": return issues.filter((issue) => issue.status === "archived");
+    default: return issues.filter(notArchived);
   }
 };
 
@@ -368,7 +377,9 @@ const openTuiStore = async (root: string): Promise<TuiStore> => {
     const page = await surface.all();
     if (!page.ok) throw new Error(page.error.message);
     const currentId = await surface.currentId();
-    return buildBoard(page.value, currentId);
+    const sprints = await surface.sprintList();
+    const activeSprintId = sprints.ok ? sprints.value.find((sprint) => sprint.status === "active")?.id ?? null : null;
+    return buildBoard(page.value, currentId, activeSprintId);
   };
   const watch = (onEvent: (event: WatchEvent) => void, intervalMs = 1000): (() => void) => {
     let lastSignature = "";

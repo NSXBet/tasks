@@ -336,9 +336,10 @@
   const state = {
     view: "board", issues: [], actor: "—", selected: null, query: "",
     filter: "all", pal: { rows: [], cursor: 0 }, newStatus: "open",
+    activeSprint: null,
   };
-  const STATUS_COLOR = { open: "var(--open)", in_progress: "var(--run)", "ready-to-review": "var(--review)", closed: "var(--closed)" };
-  const STATUS_NAME = { open: "Open", in_progress: "In progress", "ready-to-review": "Review", closed: "Closed" };
+  const STATUS_COLOR = { open: "var(--open)", in_progress: "var(--run)", "ready-to-review": "var(--review)", closed: "var(--closed)", archived: "var(--dim)" };
+  const STATUS_NAME = { open: "Open", in_progress: "In progress", "ready-to-review": "Review", closed: "Closed", archived: "Icebox" };
   const COLUMNS = ["open", "in_progress", "ready-to-review", "closed"];
   const P_COLOR = ["var(--p0)", "var(--p1)", "var(--p2)", "var(--p3)"];
 
@@ -354,7 +355,11 @@
   const blockerIds = (issue) => issue.dependencies.filter((e) => e.type === "blocks").map((e) => e.target);
   const isBlocked = (issue) => blockerIds(issue).some((id) => state.issues.some((i) => i.id === id && i.status !== "closed"));
   const matches = (issue) => {
-    if (state.filter !== "all" && issue.status !== state.filter) return false;
+    if (state.filter === "archived") { if (issue.status !== "archived") return false; }
+    else {
+      if (issue.status === "archived") return false;
+      if (state.filter !== "all" && issue.status !== state.filter) return false;
+    }
     if (!state.query) return true;
     const hay = `${issue.id} ${issue.title} ${issue.labels.join(" ")} ${issue.assignee ?? ""}`.toLowerCase();
     return state.query.toLowerCase().split(/\s+/).every((t) => hay.includes(t));
@@ -499,7 +504,7 @@
   };
 
   /* ---------- frame ---------- */
-  const FILTERS = ["all", "open", "in_progress", "ready-to-review", "closed"];
+  const FILTERS = ["all", "open", "in_progress", "ready-to-review", "closed", "archived"];
   const renderFilters = () => {
     $("filterbar").innerHTML = FILTERS.map((f) => {
       const n = f === "all" ? state.issues.length : state.issues.filter((i) => i.status === f).length;
@@ -586,6 +591,12 @@
         </span>
         <button class="fchip2 link" data-act="claim" title="assign to me">assign to me</button>
         <span class="fchip2">assignee <b>${esc(issue.assignee ?? "—")}</b></span>
+        ${issue.sprintId ? `<span class="fchip2">sprint <b>${esc(issue.sprintId)}</b></span>` : ""}
+        ${issue.status === "archived"
+          ? `<button class="fchip2 link" data-act="unarchive" title="restore from icebox">unarchive</button>`
+          : `<button class="fchip2 link" data-act="archive" title="hide from default views, keep for reference">archive</button>${state.activeSprint ? (issue.sprintId === state.activeSprint.id
+            ? `<button class="fchip2 link" data-act="sprint-remove" title="move to backlog">− sprint</button>`
+            : `<button class="fchip2 link" data-act="sprint-add" title="move into ${esc(state.activeSprint.id)}">+ sprint</button>`) : ""}`}
       </div>
       ${openBlockers.length ? `<div class="fieldrow"><span class="fchip2 danger">⚠ blocked by ${openBlockers.map((b) => `<button class="fchip2 link" data-open="${esc(b.id)}" style="padding:1px 8px">${esc(b.id)}</button>`).join(" ")}</span></div>` : ""}
       <div class="descbox"><textarea id="mDesc" placeholder="Describe the work… (markdown-ish)">${esc(issue.description ?? "")}</textarea></div>
@@ -613,6 +624,13 @@
     });
     document.querySelector('[data-act="claim"]')?.addEventListener("click", () =>
       run(() => api(`/api/issue/${issue.id}/claim`, {})).then(refresh));
+    for (const act of ["archive", "unarchive", "sprint-add", "sprint-remove"]) {
+      document.querySelector(`[data-act="${act}"]`)?.addEventListener("click", async () => {
+        await run(() => api(`/api/issue/${encodeURIComponent(issue.id)}/${act}`, {}));
+        closeModal();
+        await refresh();
+      });
+    }
     document.querySelectorAll("#taskModal [data-open]").forEach((el) => {
       el.addEventListener("click", () => { selectIssue(el.dataset.open); openModal(el.dataset.open); });
     });
@@ -725,6 +743,7 @@
       const data = await api("/api/board");
       state.issues = data.issues ?? [];
       state.actor = data.actor ?? "—";
+      state.activeSprint = data.activeSprint ?? null;
       $("actorName").textContent = state.actor;
       $("wsName").textContent = data.root ? `· ${String(data.root).split("/").pop()}` : "";
       $("conn").classList.remove("stale");

@@ -25,7 +25,7 @@ interface AppProps {
 
 const clampPriority = (value: number): number => Math.min(4, Math.max(0, value));
 
-const emptyBoard: Board = { issues: [], currentId: null, counts: { open: 0, inProgress: 0, readyToReview: 0, blocked: 0, closed: 0 }, fetchedAt: new Date(0) };
+const emptyBoard: Board = { issues: [], currentId: null, activeSprintId: null, counts: { open: 0, inProgress: 0, readyToReview: 0, blocked: 0, closed: 0, archived: 0 }, fetchedAt: new Date(0) };
 
 /**
  * Root component: owns all app state (board, selection, view, composer) and
@@ -149,6 +149,13 @@ export const App = ({ store, actor, onQuit, wipLimit = null }: AppProps) => {
       if (reportError(outcome, `label ${id}`)) notify(`+${label} ${id}`);
       await refresh();
     },
+    sprintToggle: async (id) => {
+      const issue = board.issues.find((candidate) => candidate.id === id);
+      const inSprint = issue !== undefined && issue.sprintId !== null && issue.sprintId === board.activeSprintId;
+      const outcome = inSprint ? await store.surface.sprintRemove(id) : await store.surface.sprintAdd(id);
+      if (reportError(outcome, `sprint ${id}`)) notify(inSprint ? `${id} → backlog` : `${id} → sprint`);
+      await refresh();
+    },
     labelRemove: async (id, label) => {
       const outcome = await store.surface.labelRemove(id, label);
       if (reportError(outcome, `label ${id}`)) notify(`-${label} ${id}`);
@@ -250,7 +257,7 @@ const ShellKeys = (): null => {
     if (key.sequence === "n") { actions.openComposer("create"); return; }
     const targetId = (() => {
       if (state.view === "board") {
-        const groups = kanbanGroups(state.board.issues, state.board.fetchedAt);
+        const groups = kanbanGroups(visibleIssues(state.board, state.filter, state.search, state.actor), state.board.fetchedAt);
         return kanbanCardAt(groups, state.boardSel.col, state.boardSel.row);
       }
       const rows = visibleIssues(state.board, state.filter, state.search, state.actor);
@@ -275,6 +282,7 @@ const ShellKeys = (): null => {
       case "X": actions.openComposer("dep-remove", targetId); break;
       case "+": void actions.setPriority(targetId, clampPriority(issue.priority + 1)); break;
       case "-": void actions.setPriority(targetId, clampPriority(issue.priority - 1)); break;
+      case "!": void actions.sprintToggle(targetId); break;
       case "/": actions.openComposer("search", null, state.search); break;
       case "n": actions.openComposer("create"); break;
       default: break;

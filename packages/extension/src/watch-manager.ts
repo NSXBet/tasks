@@ -186,6 +186,11 @@ export const formatEvent = (event: WatchEvent, counts?: WatchCounts | null): str
       return `✅ tasks: ready set changed — call tasks_ready when idle (${at})${suffix}`;
     case "counts.changed":
       return `📊 tasks: board counts changed — ${board ?? formatCounts(event.counts ?? { open: 0, blocked: 0, readyToReview: 0 })} (${at})`;
+    case "run.changed": {
+      const runId = event.data?.runId ?? "";
+      const transition = event.data?.from !== undefined && event.data?.to !== undefined ? `${event.data.from} → ${event.data.to}` : (event.data?.to ?? "");
+      return `🏃 tasks: run ${runId} for issue ${id} — ${transition} (${at})${suffix}`;
+    }
     default:
       return `📋 tasks: ${event.kind} ${id} (${at})${suffix}`;
   }

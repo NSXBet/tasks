@@ -10,6 +10,7 @@ const sections: readonly { readonly title: string; readonly lines: readonly stri
   { title: "task modal (enter on a board card, or e)", lines: [
     "board stays visible behind; esc closes; ↵ edit title in composer",
     "s/r/o status · +/- priority · a claim · d close (asks ↵/y · n)",
+    "! sprint toggle (active sprint ⇄ backlog) · icebox tab = archived",
     "E description · c comment · @ assignee · , labels · D/X dependencies",
   ] },
   { title: "list", lines: ["j/k move · enter detail · tab filters"] },

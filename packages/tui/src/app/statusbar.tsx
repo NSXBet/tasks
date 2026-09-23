@@ -11,7 +11,8 @@ export const StatusBar = () => {
   const counts = state.board.counts;
   const staleMark = state.stale ? " ⏳" : "";
   const toast = state.toast ?? "";
-  const left = `open ${counts.open} · wip ${counts.inProgress} · rev ${counts.readyToReview} · blk ${counts.blocked} · done ${counts.closed}`;
+  const sprintChip = state.board.activeSprintId !== null ? ` ▸ ${state.board.activeSprintId}` : "";
+  const left = `open ${counts.open} · wip ${counts.inProgress} · rev ${counts.readyToReview} · blk ${counts.blocked} · done ${counts.closed}${sprintChip}`;
   const wipOver = state.wipLimit !== null && counts.inProgress > state.wipLimit;
   const hint = state.modalId !== null
     ? `modal ${state.modalId} · esc close`

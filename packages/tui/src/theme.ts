@@ -41,6 +41,7 @@ export const statusColor = (status: string): string => {
     case "rejected": return colors.red;
     case "closed": return colors.dim;
     case "deferred": return colors.magenta;
+    case "archived": return colors.dim;
     default: return colors.text;
   }
 };
@@ -66,6 +67,7 @@ export const statusGlyph = (status: string, blocked: boolean): string => {
     case "approved": return "☑";
     case "rejected": return "✗";
     case "deferred": return "⏸";
+    case "archived": return "▦";
     default: return "·";
   }
 };

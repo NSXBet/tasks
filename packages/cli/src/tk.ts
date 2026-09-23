@@ -4,18 +4,19 @@ import { cwd, exit, stdin } from "node:process";
 import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { findBeadsWorkspace, inferPrefix, migrateBeadsJsonl, resolveBeadsJsonl, searchPath, type MigrationSummary } from "@tasks/beads";
-import { dependencyTarget, issueDescription, issueFromBdWire, issueId, issuePriority, issueTitle, issueToBdWire, type Issue, type IssueAttachment, type IssueId, type Metadata } from "@tasks/domain";
-import { canonicalTimestampCodec, err, ok, type IssueUnitOfWork, type Result } from "@tasks/application";
+import { AgentAccessSchema, AgentModeSchema, AgentSchema, RunSchema, RunStateSchema, agentId, agentName, agentSlug, dependencyTarget, issueDescription, issueFromBdWire, issueId, issuePriority, issueTitle, issueToBdWire, runId, SprintSchema, sprintSlug, sprintToBdWire, type Agent, type AgentAccess, type AgentMode, type Issue, type IssueAttachment, type IssueId, type Metadata, type Run, type Sprint } from "@tasks/domain";
+import { applyRunSideEffects, canonicalTimestampCodec, err, isActiveRunState, nextRunId, ok, type IssueUnitOfWork, type Result } from "@tasks/application";
 import { DEFAULT_STORAGE, describeStorage, openEphemeralScratch, openStorage, readWorkspaceConfig, resolveStorageConfig, writeWorkspaceConfig, type StorageAdapter, type StorageConfig, type WorkspaceConfig } from "@tasks/workspace";
 import { booleanFlag, directory, parseArgs, stringFlag, ArgumentParseError, type ParsedArgs } from "./args.js";
 import { gitCommonDir, gitCurrentBranch, gitDefaultBranch, gitHasUncommittedChanges, gitHasUnpushedCommits, gitStashCount, gitToplevel, gitWorktreeAdd, gitWorktreeList, gitWorktreeRemove, mainWorktreeRoot } from "./git.js";
 import {
   commentWire, confirmation, formatBackup, formatBlocked, formatComments, formatCount, formatDepList, formatDoctor,
   formatDuplicates, formatEpic, formatGraph, formatHistory, formatLint, formatList, formatMigration, formatOrphans,
-  formatReady, formatRenamePrefix, formatSearch, formatShow, formatStale, formatStats,
+  formatAgentList, formatAgentShow, formatInbox, formatReady, formatRenamePrefix, formatRunList, formatRunShow, formatRuntimeActivity, formatRuntimeList, formatSearch, formatShow, formatSprintList, formatStale, formatStats,
   formatStatus, formatStatuses, formatTodo, formatTree, formatTypes, formatVersion, formatWhere, formatWorktreeInfo, formatWorktreeList,
   HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
+import { inboxEntries, markInboxArchived, markInboxRead, readActivity, readInboxMarkers, readRuntimeRegistry, type ActivityRow, type InboxEntry, type RuntimeRow } from "@tasks/surface";
 import { bunRunner } from "./git.js";
 import { formatHunkComment, hunkCommentMetaKey, parseHunkComments, pendingHunkComments, planHunk, scratchDirectory, writeAgentContext } from "./hunk.js";
 import { buildTree, type TreeOptions } from "./tree.js";
@@ -30,7 +31,7 @@ const generateId = (): string => randomBytes(6).toString("base64url").toLowerCas
 /** Start at 3 chars (like bd), grow on collision pressure. */
 const idLength = (taken: number): number => (taken < 50 ? 3 : taken < 1_000 ? 4 : 6);
 
-const writers = new Set(["init", "create", "q", "update", "close", "reopen", "defer", "undefer", "comment", "note", "assign", "priority", "tag", "dep", "label", "set-state", "import", "migrate", "delete", "remove", "rename", "link", "duplicate", "supersede", "todo", "backup", "rename-prefix", "switch-backend", "hooks", "attach", "detach"]);
+const writers = new Set(["init", "create", "q", "update", "close", "reopen", "defer", "undefer", "comment", "note", "assign", "priority", "tag", "dep", "label", "set-state", "import", "migrate", "delete", "remove", "rename", "link", "duplicate", "supersede", "todo", "backup", "rename-prefix", "switch-backend", "hooks", "attach", "detach", "sprint", "agent", "run", "archive", "unarchive"]);
 type JsonError = { readonly error: { readonly kind: "parse" | "validation" | "readonly" | "runtime"; readonly message: string } };
 type Config = WorkspaceConfig;
 const fail = (message: string): never => { throw new Error(message); };
@@ -76,7 +77,7 @@ const statusFilter = (args: ParsedArgs): string | undefined => {
   return explicit ?? shorthands[0];
 };
 /** Statuses the CLI treats as first-class lifecycle values, in workflow order. */
-const KNOWN_STATUSES: readonly string[] = ["open", "in_progress", "ready-to-review", "approved", "rejected", "closed"];
+const KNOWN_STATUSES: readonly string[] = ["open", "in_progress", "ready-to-review", "approved", "rejected", "closed", "archived"];
 /**
  * `tk init --backend/--filename/--url-env` only ever produce a `StorageConfig`
  * written into `.tasks/config.json` — no other command reads these flags, and
@@ -218,6 +219,13 @@ async function runWorktree(args: ParsedArgs, start: string, json: boolean): Prom
 const get = async (uow: IssueUnitOfWork, raw: string): Promise<Issue> => { const issue = unwrap(await uow.findById(issueId(raw))); return issue ?? fail(`issue not found: ${raw}`); };
 const transaction = async <T>(database: StorageAdapter, work: (uow: IssueUnitOfWork) => Promise<T>): Promise<T> => unwrap(await database.withinTransaction(async (uow) => { try { return ok(await work(uow)); } catch (cause) { return err({ kind: "repository", operation: "cli", cause }); } }));
 const changed = (issue: Issue, patch: Partial<Issue>): Issue => ({ ...issue, ...patch, updatedAt: new Date() });
+/** Repeatable flags arrive as `string | true | readonly string[]`; normalizes to a list. */
+const listFlag = (args: ParsedArgs, name: string): readonly string[] => { const value = args.flags.get(name); if (value === undefined || value === true) return []; return typeof value === "string" ? [value] : [...value]; };
+const envFlag = (args: ParsedArgs): Record<string, string> => { const entries: Record<string, string> = {}; for (const pair of listFlag(args, "env")) { const split = pair.indexOf("="); if (split <= 0) fail(`invalid --env: ${pair} (expected key=value)`); entries[pair.slice(0, split)] = pair.slice(split + 1); } return entries; };
+const accessFlag = (args: ParsedArgs): AgentAccess => AgentAccessSchema.parse(stringFlag(args, "access") ?? "workspace");
+const modeFlag = (args: ParsedArgs): AgentMode => AgentModeSchema.parse(stringFlag(args, "mode") ?? "default");
+/** Patch from `agent update` flags: only flags present on the command line change, empty owner/runtime clears. */
+const agentPatch = (args: ParsedArgs): Partial<Agent> => { const patch: Partial<Agent> = {}; const description = stringFlag(args, "description"); if (description !== undefined) patch.description = description; const owner = args.flags.get("owner"); if (typeof owner === "string") patch.owner = owner === "" ? null : owner; const runtime = args.flags.get("runtime"); if (typeof runtime === "string") patch.runtime = runtime === "" ? null : runtime; if (args.flags.get("access") !== undefined) patch.access = accessFlag(args); if (args.flags.get("mode") !== undefined) patch.mode = modeFlag(args); const instructions = stringFlag(args, "instructions"); if (instructions !== undefined) patch.instructions = instructions; if (args.flags.get("skill") !== undefined) patch.skills = [...listFlag(args, "skill")]; if (args.flags.get("env") !== undefined) patch.env = envFlag(args); return patch; };
 /** Recursive byte size of a directory, for `backup` on the `file` backend. */
 async function du(path: string): Promise<number> {
   const info = await stat(path);
@@ -243,7 +251,7 @@ class CommandService {
       let attempts = 0;
       while (existing.has(candidate)) { attempts += 1; if (attempts > 20) fail("could not allocate unique issue id"); candidate = `${this.prefix()}-${generateId().slice(0, length)}`; }
       const now = new Date(); const parent = stringFlag(args, "parent"); const estimate = stringFlag(args, "estimate");
-      const issue: Issue = { id: issueId(candidate), title: issueTitle(title), description: issueDescription(description), status: stringFlag(args, "status") ?? "open", priority: issuePriority(Number(stringFlag(args, "priority") ?? 2)), type: stringFlag(args, "type") ?? "task", owner: stringFlag(args, "owner") ?? null, assignee: stringFlag(args, "assignee") ?? null, createdBy: this.actor, createdAt: now, updatedAt: now, startedAt: null, closedAt: null, dueAt: parseDate(stringFlag(args, "due")) ?? null, deferUntil: parseDate(stringFlag(args, "defer-until")) ?? null, parentId: parent === undefined ? null : issueId(parent), labels: (stringFlag(args, "labels") ?? stringFlag(args, "label") ?? "").split(",").filter(Boolean), notes: stringFlag(args, "notes") ?? null, design: stringFlag(args, "design") ?? null, acceptanceCriteria: stringFlag(args, "acceptance") ?? null, estimate: estimate === undefined ? null : Number(estimate), specId: stringFlag(args, "spec-id") ?? null, externalRef: stringFlag(args, "external-ref") ?? null, branch: stringFlag(args, "branch") ?? null, metadata: parseMetadata(stringFlag(args, "metadata")) ?? {}, attachments: parseAttachments(args, this.root), wireUnknown: {}, dependencies: [], dependencyCount: 0, dependentCount: 0, comments: [], commentCount: 0 };
+      const issue: Issue = { id: issueId(candidate), title: issueTitle(title), description: issueDescription(description), status: stringFlag(args, "status") ?? "open", priority: issuePriority(Number(stringFlag(args, "priority") ?? 2)), type: stringFlag(args, "type") ?? "task", owner: stringFlag(args, "owner") ?? null, assignee: stringFlag(args, "assignee") ?? null, createdBy: this.actor, createdAt: now, updatedAt: now, startedAt: null, closedAt: null, dueAt: parseDate(stringFlag(args, "due")) ?? null, deferUntil: parseDate(stringFlag(args, "defer-until")) ?? null, parentId: parent === undefined ? null : issueId(parent), sprintId: null, labels: (stringFlag(args, "labels") ?? stringFlag(args, "label") ?? "").split(",").filter(Boolean), notes: stringFlag(args, "notes") ?? null, design: stringFlag(args, "design") ?? null, acceptanceCriteria: stringFlag(args, "acceptance") ?? null, estimate: estimate === undefined ? null : Number(estimate), specId: stringFlag(args, "spec-id") ?? null, externalRef: stringFlag(args, "external-ref") ?? null, branch: stringFlag(args, "branch") ?? null, metadata: parseMetadata(stringFlag(args, "metadata")) ?? {}, attachments: parseAttachments(args, this.root), wireUnknown: {}, dependencies: [], dependencyCount: 0, dependentCount: 0, comments: [], commentCount: 0 };
       unwrap(await uow.save(issue)); for (const entry of (stringFlag(args, "deps") ?? "").split(",").filter(Boolean)) { const [kind, target] = entry.includes(":") ? entry.split(/:(.*)/s) : ["blocks", entry]; unwrap(await uow.addDependency({ issueId: issue.id, target: dependencyTarget(target!), type: kind!, createdAt: now, createdBy: this.actor, metadata: {}, wireUnknown: {} })); }
       const made = await get(uow, issue.id); await this.setCurrent(made.id); return made;
     });
@@ -252,9 +260,9 @@ class CommandService {
   async all(): Promise<readonly Issue[]> { return transaction(this.database, async (uow) => unwrap(await uow.list({ limit: 100_000 })).items); }
   async history(args: ParsedArgs): Promise<readonly Record<string, unknown>[]> { return transaction(this.database, async (uow) => { const id = issueId(await this.selected(args)); await get(uow, id); return (unwrap(await uow.history(id))).map((entry) => ({ id: entry.id, issue_id: entry.issueId, action: entry.action, at: entry.at.toISOString(), actor: entry.actor, data: entry.data })); }); }
   /** Import is migration of an already-materialised stream: same decoder, same ordering, same atomicity. */
-  async importJsonl(input: string): Promise<number> {
+  async importJsonl(input: string): Promise<{ imported: number; sprints: number }> {
     const result = await migrateBeadsJsonl(this.database, input, { onConflict: "overwrite", strict: true, timestamps: canonicalTimestampCodec });
-    if (result.ok) return result.value.imported;
+    if (result.ok) return { imported: result.value.imported, sprints: result.value.importedSprints.length };
     const rejected = result.error.rejected?.[0];
     return fail(rejected === undefined ? result.error.message : `import line ${rejected.line} field ${rejected.field}: ${rejected.message}`);
   }
@@ -276,9 +284,74 @@ class CommandService {
     await writeWorkspaceConfig(tasksDir, { ...current, prefix: adopted });
     return { ...report, prefix: adopted };
   }
-  async list(args: ParsedArgs, ready: boolean): Promise<readonly Issue[]> { const query = statusFilter(args); return transaction(this.database, async (uow) => { const page = unwrap(await uow.list({ ...(query === undefined || query === "all" ? {} : { status: query }), limit: Number(stringFlag(args, "limit") ?? 1000) })); let items = page.items.filter((issue) => (stringFlag(args, "parent") === undefined || issue.parentId === stringFlag(args, "parent")) && (stringFlag(args, "assignee") === undefined || issue.assignee === stringFlag(args, "assignee")) && (stringFlag(args, "type") === undefined || issue.type === stringFlag(args, "type")) && (stringFlag(args, "priority") === undefined || issue.priority === Number(stringFlag(args, "priority"))) && (stringFlag(args, "label") === undefined || issue.labels.includes(stringFlag(args, "label")!)));
+  async list(args: ParsedArgs, ready: boolean): Promise<readonly Issue[]> { const query = statusFilter(args); const sprintFlag = stringFlag(args, "sprint"); const archivedOnly = booleanFlag(args, "archived"); return transaction(this.database, async (uow) => { const page = unwrap(await uow.list({ ...(query === undefined || query === "all" ? {} : { status: query }), limit: Number(stringFlag(args, "limit") ?? 1000) })); const sprintMatches = sprintFlag === undefined ? undefined : await this.sprintFilter(uow, sprintFlag); const hideArchived = !archivedOnly && query !== "all";
+    let items = page.items.filter((issue) => (stringFlag(args, "parent") === undefined || issue.parentId === stringFlag(args, "parent")) && (stringFlag(args, "assignee") === undefined || issue.assignee === stringFlag(args, "assignee")) && (stringFlag(args, "type") === undefined || issue.type === stringFlag(args, "type")) && (stringFlag(args, "priority") === undefined || issue.priority === Number(stringFlag(args, "priority"))) && (stringFlag(args, "label") === undefined || issue.labels.includes(stringFlag(args, "label")!)) && (sprintMatches === undefined || sprintMatches(issue)) && (!hideArchived || issue.status !== "archived") && (!archivedOnly || issue.status === "archived"));
     if (!ready) return items; const now = new Date(); items = items.filter((issue) => issue.status === "open" && (issue.deferUntil === null || issue.deferUntil <= now) && !issue.dependencies.some((edge) => edge.type === "blocks" && page.items.some((candidate) => candidate.id === edge.target && candidate.status !== "closed")));
     if (!booleanFlag(args, "claim")) return items; const pick = items[0] ?? fail("no ready issue to claim"); const claimed = unwrap(await uow.claimReady(pick.id, this.actor)); await this.setCurrent(claimed.id); return [claimed]; }); }
+  /** Resolves `--sprint <scope>` into an issue matcher: active/current → focus (empty view when none), backlog/none → null sprint, else a slug. */
+  private async sprintFilter(uow: IssueUnitOfWork, flag: string): Promise<(issue: Issue) => boolean> {
+    const value = flag.trim().toLowerCase();
+    if (value === "backlog" || value === "none") return (issue) => issue.sprintId === null;
+    if (value === "active" || value === "current") {
+      const active = unwrap(await uow.listSprints()).find((candidate) => candidate.status === "active");
+      return active === undefined ? () => false : (issue) => issue.sprintId === active.id;
+    }
+    const id = sprintSlug(value);
+    return (issue) => issue.sprintId === id;
+  }
+  async sprintList(): Promise<readonly Sprint[]> { return transaction(this.database, async (uow) => unwrap(await uow.listSprints())); }
+  /** Start a sprint: closes any active sprint first (single-active invariant); its issues go to the backlog unless `carry`. */
+  async sprintStart(name: string, carry: boolean): Promise<{ sprint: Sprint; closed: readonly Sprint[]; moved: readonly string[] }> { return transaction(this.database, async (uow) => {
+    const trimmed = name.trim(); if (trimmed === "") fail("sprint start requires a name");
+    const id = sprintSlug(trimmed); const existing = await uow.findSprint(id); if (existing.ok && existing.value !== null) fail(`sprint already exists: ${id}`);
+    const page = unwrap(await uow.list({ limit: 100_000 })); const closed: Sprint[] = []; const moved: string[] = [];
+    for (const active of unwrap(await uow.listSprints()).filter((candidate) => candidate.status === "active")) {
+      const completed = SprintSchema.parse({ ...active, status: "completed", completedAt: new Date(), updatedAt: new Date() });
+      unwrap(await uow.saveSprint(completed)); closed.push(completed);
+      for (const issue of page.items.filter((candidate) => candidate.sprintId === active.id)) { unwrap(await uow.save(changed(issue, { sprintId: carry ? id : null }))); moved.push(issue.id); }
+    }
+    const now = new Date(); const sprint = SprintSchema.parse({ id, name: trimmed, status: "active", completedAt: null, createdAt: now, updatedAt: now, wireUnknown: {} });
+    unwrap(await uow.saveSprint(sprint)); return { sprint, closed, moved };
+  }); }
+  /** Close the active sprint: its issues return to the backlog; the sprint keeps its record. */
+  async sprintClose(): Promise<{ sprint: Sprint; moved: readonly string[] }> { return transaction(this.database, async (uow) => {
+    const active = unwrap(await uow.listSprints()).find((candidate) => candidate.status === "active") ?? fail("no active sprint");
+    const completed = SprintSchema.parse({ ...active, status: "completed", completedAt: new Date(), updatedAt: new Date() });
+    unwrap(await uow.saveSprint(completed));
+    const page = unwrap(await uow.list({ limit: 100_000 })); const moved: string[] = [];
+    for (const issue of page.items.filter((candidate) => candidate.sprintId === active.id)) { unwrap(await uow.save(changed(issue, { sprintId: null }))); moved.push(issue.id); }
+    return { sprint: completed, moved };
+  }); }
+  async sprintAdd(raw: string): Promise<Issue> { return transaction(this.database, async (uow) => { const active = unwrap(await uow.listSprints()).find((candidate) => candidate.status === "active") ?? fail("no active sprint — start one first"); const issue = await get(uow, raw); if (issue.sprintId === active.id) return issue; const result = changed(issue, { sprintId: active.id }); unwrap(await uow.save(result)); return result; }); }
+  async sprintRemove(raw: string): Promise<Issue> { return transaction(this.database, async (uow) => { const issue = await get(uow, raw); if (issue.sprintId === null) return issue; const result = changed(issue, { sprintId: null }); unwrap(await uow.save(result)); return result; }); }
+  async sprintMove(raw: string, target: string): Promise<Issue> { return transaction(this.database, async (uow) => { const id = sprintSlug(target); const sprint = await uow.findSprint(id); if (!sprint.ok || sprint.value === null) fail(`sprint not found: ${target}`); const issue = await get(uow, raw); if (issue.sprintId === id) return issue; const result = changed(issue, { sprintId: id }); unwrap(await uow.save(result)); return result; }); }
+  /** Find an agent by slug or fail; every agent command routes through here. */
+  private async agent(uow: IssueUnitOfWork, raw: string): Promise<Agent> { const found = unwrap(await uow.findAgent(agentId(raw))); return found ?? fail(`agent not found: ${raw}`); }
+  async agentCreate(args: ParsedArgs): Promise<Agent> { const name = stringFlag(args, "name") ?? args.positionals[2] ?? fail("agent create requires a name"); return transaction(this.database, async (uow) => {
+    const id = agentSlug(name); const existing = unwrap(await uow.findAgent(id)); if (existing !== null) fail(`agent already exists: ${id}`);
+    const now = new Date(); const agent = AgentSchema.parse({ id, name, description: stringFlag(args, "description") ?? "", owner: stringFlag(args, "owner") ?? null, runtime: stringFlag(args, "runtime") ?? null, access: accessFlag(args), mode: modeFlag(args), status: "offline", instructions: stringFlag(args, "instructions") ?? "", skills: [...listFlag(args, "skill")], env: envFlag(args), archivedAt: null, createdAt: now, updatedAt: now });
+    unwrap(await uow.saveAgent(agent)); return agent; }); }
+  async agentList(args: ParsedArgs): Promise<readonly Agent[]> { const archivedOnly = booleanFlag(args, "archived"); const status = stringFlag(args, "status"); return transaction(this.database, async (uow) => unwrap(await uow.listAgents()).filter((agent) => ((agent.archivedAt !== null) === archivedOnly) && (status === undefined || agent.status === status))); }
+  async agentShow(raw: string): Promise<Agent> { return transaction(this.database, async (uow) => this.agent(uow, raw)); }
+  async agentUpdate(args: ParsedArgs, raw: string): Promise<Agent> { return transaction(this.database, async (uow) => { const agent = await this.agent(uow, raw); const patch = agentPatch(args); if (patch.description === undefined && patch.owner === undefined && patch.runtime === undefined && patch.access === undefined && patch.mode === undefined && patch.instructions === undefined && patch.skills === undefined && patch.env === undefined) fail("agent update requires at least one field flag"); const result = AgentSchema.parse({ ...agent, ...patch, updatedAt: new Date() }); unwrap(await uow.saveAgent(result)); return result; }); }
+  async agentArchive(raw: string): Promise<Agent> { return transaction(this.database, async (uow) => { const agent = await this.agent(uow, raw); if (agent.archivedAt !== null) return agent; const now = new Date(); const result = AgentSchema.parse({ ...agent, status: "offline", archivedAt: now, updatedAt: now }); unwrap(await uow.saveAgent(result)); return result; }); }
+  async agentUnarchive(raw: string): Promise<Agent> { return transaction(this.database, async (uow) => { const agent = await this.agent(uow, raw); if (agent.archivedAt === null) return agent; const result = AgentSchema.parse({ ...agent, status: "offline", archivedAt: null, updatedAt: new Date() }); unwrap(await uow.saveAgent(result)); return result; }); }
+  async agentCopy(args: ParsedArgs, raw: string): Promise<Agent> { const name = stringFlag(args, "name") ?? fail("agent copy requires --name <new-name>"); return transaction(this.database, async (uow) => {
+    const source = await this.agent(uow, raw); const id = agentSlug(name); const existing = unwrap(await uow.findAgent(id)); if (existing !== null) fail(`agent already exists: ${id}`);
+    const now = new Date(); const result = AgentSchema.parse({ ...source, id, name, status: "offline", archivedAt: null, createdAt: now, updatedAt: now });
+    unwrap(await uow.saveAgent(result)); return result; }); }
+  async agentIssues(args: ParsedArgs, raw: string): Promise<readonly Issue[]> { return transaction(this.database, async (uow) => { const agent = await this.agent(uow, raw); const page = unwrap(await uow.list({ limit: Number(stringFlag(args, "limit") ?? 1000) })); return page.items.filter((issue) => issue.assignee === agent.id); }); }
+  async runsList(args: ParsedArgs): Promise<readonly Run[]> { const issueFlag = stringFlag(args, "issue"); const state = stringFlag(args, "state"); return transaction(this.database, async (uow) => { const runs = unwrap(await uow.listRuns(issueFlag === undefined ? undefined : issueId(issueFlag))); return state === undefined ? runs : runs.filter((run) => run.state === RunStateSchema.parse(state)); }); }
+  private async run(uow: IssueUnitOfWork, raw: string): Promise<Run> { const found = unwrap(await uow.findRun(runId(raw))); return found ?? fail(`run not found: ${raw}`); }
+  async runShow(raw: string): Promise<Run> { return transaction(this.database, async (uow) => this.run(uow, raw)); }
+  async runCancel(raw: string): Promise<Run> { return transaction(this.database, async (uow) => { const run = await this.run(uow, raw); if (!isActiveRunState(run.state)) fail(`run is not active: ${run.id} (${run.state})`); const now = new Date(); const result = RunSchema.parse({ ...run, state: "cancelled", closedAt: now, updatedAt: now }); unwrap(await uow.saveRun(result)); return result; }); }
+  async runRerun(raw: string): Promise<Run> { return transaction(this.database, async (uow) => { const source = await this.run(uow, raw); const id = unwrap(await nextRunId(uow, source.issueId)); const now = new Date(); const result = RunSchema.parse({ id, issueId: source.issueId, agentId: source.agentId, trigger: "manual", state: "queued", startedAt: null, closedAt: null, messages: [], usage: { tokens: null, cost: null }, createdAt: now, updatedAt: now }); unwrap(await uow.saveRun(result)); return result; }); }
+  async runMessage(args: ParsedArgs, raw: string, body: string): Promise<Run> { return transaction(this.database, async (uow) => { const run = await this.run(uow, raw); if (!isActiveRunState(run.state) && run.state !== "in_review") fail(`run is terminal: ${run.id} (${run.state})`); const now = new Date(); const result = RunSchema.parse({ ...run, messages: [...run.messages, { at: now, kind: "log", text: body }], updatedAt: now }); unwrap(await uow.saveRun(result)); return result; }); }
+  /** Archive: icebox without deletion — hidden from default views, restorable via `archivedFrom`. */
+  async archive(args: ParsedArgs): Promise<Issue> { const id = await this.selected(args); return transaction(this.database, async (uow) => { const issue = await get(uow, id); if (issue.status === "archived") return issue; const result = changed(issue, { status: "archived", metadata: { ...issue.metadata, archivedFrom: issue.status } }); unwrap(await uow.save(result)); return result; }); }
+  async unarchive(args: ParsedArgs): Promise<Issue> { const id = await this.selected(args); return transaction(this.database, async (uow) => { const issue = await get(uow, id); if (issue.status !== "archived") return issue; const from = issue.metadata["archivedFrom"]; const metadata = { ...issue.metadata }; delete metadata["archivedFrom"]; const result = changed(issue, { status: typeof from === "string" && from !== "archived" ? from : "open", metadata }); unwrap(await uow.save(result)); return result; }); }
+  /** Export = sprints first (import saves them before issues for sprint_id FK ordering), then issues. */
+  async exportWire(): Promise<readonly Record<string, unknown>[]> { return transaction(this.database, async (uow) => [...unwrap(await uow.listSprints()).map((sprint) => sprintToBdWire({ version: 1, sprint, unknown: sprint.wireUnknown }, canonicalTimestampCodec)), ...unwrap(await uow.list({ limit: 100_000 })).items.map((issue) => issueToBdWire({ version: 1, issue, unknown: issue.wireUnknown }, canonicalTimestampCodec))]); }
   async comment(args: ParsedArgs): Promise<Issue> { const id = await this.selected(args); let body = args.positionals.slice(2).join(" ") || stringFlag(args, "body") || ""; if (booleanFlag(args, "stdin")) body = await readInput(); if (!body) fail("comment requires body"); return transaction(this.database, async (uow) => { unwrap(await uow.addComment(issueId(id), this.actor, body)); return get(uow, id); }); }
   async comments(args: ParsedArgs): Promise<Issue> { return this.show(args); }
   async dep(args: ParsedArgs): Promise<Issue | readonly Record<string, unknown>[]> {
@@ -324,7 +397,7 @@ class CommandService {
     const status = stringFlag(args, "status"); if (status !== undefined) patch = { ...patch, status }; const due = parseDate(stringFlag(args, "due")); if (due !== undefined) patch = { ...patch, dueAt: due };
     if (command === "update" && (args.flags.get("attach") !== undefined || stringFlag(args, "plan") !== undefined)) { const incoming = parseAttachments(args, this.root); const planPaths = new Set(stringFlag(args, "plan") === undefined ? [] : incoming.filter((entry) => entry.metadata["kind"] === "plan").map((entry) => entry.path)); const merged = [...issue.attachments.filter((entry) => !planPaths.has(entry.path) && !(planPaths.size > 0 && entry.metadata["kind"] === "plan"))]; for (const attachment of incoming) { const existing = merged.findIndex((entry) => entry.path === attachment.path); if (existing >= 0) merged[existing] = attachment; else merged.push(attachment); } patch = { ...patch, attachments: merged }; }
     if (command === "update" && stringFlag(args, "detach") !== undefined) { const target = stringFlag(args, "detach")!; patch = { ...patch, attachments: issue.attachments.filter((entry) => entry.path !== target) }; }
-    const result = changed(issue, patch); unwrap(await uow.save(result)); if (command === "close" || command === "reopen" || command === "set-state") await this.setCurrent(result.id); return result; }); }
+    const result = changed(issue, patch); unwrap(await uow.save(result)); if (patch.status !== undefined && patch.status !== issue.status) await applyRunSideEffects(uow, result, issue.status, result.status, new Date()); if (command === "close" || command === "reopen" || command === "set-state") await this.setCurrent(result.id); return result; }); }
   /** Quick capture (`bd q`): create and return only the new id. */
   async quick(args: ParsedArgs): Promise<string> { return (await this.create(args)).id; }
   /** Field shorthand used by `assign`/`priority`: patch one field on the selected issue. */
@@ -506,7 +579,7 @@ class CommandService {
 /** Stable machine-readable migration contract; every non-imported record is accounted for. */
 const migrationReport = (summary: MigrationSummary, source: string, directory: string): Record<string, unknown> => ({
   migrated: !summary.dryRun, dry_run: summary.dryRun, source, source_path: directory,
-  read: summary.read, imported: summary.imported,
+  read: summary.read, imported: summary.imported, sprints: summary.importedSprints.length,
   skipped: [...summary.skipped], overwritten: [...summary.overwritten],
   carried: summary.carried.map((record) => ({ line: record.line, type: record.type })),
   rejected: summary.rejected.map((record) => ({ line: record.line, field: record.field, message: record.message })),
@@ -568,6 +641,10 @@ WORKING WITH ISSUES
   web [workspace] [-d] [--port N]  Web UI over the workspace (-d: dev mode — open browser + live reload)
   watch [--kinds k1,k2] [--ids id1,id2] [--label l] [--interval ms]
                           Watch for changes (NDJSON events on stdout)
+  runtime list            Live watcher registry (id, pid, heartbeat age)
+  runtime activity [-l N] Last N runtime activity rows
+  inbox [--all]           Run inbox, unread first (--all includes archived)
+  inbox read|archive <runId>  Mark a run read or archived
   tree [--all] [--depth N]  Tree view: epics first, priority-ordered dependency fan-out
   count                   Summary counts
   status                  Counts by status
@@ -750,6 +827,7 @@ async function main(): Promise<void> { const rawTokens = process.argv.slice(2); 
   if (command === "help" || booleanFlag(args, "help") || booleanFlag(args, "h")) { process.stdout.write(HELP); return; }
   if (command === "tui") { await runTui(args, root, start); return; }
   if (command === "web") { await runWeb(args, root, start); return; }
+  if (command === "watch") { await runWatch(args, start); return; }
 /**
  * `tk setup cursor|codex [--global] [--remove]` — agent lifecycle hooks.json
  * management (hooks only; rules/skill templates are agent-specific and are
@@ -841,14 +919,14 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
     else if (command === "blocked") { const all = await service.all(); const blocked = all.filter((issue) => issue.dependencies.some((edge) => edge.type === "blocks" && all.some((other) => other.id === edge.target && other.status !== "closed"))); value = blocked.map(issueWire); human = () => formatBlocked(blocked, all); }
     else if (command === "count") { const all = await service.all(); value = { total: all.length, by_status: Object.fromEntries([...new Set(all.map((issue) => issue.status))].sort().map((status) => [status, all.filter((issue) => issue.status === status).length])), by_type: Object.fromEntries([...new Set(all.map((issue) => issue.type))].sort().map((type) => [type, all.filter((issue) => issue.type === type).length])) }; human = () => formatCount(value as { total: number; by_status: Record<string, number>; by_type: Record<string, number> }); }
     else if (command === "status") { const all = await service.all(); value = Object.fromEntries([...new Set(all.map((issue) => issue.status))].sort().map((status) => [status, all.filter((issue) => issue.status === status).length])); human = () => formatStatus(value as Record<string, number>); }
-    else if (command === "stats") { const all = await service.all(); const now = new Date(); const blockedIds = new Set(all.filter((issue) => issue.dependencies.some((edge) => edge.type === "blocks" && all.some((other) => other.id === edge.target && other.status !== "closed"))).map((issue) => issue.id)); const tally = (status: string) => all.filter((issue) => issue.status === status).length; value = { total: all.length, open: tally("open"), in_progress: tally("in_progress"), ready_to_review: tally("ready-to-review"), approved: tally("approved"), rejected: tally("rejected"), blocked: blockedIds.size, closed: tally("closed"), deferred: tally("deferred"), ready: all.filter((issue) => issue.status === "open" && !blockedIds.has(issue.id) && (issue.deferUntil === null || issue.deferUntil <= now)).length }; human = () => formatStats(value as { total: number; open: number; in_progress: number; ready_to_review: number; approved: number; rejected: number; blocked: number; closed: number; deferred: number; ready: number }); }
+    else if (command === "stats") { const all = await service.all(); const now = new Date(); const blockedIds = new Set(all.filter((issue) => issue.dependencies.some((edge) => edge.type === "blocks" && all.some((other) => other.id === edge.target && other.status !== "closed"))).map((issue) => issue.id)); const tally = (status: string) => all.filter((issue) => issue.status === status).length; value = { total: all.length, open: tally("open"), in_progress: tally("in_progress"), ready_to_review: tally("ready-to-review"), approved: tally("approved"), rejected: tally("rejected"), blocked: blockedIds.size, closed: tally("closed"), deferred: tally("deferred"), archived: tally("archived"), ready: all.filter((issue) => issue.status === "open" && !blockedIds.has(issue.id) && (issue.deferUntil === null || issue.deferUntil <= now)).length }; human = () => formatStats(value as { total: number; open: number; in_progress: number; ready_to_review: number; approved: number; rejected: number; blocked: number; closed: number; deferred: number; archived: number; ready: number }); }
     else if (command === "query") { const expression = args.positionals.slice(1).join(" ") || fail("query requires expression"); const issues = queryIssues(await service.all(), expression); value = issues.map(issueWire); human = () => formatList(issues); }
     else if (command === "search") { const text = args.positionals.slice(1).join(" ").trim() || fail("search requires text"); const needle = text.toLowerCase(); const issues = (await service.all()).filter((issue) => [issue.id, issue.title, issue.description, issue.notes ?? "", ...issue.labels].join("\n").toLowerCase().includes(needle)); value = issues.map(issueWire); human = () => formatSearch(issues, text); }
-    else if (command === "import") { const count = await service.importJsonl(await readInput()); value = { imported: count }; human = () => green(`✓ Imported ${count} issue(s)`); }
+    else if (command === "import") { const counts = await service.importJsonl(await readInput()); value = { imported: counts.imported, sprints: counts.sprints }; human = () => green(`✓ Imported ${counts.imported} issue(s)` + (counts.sprints > 0 ? ` and ${counts.sprints} sprint(s)` : "")); }
     else if (command === "history") { const entries = await service.history(args); value = entries; human = () => formatHistory(entries, args.positionals[1] ?? "current"); }
     else if (command === "types") { const used = [...new Set((await service.all()).map((issue) => issue.type))].sort(); value = used; human = () => formatTypes(used); }
     else if (command === "statuses") { const used = [...new Set([...KNOWN_STATUSES, ...(await service.all()).map((issue) => issue.status)])].sort(); value = used; human = () => formatStatuses(used); }
-    else if (command === "export") value = (await service.all()).map((issue) => issueToBdWire({ version: 1, issue, unknown: issue.wireUnknown }, canonicalTimestampCodec));
+    else if (command === "export") value = await service.exportWire();
     else if (command === "tree") { const all = await service.all(); const rawDepth = stringFlag(args, "depth"); const status = statusFilter(args); const options: TreeOptions = { all: booleanFlag(args, "all") || status === "all", ...(status === undefined || status === "all" ? {} : { status }), ...(rawDepth === undefined ? {} : { depth: Number(rawDepth) }) }; if (options.depth !== undefined && (!Number.isInteger(options.depth) || options.depth < 1)) fail("invalid --depth: expected positive integer"); const tree = buildTree(all, options); value = { roots: tree.roots.map(treeNodeWire), visible: tree.visible, hidden: tree.hidden }; human = () => formatTree(tree); }
     else if (command === "migrate") { const report = await service.migrate(args); value = report; human = () => formatMigration(report); }
     else if (command === "doctor") { const all = await service.all(); value = { ok: true, backend: storage.backend, database: storage.location, database_path: storage.location, schema_version: 2, issues: all.length }; human = () => formatDoctor(value as Record<string, unknown>); }
@@ -886,6 +964,67 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
     else if (command === "onboard") { value = { text: ONBOARD }; human = () => ONBOARD; }
     else if (["update", "close", "reopen", "defer", "undefer", "label", "set-state"].includes(command)) { const issue = await service.mutate(args, command); value = issueWire(issue); const verbs: Readonly<Record<string, string>> = { update: "Updated issue", close: "Closed", reopen: "Reopened", defer: "Deferred", undefer: "Restored", label: "Labels updated on", "set-state": "State changed on" }; human = () => confirmation(verbs[command] ?? "Updated", issue, command === "close" && stringFlag(args, "reason") !== undefined ? `: ${stringFlag(args, "reason")}` : ""); }
     else if (command === "hunk") { const result = await service.hunk(args); value = result.value; human = result.human; }
+    else if (command === "sprint") {
+      const sub = args.positionals[1] ?? "list";
+      const sprintValue = (sprint: Sprint): Record<string, unknown> => ({ id: sprint.id, name: sprint.name, status: sprint.status, completed_at: sprint.completedAt === null ? null : sprint.completedAt.toISOString(), created_at: sprint.createdAt.toISOString(), updated_at: sprint.updatedAt.toISOString() });
+      if (sub === "list") { const sprints = await service.sprintList(); value = sprints.map(sprintValue); human = () => formatSprintList(sprints); }
+      else if (sub === "start") { const outcome = await service.sprintStart(args.positionals[2] ?? fail("sprint start requires a name"), booleanFlag(args, "carry")); value = { sprint: sprintValue(outcome.sprint), closed: outcome.closed.map(sprintValue), moved: outcome.moved }; human = () => green(`✓ Started sprint ${outcome.sprint.id}`) + (outcome.closed.length > 0 ? dim(` — closed ${outcome.closed.map((sprint) => sprint.id).join(", ")}`) : "") + (outcome.moved.length > 0 ? dim(`, moved ${outcome.moved.length} issue(s) ${booleanFlag(args, "carry") ? "into the sprint" : "to backlog"}`) : ""); }
+      else if (sub === "close") { const outcome = await service.sprintClose(); value = { sprint: sprintValue(outcome.sprint), moved: outcome.moved }; human = () => green(`✓ Closed sprint ${outcome.sprint.id}`) + (outcome.moved.length > 0 ? dim(` — moved ${outcome.moved.length} issue(s) to backlog`) : ""); }
+      else if (sub === "add") { const issue = await service.sprintAdd(args.positionals[2] ?? fail("sprint add requires issue id")); value = issueWire(issue); human = () => confirmation("Added to active sprint", issue); }
+      else if (sub === "remove") { const issue = await service.sprintRemove(args.positionals[2] ?? fail("sprint remove requires issue id")); value = issueWire(issue); human = () => confirmation("Moved to backlog", issue); }
+      else if (sub === "move") { const issue = await service.sprintMove(args.positionals[2] ?? fail("sprint move requires issue id"), args.positionals[3] ?? fail("sprint move requires sprint slug")); value = issueWire(issue); human = () => confirmation("Moved sprint", issue); }
+      else fail(`unknown sprint subcommand: ${sub} (expected list, start, close, add, remove, move)`);
+    }
+    else if (command === "agent") {
+      const agentWire = (agent: Agent): Record<string, unknown> => ({ schema_version: 1, _type: "agent", id: agent.id, name: agent.name, description: agent.description, owner: agent.owner, runtime: agent.runtime, access: agent.access, mode: agent.mode, status: agent.status, instructions: agent.instructions, skills: agent.skills, env: agent.env, archived_at: agent.archivedAt === null ? null : agent.archivedAt.toISOString(), created_at: agent.createdAt.toISOString(), updated_at: agent.updatedAt.toISOString() });
+      const sub = args.positionals[1] ?? fail("agent requires operation");
+      if (sub === "create") { const agent = await service.agentCreate(args); value = agentWire(agent); human = () => green("✓ Registered agent ") + cyan(agent.id); }
+      else if (sub === "list") { const agents = await service.agentList(args); value = agents.map(agentWire); human = () => formatAgentList(agents); }
+      else if (sub === "get" || sub === "show") { const agent = await service.agentShow(args.positionals[2] ?? fail(`agent ${sub} requires agent id`)); value = agentWire(agent); human = () => formatAgentShow(agent); }
+      else if (sub === "update") { const agent = await service.agentUpdate(args, args.positionals[2] ?? fail("agent update requires agent id")); value = agentWire(agent); human = () => green("✓ Updated agent ") + cyan(agent.id); }
+      else if (sub === "archive") { const agent = await service.agentArchive(args.positionals[2] ?? fail("agent archive requires agent id")); value = agentWire(agent); human = () => green("✓ Archived agent ") + cyan(agent.id); }
+      else if (sub === "unarchive") { const agent = await service.agentUnarchive(args.positionals[2] ?? fail("agent unarchive requires agent id")); value = agentWire(agent); human = () => green("✓ Unarchived agent ") + cyan(agent.id); }
+      else if (sub === "copy") { const agent = await service.agentCopy(args, args.positionals[2] ?? fail("agent copy requires agent id")); value = agentWire(agent); human = () => green("✓ Copied agent ") + cyan(agent.id); }
+      else if (sub === "issues") { const issues = await service.agentIssues(args, args.positionals[2] ?? fail("agent issues requires agent id")); value = issues.map(issueWire); human = () => issues.length === 0 ? dim(`No issues assigned to ${args.positionals[2]}`) : formatList(issues); }
+      else fail(`unknown agent subcommand: ${sub} (expected create, list, get, update, archive, unarchive, copy, issues)`);
+    }
+    else if (command === "runs" || command === "run") {
+      const runWire = (run: Run): Record<string, unknown> => ({ schema_version: 1, _type: "run", id: run.id, issue_id: run.issueId, agent_id: run.agentId, trigger: run.trigger, state: run.state, started_at: run.startedAt === null ? null : run.startedAt.toISOString(), closed_at: run.closedAt === null ? null : run.closedAt.toISOString(), messages: run.messages.map((message) => ({ at: message.at.toISOString(), kind: message.kind, text: message.text })), usage: { tokens: run.usage.tokens, cost: run.usage.cost }, created_at: run.createdAt.toISOString(), updated_at: run.updatedAt.toISOString() });
+      if (command === "runs") { const runs = await service.runsList(args); value = runs.map(runWire); human = () => formatRunList(runs); }
+      else {
+        const sub = args.positionals[1] ?? fail("run requires operation");
+        if (sub === "show") { const run = await service.runShow(args.positionals[2] ?? fail("run show requires run id")); value = runWire(run); human = () => formatRunShow(run); }
+        else if (sub === "cancel") { const run = await service.runCancel(args.positionals[2] ?? fail("run cancel requires run id")); value = runWire(run); human = () => green("✓ Cancelled run ") + cyan(run.id); }
+        else if (sub === "rerun") { const run = await service.runRerun(args.positionals[2] ?? fail("run rerun requires run id")); value = runWire(run); human = () => green("✓ Queued rerun ") + cyan(run.id); }
+        else if (sub === "message") { const body = booleanFlag(args, "stdin") ? await readInput() : args.positionals.slice(3).join(" "); if (body.trim() === "") fail("run message requires text or --stdin"); const run = await service.runMessage(args, args.positionals[2] ?? fail("run message requires run id"), body); value = runWire(run); human = () => green("✓ Message logged to ") + cyan(run.id); }
+        else fail(`unknown run subcommand: ${sub} (expected show, cancel, rerun, message)`);
+      }
+    }
+    else if (command === "archive") { const issue = await service.archive(args); value = issueWire(issue); human = () => confirmation("Archived", issue); }
+    else if (command === "unarchive") { const issue = await service.unarchive(args); value = issueWire(issue); human = () => confirmation("Unarchived", issue); }
+    else if (command === "runtime") {
+      const sub = args.positionals[1] ?? fail("runtime requires operation (list, activity)");
+      if (sub === "list") { const rows = await readRuntimeRegistry(tasksDir); value = rows.map((row) => ({ schema_version: 1, _type: "runtime_row", id: row.id, kind: row.kind, label: row.label, pid: row.pid, started_at: row.startedAt, heartbeat_at: row.heartbeatAt, subscriptions: row.subscriptions })); human = () => formatRuntimeList(rows); }
+      else if (sub === "activity") { const rawLimit = stringFlag(args, "limit"); const limit = rawLimit === undefined ? undefined : Number(rawLimit); if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) fail("invalid --limit: expected positive integer"); const rows = await readActivity(tasksDir, limit); value = rows.map((row) => ({ schema_version: 1, _type: "activity_row", at: row.at, runtime_id: row.runtimeId, kind: row.kind, detail: row.detail })); human = () => formatRuntimeActivity(rows); }
+      else fail(`unknown runtime subcommand: ${sub} (expected list, activity)`);
+    }
+    else if (command === "inbox") {
+      const sub = args.positionals[1];
+      if (sub === "read" || sub === "archive") {
+        const target = args.positionals[2] ?? fail(`inbox ${sub} requires run id`);
+        if (sub === "read") await markInboxRead(tasksDir, target); else await markInboxArchived(tasksDir, target);
+        const markers = await readInboxMarkers(tasksDir);
+        value = { schema_version: 1, _type: "inbox_markers", run_id: target, read_at: markers.readAt, archived: markers.archived };
+        human = () => green(`✓ ${sub === "read" ? "Read" : "Archived"} `) + cyan(target);
+      }
+      else {
+        const markers = await readInboxMarkers(tasksDir);
+        const entries = inboxEntries(await service.runsList(args), markers);
+        const visible = booleanFlag(args, "all") ? entries : entries.filter((entry) => markers.archived[entry.runId] !== true);
+        value = visible.map((entry) => ({ schema_version: 1, _type: "inbox_entry", run_id: entry.runId, issue_id: entry.issueId, agent_id: entry.agentId, state: entry.state, trigger: entry.trigger, last_updated_at: entry.lastUpdatedAt, unread: entry.unread }));
+        human = () => formatInbox(visible);
+      }
+    }
     else fail(`unknown command: ${command}`);
     if (command === "export") { if (!json && !markdown) for (const record of value as readonly unknown[]) console.log(JSON.stringify(record)); else if (markdown) process.stdout.write(formatMarkdown(value, false)); else output(value, json); }
     else if (markdown) process.stdout.write(formatMarkdown(value, false));

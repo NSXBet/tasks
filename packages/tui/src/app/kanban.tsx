@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { useApp } from "./context.js";
 import { colors, priorityLabel, statusGlyph, typeEmoji } from "../theme.js";
 import { padStart, relativeAge, truncate } from "../format.js";
-import { kanbanGroups, type KanbanCard, type KanbanGroup } from "../store.js";
+import { kanbanGroups, visibleIssues, type KanbanCard, type KanbanGroup } from "../store.js";
 import type { Issue } from "@tasks/domain";
 
 const cardPitch = 4; // three text rows + one blank spacer
@@ -11,7 +11,7 @@ const cardPitch = 4; // three text rows + one blank spacer
 /** Full-width kanban: flow columns, three-line cards, keyboard + mouse. */
 export const KanbanBoard = () => {
   const { state, actions } = useApp();
-  const groups = kanbanGroups(state.board.issues, state.board.fetchedAt);
+  const groups = kanbanGroups(visibleIssues(state.board, state.filter, state.search, state.actor), state.board.fetchedAt);
   const columns = groups.filter((group) => group.key !== "parked" || group.cards.length > 0);
   const lastClick = useRef(0);
 
