@@ -1,11 +1,13 @@
-import type { Issue, IssueAttachment } from '@tasks/domain';
+import type { AgentId, Issue, IssueAttachment, Run } from '@tasks/domain';
 import { issuePriority, issueTitle, issueDescription, issueId, dependencyTarget, IssueAttachmentSchema } from '@tasks/domain';
+import { activeRun, applyRunSideEffects, err, nextRunId, ok, type IssueUnitOfWork, type Result } from '@tasks/application';
 import type { SurfaceStore } from '../store.js';
 import { getOrThrow, readCurrentId, writeCurrentId } from '../store.js';
 import { MessageError } from '../errors.js';
 
 const now = (): Date => new Date();
 const changed = (issue: Issue, patch: Partial<Issue>): Issue => ({ ...issue, ...patch, updatedAt: now() });
+
 
 export interface UpdatePatch {
   readonly title?: string;
@@ -83,6 +85,7 @@ export const updateIssue = (store: SurfaceStore, id: string, patch: UpdatePatch)
   const result = changed(issue, next);
   const saved = await uow.save(result);
   if (!saved.ok) throw new MessageError('save failed');
+  if (patch.status !== undefined) await applyRunSideEffects(uow, result, issue.status, patch.status, now());
   return result;
 });
 
@@ -105,6 +108,7 @@ export const changeStatus = (store: SurfaceStore, id: string, change: StatusChan
   }
   const saved = await uow.save(next);
   if (!saved.ok) throw new MessageError('save failed');
+  await applyRunSideEffects(uow, next, issue.status, status, now());
   if (status === 'closed' || status === 'open') await writeCurrentId(store.tasksDir, next.id);
   return next;
 });
@@ -123,6 +127,29 @@ export const deferIssue = (store: SurfaceStore, id: string, until?: string) => s
 export const undeferIssue = (store: SurfaceStore, id: string) => store.transact(async (uow) => {
   const issue = await getOrThrow(uow, id);
   const result = changed(issue, { deferUntil: null, status: 'open' });
+  const saved = await uow.save(result);
+  if (!saved.ok) throw new MessageError('save failed');
+  return result;
+});
+
+/** Archive (icebox): hide from default views without deleting; the prior status is kept in `metadata.archivedFrom`. */
+export const archiveIssue = (store: SurfaceStore, id: string) => store.transact(async (uow) => {
+  const issue = await getOrThrow(uow, id);
+  if (issue.status === 'archived') return issue;
+  const result = changed(issue, { status: 'archived', metadata: { ...issue.metadata, archivedFrom: issue.status } });
+  const saved = await uow.save(result);
+  if (!saved.ok) throw new MessageError('save failed');
+  return result;
+});
+
+/** Restore an archived issue to the status it had when archived (open when unknown). */
+export const unarchiveIssue = (store: SurfaceStore, id: string) => store.transact(async (uow) => {
+  const issue = await getOrThrow(uow, id);
+  if (issue.status !== 'archived') return issue;
+  const from = issue.metadata['archivedFrom'];
+  const metadata = { ...issue.metadata };
+  delete metadata['archivedFrom'];
+  const result = changed(issue, { status: typeof from === 'string' && from !== 'archived' ? from : 'open', metadata });
   const saved = await uow.save(result);
   if (!saved.ok) throw new MessageError('save failed');
   return result;

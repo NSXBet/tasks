@@ -1,11 +1,14 @@
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import type { IssueUnitOfWork } from '@tasks/application';
-import type { Issue } from '@tasks/domain';
+import type { Issue, Run } from '@tasks/domain';
 import type { SurfaceError } from '../errors.js';
+import { appErrorMessage } from '../errors.js';
 import type { SurfaceStore } from '../store.js';
 import type { WatchCounts, WatchEvent, WatchEventKind, WatchFrame, WatchSubscription } from './protocol.js';
 import { DEFAULT_POLL_INTERVAL_MS, MAX_EVENTS_PER_TICK, MIN_POLL_INTERVAL_MS } from './protocol.js';
+import { appendActivity, describeSubscription, heartbeatRuntime, newRuntimeId, registerRuntime, unregisterRuntime, type RuntimeRow } from '../runtime.js';
+import { processWakeups, type WakeupState } from './wakeups.js';
 
 /** Statuses that remove an issue from the open/blocked counters (CLI parity). */
 const TERMINAL_STATUSES: readonly string[] = ['closed'];
@@ -25,6 +28,8 @@ export interface WatchHandle {
  */
 interface ReaderState {
   readonly lastUpdatedAt: Map<string, string>;
+  /** Per-run state watermark: run id → last seen state. */
+  readonly runWatermarks: Map<string, string>;
   readyHash: string | null;
   counts: WatchCounts | null;
 }
@@ -71,6 +76,20 @@ export const diffOnce = async (
     }
   }
 
+  const runPage = await uow.listRuns();
+  if (!runPage.ok) throw new Error('listRuns failed during watch poll');
+  const matchesRunSubscription = (run: Run): boolean => subscription.ids === undefined || subscription.ids.includes(run.issueId);
+  for (const run of runPage.value) {
+    const previous = state.runWatermarks.get(run.id);
+    if (previous !== undefined && previous !== run.state && matchesRunSubscription(run)) {
+      events.push({ seq: 0, kind: 'run.changed', at, issueId: run.issueId, data: { runId: run.id, from: previous, to: run.state } });
+    }
+    state.runWatermarks.set(run.id, run.state);
+  }
+  for (const id of [...state.runWatermarks.keys()]) {
+    if (!runPage.value.some((run) => run.id === id)) state.runWatermarks.delete(id);
+  }
+
   const blockedIds = new Set(all.filter((issue) => issue.dependencies.some((edge) => edge.type === 'blocks' && all.some((other) => other.id === edge.target && other.status !== 'closed'))).map((issue) => issue.id));
   const readyIds = all.filter((issue) => issue.status === 'open'
     && (issue.deferUntil === null || issue.deferUntil <= new Date())
@@ -114,23 +133,57 @@ export const runWatchLoop = async (
   shouldStop: () => boolean,
 ): Promise<void> => {
   const interval = Math.max(subscription.interval ?? DEFAULT_POLL_INTERVAL_MS, MIN_POLL_INTERVAL_MS);
-  const state: ReaderState = { lastUpdatedAt: new Map(), readyHash: null, counts: null };
+  const state: ReaderState = { lastUpdatedAt: new Map(), runWatermarks: new Map(), readyHash: null, counts: null };
+  const wakeupExpiry: WakeupState = new Map();
+  const runtimeId = newRuntimeId();
+  const now = new Date().toISOString();
+  const row: RuntimeRow = {
+    id: runtimeId, kind: 'watch', label: subscription.label ?? null, pid: process.pid,
+    startedAt: now, heartbeatAt: now, subscriptions: [...describeSubscription(subscription)],
+  };
+  // Registry bookkeeping is best-effort: a readonly or missing tasks dir must
+  // never take the watch loop down.
+  try {
+    await registerRuntime(store.tasksDir, row);
+    await appendActivity(store.tasksDir, { at: now, runtimeId, kind: 'started', detail: describeSubscription(subscription).join(' ') || 'unfiltered' });
+  } catch { /* registry is advisory */ }
   let seq = 0;
   let consecutiveErrors = 0;
-  while (!shouldStop() && consecutiveErrors < 3) {
-    try {
-      const events = await store.transact((uow) => diffOnce(uow, subscription, state));
-      if (!events.ok) throw new Error(events.error.message);
-      for (const event of events.value) {
-        seq += 1;
-        onEvent({ ...event, seq });
+  try {
+    while (!shouldStop() && consecutiveErrors < 3) {
+      try {
+        const events = await store.transact(async (uow) => {
+          const at = new Date();
+          // Deferred issues whose defer_until has expired wake up here: one
+          // run per expiry, queued before the diff pass reads them.
+          const wakeups = await processWakeups(uow, wakeupExpiry, at);
+          if (!wakeups.ok) throw new Error(`wakeup processing failed: ${appErrorMessage(wakeups.error)}`);
+          for (const wakeup of wakeups.value) {
+            await appendActivity(store.tasksDir, {
+              at: at.toISOString(), runtimeId, kind: 'wakeup',
+              detail: wakeup.runId === null ? `issue ${wakeup.issueId} (no agent)` : `issue ${wakeup.issueId} run ${wakeup.runId}`,
+            }).catch(() => { /* activity is best-effort */ });
+          }
+          return await diffOnce(uow, subscription, state);
+        });
+        if (!events.ok) throw new Error(events.error.message);
+        for (const event of events.value) {
+          seq += 1;
+          onEvent({ ...event, seq });
+        }
+        await heartbeatRuntime(store.tasksDir, runtimeId, new Date()).catch(() => { /* advisory */ });
+        consecutiveErrors = 0;
+      } catch (cause) {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 3) throw cause instanceof Error ? cause : new Error(String(cause));
       }
-      consecutiveErrors = 0;
-    } catch (cause) {
-      consecutiveErrors += 1;
-      if (consecutiveErrors >= 3) throw cause instanceof Error ? cause : new Error(String(cause));
+      await sleep(interval);
     }
-    await sleep(interval);
+  } finally {
+    try {
+      await unregisterRuntime(store.tasksDir, runtimeId);
+      await appendActivity(store.tasksDir, { at: new Date().toISOString(), runtimeId, kind: 'stopped', detail: '' });
+    } catch { /* registry is advisory */ }
   }
 };
 

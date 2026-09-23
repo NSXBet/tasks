@@ -105,6 +105,7 @@ export const createIssue = async (store: SurfaceStore, input: CreateInput) => {
       dueAt: parseDate(input.due) ?? null,
       deferUntil: parseDate(input.deferUntil) ?? null,
       parentId: input.parent === undefined ? null : issueId(input.parent),
+      sprintId: null,
       labels: [...(input.labels ?? [])],
       notes: input.notes ?? null,
       design: input.design ?? null,

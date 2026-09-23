@@ -11,4 +11,6 @@ export * from './operations/comments.js';
 export * from './operations/views.js';
 export * from './watch/protocol.js';
 export * from './watch/core.js';
+export * from './runtime.js';
+export * from './watch/wakeups.js';
 export { createSurface, watchChildScript, type TasksSurface } from './surface.js';

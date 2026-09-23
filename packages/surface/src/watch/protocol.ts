@@ -8,7 +8,8 @@ export type WatchEventKind =
   | 'issue.commented'
   | 'issue.deleted'
   | 'ready.changed'
-  | 'counts.changed';
+  | 'counts.changed'
+  | 'run.changed';
 
 /** Board counters attached to every event and watched for changes. */
 export interface WatchCounts {
@@ -30,6 +31,8 @@ export interface WatchEvent {
     readonly from?: string;
     readonly to?: string;
     readonly actor?: string | null;
+    /** run.changed payload: run id plus prior/new state. */
+    readonly runId?: string;
   };
 }
 

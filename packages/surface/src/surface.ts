@@ -8,6 +8,7 @@ export * from './envelope.js';
 export type { CreateInput } from './operations/create.js';
 export * from './operations/query.js';
 export * from './operations/mutate.js';
+export * from './operations/sprint.js';
 export * from './operations/deps.js';
 export * from './operations/comments.js';
 export * from './operations/views.js';
@@ -21,8 +22,12 @@ import {
 import {
   updateIssue, changeStatus, deferIssue, undeferIssue, claimIssue, assignIssue,
   setPriority, addLabel, removeLabel, appendNote, markDuplicate, markSuperseded,
-  closeMany, renameIssue, deleteIssues, attachFile, detachFile, type UpdatePatch, type StatusChange,
+  closeMany, renameIssue, deleteIssues, attachFile, detachFile, archiveIssue, unarchiveIssue,
+  type UpdatePatch, type StatusChange,
 } from './operations/mutate.js';
+import {
+  listSprints, startSprint, closeSprint, sprintAdd, sprintRemove, sprintMove,
+} from './operations/sprint.js';
 import { depList, depAdd, depRemove, link, type DependencyRow } from './operations/deps.js';
 import { addComment, commentsOf } from './operations/comments.js';
 import {
@@ -31,6 +36,17 @@ import {
 } from './operations/views.js';
 import type { WatchSubscription } from './watch/protocol.js';
 import { spawnWatchChild, type WatchHandle } from './watch/core.js';
+import {
+  inboxEntries, markInboxArchived, markInboxRead, readActivity, readInboxMarkers,
+  readRuntimeRegistry, type ActivityRow, type InboxEntry, type InboxMarkers, type RuntimeRow,
+} from './runtime.js';
+import { MessageError, appErrorMessage } from './errors.js';
+
+/** Inbox listing result: derived entries plus the persisted markers behind them. */
+export interface InboxSnapshot {
+  readonly entries: readonly InboxEntry[];
+  readonly markers: InboxMarkers;
+}
 
 /**
  * Watch child entry script shipped next to the surface (bundled into the
@@ -67,6 +83,8 @@ export interface TasksSurface {
   status(id: string, change: StatusChange): ReturnType<typeof changeStatus>;
   defer(id: string, until?: string): ReturnType<typeof deferIssue>;
   undefer(id: string): ReturnType<typeof undeferIssue>;
+  archive(id: string): ReturnType<typeof archiveIssue>;
+  unarchive(id: string): ReturnType<typeof unarchiveIssue>;
   claim(id: string): ReturnType<typeof claimIssue>;
   assign(id: string, assignee: string): ReturnType<typeof assignIssue>;
   priority(id: string, priority: number): ReturnType<typeof setPriority>;
@@ -83,6 +101,13 @@ export interface TasksSurface {
   depAdd(id: string, target: string, type?: string): ReturnType<typeof depAdd>;
   depRemove(id: string, target: string, type?: string): ReturnType<typeof depRemove>;
   link(id1: string, id2: string, type?: string): ReturnType<typeof link>;
+  // sprints
+  sprintList(): ReturnType<typeof listSprints>;
+  sprintStart(name: string, options?: { readonly carry?: boolean }): ReturnType<typeof startSprint>;
+  sprintClose(): ReturnType<typeof closeSprint>;
+  sprintAdd(id: string): ReturnType<typeof sprintAdd>;
+  sprintRemove(id: string): ReturnType<typeof sprintRemove>;
+  sprintMove(id: string, target: string): ReturnType<typeof sprintMove>;
   // comments
   note(id: string, body: string): ReturnType<typeof appendNote>;
   attach(id: string, path: string, metadata?: Metadata): ReturnType<typeof attachFile>;
@@ -99,6 +124,12 @@ export interface TasksSurface {
   lint(options?: Parameters<typeof lintIssues>[1]): ReturnType<typeof lintIssues>;
   // watch
   watch(subscription: WatchSubscription): WatchHandle;
+  // runtime + inbox (read-side over the registry and stored runs)
+  runtimeList(): Promise<readonly RuntimeRow[]>;
+  runtimeActivity(options?: { readonly limit?: number }): Promise<readonly ActivityRow[]>;
+  inbox(options?: { readonly all?: boolean }): Promise<InboxSnapshot>;
+  inboxRead(runId: string): Promise<InboxMarkers>;
+  inboxArchive(runId: string): Promise<InboxMarkers>;
 }
 
 type TreeOptionsShim = Parameters<typeof boardTree>[1];
@@ -126,6 +157,8 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     status: (id, change) => changeStatus(store, id, change),
     defer: (id, until) => deferIssue(store, id, until),
     undefer: (id) => undeferIssue(store, id),
+    archive: (id) => archiveIssue(store, id),
+    unarchive: (id) => unarchiveIssue(store, id),
     claim: (id) => claimIssue(store, id),
     assign: (id, assignee) => assignIssue(store, id, assignee),
     priority: (id, priority) => setPriority(store, id, priority),
@@ -143,6 +176,12 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     depAdd: (id, target, type) => depAdd(store, id, target, type),
     depRemove: (id, target, type) => depRemove(store, id, target, type),
     link: (id1, id2, type) => link(store, id1, id2, type),
+    sprintList: () => listSprints(store),
+    sprintStart: (name, options) => startSprint(store, name, options),
+    sprintClose: () => closeSprint(store),
+    sprintAdd: (id) => sprintAdd(store, id),
+    sprintRemove: (id) => sprintRemove(store, id),
+    sprintMove: (id, target) => sprintMove(store, id, target),
     all: () => allIssues(store),
     counts: () => counts(store),
     stats: () => stats(store),
@@ -153,5 +192,20 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     duplicates: (minSimilarity) => duplicatePairs(store, minSimilarity),
     lint: (options) => lintIssues(store, options),
     watch: (subscription) => spawnWatchChild({ watchScript: watchChildScript(), root: store.root, subscription, onEvent: () => {} }),
+    runtimeList: () => readRuntimeRegistry(store.tasksDir),
+    runtimeActivity: (options) => readActivity(store.tasksDir, options?.limit),
+    inbox: async (options) => {
+      const markers = await readInboxMarkers(store.tasksDir);
+      const runs = await store.transact(async (uow) => {
+        const page = await uow.listRuns();
+        if (!page.ok) throw new MessageError(appErrorMessage(page.error));
+        return page.value;
+      });
+      if (!runs.ok) throw new MessageError(runs.error.message);
+      const entries = inboxEntries(runs.value, markers);
+      return { entries: options?.all === true ? entries : entries.filter((entry) => markers.archived[entry.runId] !== true), markers };
+    },
+    inboxRead: async (runId) => { await markInboxRead(store.tasksDir, runId); return readInboxMarkers(store.tasksDir); },
+    inboxArchive: async (runId) => { await markInboxArchived(store.tasksDir, runId); return readInboxMarkers(store.tasksDir); },
   };
 };

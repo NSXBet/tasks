@@ -1,4 +1,4 @@
-import type { Issue } from '@tasks/domain';
+import type { Issue, Sprint } from '@tasks/domain';
 
 import type { TreeNode } from './tree.js';
 
@@ -16,7 +16,7 @@ export function issueWire(issue: Issue): Record<string, unknown> {
     status: issue.status, priority: issue.priority, issue_type: issue.type, owner: issue.owner,
     assignee: issue.assignee, created_by: issue.createdBy, created_at: issue.createdAt.toISOString(),
     updated_at: issue.updatedAt.toISOString(), started_at: iso(issue.startedAt), closed_at: iso(issue.closedAt),
-    due_at: iso(issue.dueAt), defer_until: iso(issue.deferUntil), parent: issue.parentId, labels: [...issue.labels],
+    due_at: iso(issue.dueAt), defer_until: iso(issue.deferUntil), parent: issue.parentId, sprint: issue.sprintId, labels: [...issue.labels],
     notes: issue.notes, design: issue.design, acceptance_criteria: issue.acceptanceCriteria, estimated_minutes: issue.estimate,
     spec_id: issue.specId, external_ref: issue.externalRef, branch: issue.branch, metadata: issue.metadata,
     dependencies: issue.dependencies.map((edge) => ({ issue_id: edge.issueId, depends_on_id: edge.target, type: edge.type, created_at: edge.createdAt.toISOString(), created_by: edge.createdBy, metadata: edge.metadata })),
@@ -27,6 +27,14 @@ export function issueWire(issue: Issue): Record<string, unknown> {
 }
 
 export function commentWire(issue: Issue): readonly Record<string, unknown>[] { return issueWire(issue)["comments"] as readonly Record<string, unknown>[]; }
+
+/** Wire format for a sprint record (`tk sprint list --json`, web/TUI surfaces). */
+export function sprintWire(sprint: Sprint): Record<string, unknown> {
+  return {
+    schema_version: 1, _type: "sprint", id: sprint.id, name: sprint.name, status: sprint.status,
+    completed_at: iso(sprint.completedAt), created_at: sprint.createdAt.toISOString(), updated_at: sprint.updatedAt.toISOString(),
+  };
+}
 
 /** JSON-safe nested tree node used by `tk tree --json` and the surface. */
 export function treeNodeWire(node: TreeNode): Record<string, unknown> {

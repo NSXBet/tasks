@@ -1,5 +1,5 @@
 import type { Issue } from '@tasks/domain';
-import { issueId } from '@tasks/domain';
+import { issueId, sprintSlug } from '@tasks/domain';
 import type { SurfaceStore } from '../store.js';
 import { getOrThrow, readCurrentId } from '../store.js';
 import { MessageError } from '../errors.js';
@@ -12,12 +12,30 @@ export interface ListOptions {
   readonly type?: string;
   readonly priority?: number;
   readonly label?: string;
+  /** Sprint scope: `active` (or `current`), `backlog` (or `none`), or a sprint slug. */
+  readonly sprint?: string;
+  /** When true, show only archived issues; default views hide archived unless `all` is set. */
+  readonly archived?: boolean;
   readonly limit?: number;
   /** Defer `issue.deferUntil <= now` and open blocker checks are always applied by ready. */
   readonly claim?: boolean;
 }
 
 const now = (): Date => new Date();
+
+/** Resolves the `--sprint` option into an issue matcher: `active`/`current` → focus (empty view when none), `backlog`/`none` → null sprint, else a sprint slug. */
+export const resolveSprintMatcher = async (uow: Parameters<Parameters<SurfaceStore['transact']>[0]>[0], sprint: string): Promise<(issue: Issue) => boolean> => {
+  const value = sprint.trim().toLowerCase();
+  if (value === 'backlog' || value === 'none') return (issue) => issue.sprintId === null;
+  if (value !== 'active' && value !== 'current') {
+    const id = sprintSlug(value);
+    return (issue) => issue.sprintId === id;
+  }
+  const sprints = await uow.listSprints();
+  if (!sprints.ok) throw new MessageError('sprint list failed');
+  const active = sprints.value.find((candidate) => candidate.status === 'active');
+  return active === undefined ? () => false : (issue) => issue.sprintId === active.id;
+};
 
 export const showIssue = (store: SurfaceStore, id: string) => store.transact(async (uow) => getOrThrow(uow, id));
 
@@ -27,12 +45,18 @@ export const listIssues = (store: SurfaceStore, options: ListOptions = {}) => st
     limit: options.limit ?? 100_000,
   });
   if (!page.ok) throw new MessageError('list failed');
+  const sprintMatches = options.sprint === undefined ? undefined : await resolveSprintMatcher(uow, options.sprint);
+  const archivedOnly = options.archived === true;
+  const hideArchived = !archivedOnly && options.status !== 'all';
   let items = page.value.items.filter((issue) =>
     (options.parent === undefined || issue.parentId === options.parent)
     && (options.assignee === undefined || issue.assignee === options.assignee)
     && (options.type === undefined || issue.type === options.type)
     && (options.priority === undefined || issue.priority === options.priority)
-    && (options.label === undefined || issue.labels.includes(options.label)));
+    && (options.label === undefined || issue.labels.includes(options.label))
+    && (sprintMatches === undefined || sprintMatches(issue))
+    && (!hideArchived || issue.status !== 'archived')
+    && (!archivedOnly || issue.status === 'archived'));
   if (options.claim === true) {
     items = items.filter((issue) => issue.status === 'open'
       && (issue.deferUntil === null || issue.deferUntil <= now())

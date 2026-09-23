@@ -6,17 +6,18 @@ import { afterEach, describe, expect, it } from "vitest";
 import { diffOnce } from "../src/watch/core.js";
 import type { WatchSubscription } from "../src/watch/protocol.js";
 import type { IssueUnitOfWork } from "@tasks/application";
-import type { Issue } from "@tasks/domain";
+import type { Issue, Run } from "@tasks/domain";
 
 const workspaces: string[] = [];
 function workspace(): string { const value = mkdtempSync(join(tmpdir(), "tk-watch-")); workspaces.push(value); return value; }
 afterEach(() => { while (workspaces.length) rmSync(workspaces.pop()!, { recursive: true, force: true }); });
 
-function fakeUow(issues: readonly Issue[]): IssueUnitOfWork {
+function fakeUow(issues: readonly Issue[], runs: readonly Run[] = []): IssueUnitOfWork {
   return {
     findById: async () => { throw new Error("not used"); },
     save: async () => { throw new Error("not used"); },
     list: async () => ({ ok: true, value: { items: issues, nextCursor: null } }),
+    listRuns: async () => ({ ok: true, value: runs }),
     addDependency: async () => { throw new Error("not used"); },
     removeDependency: async () => { throw new Error("not used"); },
     addComment: async () => { throw new Error("not used"); },
@@ -43,7 +44,7 @@ const issue = (id: string, status = "open", updatedAt = new Date(0)): Issue => (
 describe("watch diff", () => {
   it("emits created on first sight, updated/status_changed on change, deleted on removal", async () => {
     const subscription: WatchSubscription = {};
-    const state = { lastUpdatedAt: new Map<string, string>(), readyHash: null, counts: null };
+    const state = { lastUpdatedAt: new Map<string, string>(), runWatermarks: new Map<string, string>(), readyHash: null, counts: null };
     const uow1 = fakeUow([issue("tk-a"), issue("tk-b")]);
     const first = await diffOnce(uow1, subscription, state);
     expect(first.map((event) => event.kind).sort()).toEqual(["issue.created", "issue.created"]);
@@ -63,7 +64,7 @@ describe("watch diff", () => {
 
   it("honors kinds and ids subscription filters", async () => {
     const subscription: WatchSubscription = { kinds: ["issue.created"], ids: ["tk-a"] };
-    const state = { lastUpdatedAt: new Map<string, string>(), readyHash: null, counts: null };
+    const state = { lastUpdatedAt: new Map<string, string>(), runWatermarks: new Map<string, string>(), readyHash: null, counts: null };
     const uow = fakeUow([issue("tk-a"), issue("tk-b")]);
     const events = await diffOnce(uow, subscription, state);
     expect(events).toHaveLength(1);
@@ -72,7 +73,7 @@ describe("watch diff", () => {
 
   it("emits ready.changed when the ready set grows", async () => {
     const subscription: WatchSubscription = {};
-    const state = { lastUpdatedAt: new Map<string, string>(), readyHash: null, counts: null };
+    const state = { lastUpdatedAt: new Map<string, string>(), runWatermarks: new Map<string, string>(), readyHash: null, counts: null };
     await diffOnce(fakeUow([issue("tk-a", "closed")]), subscription, state);
     const events = await diffOnce(fakeUow([issue("tk-a", "open")]), subscription, state);
     expect(events.map((event) => event.kind)).toContain("ready.changed");
@@ -80,7 +81,7 @@ describe("watch diff", () => {
 
   it("attaches counts to every event and emits counts.changed when they move", async () => {
     const subscription: WatchSubscription = {};
-    const state = { lastUpdatedAt: new Map<string, string>(), readyHash: null, counts: null };
+    const state = { lastUpdatedAt: new Map<string, string>(), runWatermarks: new Map<string, string>(), readyHash: null, counts: null };
     const first = await diffOnce(fakeUow([issue("tk-a", "open"), issue("tk-b", "ready-to-review")]), subscription, state);
     expect(first.every((event) => event.counts?.open === 2)).toBe(true);
     expect(state.counts).toEqual({ open: 2, blocked: 0, readyToReview: 1 });
