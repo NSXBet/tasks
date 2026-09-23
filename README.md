@@ -191,6 +191,43 @@ tk inbox                         # runs awaiting attention, unread first
 tk inbox read <runId>            # mark a run's inbox entry read (also: archive; --all to include)
 ```
 
+#### Walkthrough: the agent-dispatch loop
+
+The registry above is the setup; this is the daily loop. In a scratch
+workspace (or your own):
+
+```bash
+# 1. Register the agents that can be dispatched
+tk agent create scout --runtime claude --access project \
+    --instructions "Investigate, then report findings via run messages"
+tk agent create builder --runtime claude --access project
+
+# 2. Put an agent on an issue — the assignment is what runs record
+#    (`tk q` creates and prints just the new id)
+ID=$(tk q "Fix flaky sqlite test"); tk assign $ID scout
+
+# 3. Work the issue by moving its status; runs follow automatically
+tk update $ID --status in_progress          # → run $ID-run-1 queued
+tk runs --issue $ID                         # watch the ledger fill in
+tk run message $ID-run-1 "repro confirmed, poking storage adapter"
+tk update $ID --status ready-to-review      # → run in_review
+tk run message $ID-run-1 --stdin < driver-progress.log  # pipe a driver's log in
+tk update $ID --status closed               # → run done
+
+# 4. Audit the ledger — it outlives the work and stays tool-agnostic
+tk run show $ID-run-1                       # full record: trigger, messages, usage
+tk runs --state in_review                   # everything awaiting review
+```
+
+Each run records who (agent), why (trigger: `status-move`, `manual`,
+`wakeup`), and what happened (message log + token/cost usage) — no matter
+whether you flipped the status or an external tool did. Keep `tk watch`
+running in a pane: it registers itself as a live runtime (`tk runtime list`),
+fires wakeups for expired `--defer-until` deadlines on assigned issues, and
+feeds `run.changed` events to the extension. Anything an agent leaves in
+`in_review` surfaces in `tk inbox` until you `tk inbox read <runId>` — that
+is your review queue.
+
 ### Terminal UI
 
 `tk tui` launches a full terminal UI (OpenTUI + React, alternate screen, mouse-aware):
