@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { FileAdapter } from '@tasks/file';
 import { SqliteAdapter } from '@tasks/sqlite';
 import { join } from 'node:path';
+import { agentId, runId } from '@tasks/domain';
 import { decodeIssue, migrateBeadsJsonl, planIssues, resolveBeadsJsonl, splitRecords, type BeadsIssueRecord, type ProcessRunner } from '../src/index.js';
 
 const at = '2026-08-23T16:24:18Z';
@@ -26,6 +27,26 @@ describe('beads record stream', () => {
     expect(result.value.imported).toBe(2);
     expect(result.value.carried).toEqual([{ line: 2, type: 'memory', raw: { _type: 'memory', key: 'some-memory', value: 'some memory' } }]);
     expect(result.value.rejected).toEqual([]);
+    database.close();
+  });
+
+  it('imports agent and run records alongside issues', async () => {
+    const database = await ready();
+    const source = jsonl(
+      { _type: 'agent', id: 'code-reviewer', name: 'Code Reviewer', owner: 'yuri', runtime: 'host:mac', access: 'workspace', mode: 'default', status: 'idle', created_at: at, updated_at: at, future_agent_field: 'kept' },
+      bead(),
+      { _type: 'run', id: 'run-1', issue_id: 'demo-2jj', agent_id: 'code-reviewer', trigger: 'manual', state: 'done', started_at: at, closed_at: at, messages: [{ at, kind: 'info', text: 'started' }], created_at: at, updated_at: at },
+    );
+    const result = await migrateBeadsJsonl(database, source);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.importedAgents).toEqual(['code-reviewer']);
+    expect(result.value.importedRuns).toEqual(['run-1']);
+    expect(result.value.rejected).toEqual([]);
+    const agent = await database.withinTransaction((uow) => uow.findAgent(agentId('code-reviewer')));
+    expect(agent).toMatchObject({ ok: true, value: { name: 'Code Reviewer', access: 'workspace', wireUnknown: { future_agent_field: 'kept' } } });
+    const run = await database.withinTransaction((uow) => uow.findRun(runId('run-1')));
+    expect(run).toMatchObject({ ok: true, value: { issueId: 'demo-2jj', agentId: 'code-reviewer', state: 'done' } });
     database.close();
   });
 

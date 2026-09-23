@@ -1,4 +1,4 @@
-import { issueFromBdWire, type Issue, type JsonValue, type Metadata, type WireTimestampCodec } from '@tasks/domain';
+import { agentFromBdWire, issueFromBdWire, runFromBdWire, sprintFromBdWire, type Agent, type Issue, type JsonValue, type Metadata, type Run, type Sprint, type WireTimestampCodec } from '@tasks/domain';
 
 /**
  * A single line of `bd export` output. Beads tags every record with `_type`;
@@ -12,10 +12,16 @@ export interface BeadsRecord {
   readonly raw: Readonly<Record<string, JsonValue>>;
 }
 export interface BeadsIssueRecord extends BeadsRecord { readonly type: 'issue'; readonly issue: Issue; readonly unknown: Metadata; }
+export interface BeadsSprintRecord extends BeadsRecord { readonly type: 'sprint'; readonly sprint: Sprint; readonly unknown: Metadata; }
+export interface BeadsAgentRecord extends BeadsRecord { readonly type: 'agent'; readonly agent: Agent; readonly unknown: Metadata; }
+export interface BeadsRunRecord extends BeadsRecord { readonly type: 'run'; readonly run: Run; readonly unknown: Metadata; }
 /** Field-precise decode failure, addressed to the offending source line. */
 export interface BeadsRecordError { readonly line: number; readonly field: string; readonly message: string; }
 
 const ISSUE = 'issue';
+const SPRINT = 'sprint';
+const AGENT = 'agent';
+const RUN = 'run';
 /** Wire fields decoded through the timestamp codec, which throws without a field path. */
 const timestampFields = ['created_at', 'updated_at', 'started_at', 'closed_at', 'due_at', 'defer_until'] as const;
 type ZodLike = { readonly issues?: readonly { readonly path: readonly (string | number)[]; readonly message: string }[]; readonly message?: string };
@@ -39,6 +45,50 @@ export function splitRecords(source: string): { readonly records: readonly Beads
 }
 
 export const isIssueRecord = (record: BeadsRecord): boolean => record.type === ISSUE;
+/** tk's own wire format tags sprints with `_type: "sprint"`; beads never emits them. */
+export const isSprintRecord = (record: BeadsRecord): boolean => record.type === SPRINT;
+/** tk's own wire format tags agents and runs with `_type: "agent"`/`"run"`; beads never emits them. */
+export const isAgentRecord = (record: BeadsRecord): boolean => record.type === AGENT;
+export const isRunRecord = (record: BeadsRecord): boolean => record.type === RUN;
+
+/** Decode a sprint record through the domain wire codec, keeping unknown fields. */
+export function decodeSprint(record: BeadsRecord, timestamps: WireTimestampCodec): { readonly sprint: BeadsSprintRecord } | { readonly error: BeadsRecordError } {
+  try {
+    const envelope = sprintFromBdWire(record.raw, timestamps);
+    return { sprint: { ...record, type: SPRINT, sprint: envelope.sprint, unknown: envelope.unknown } };
+  } catch (cause) {
+    const error = cause as ZodLike;
+    const detail = error.issues?.[0];
+    const field = detail?.path.length ? detail.path.join('.') : '$';
+    return { error: { line: record.line, field, message: detail?.message ?? error.message ?? 'invalid record' } };
+  }
+}
+
+/** Decode an agent record through the domain wire codec, keeping unknown fields. */
+export function decodeAgent(record: BeadsRecord, timestamps: WireTimestampCodec): { readonly agent: BeadsAgentRecord } | { readonly error: BeadsRecordError } {
+  try {
+    const envelope = agentFromBdWire(record.raw, timestamps);
+    return { agent: { ...record, type: AGENT, agent: envelope.agent, unknown: envelope.unknown } };
+  } catch (cause) {
+    const error = cause as ZodLike;
+    const detail = error.issues?.[0];
+    const field = detail?.path.length ? detail.path.join('.') : '$';
+    return { error: { line: record.line, field, message: detail?.message ?? error.message ?? 'invalid record' } };
+  }
+}
+
+/** Decode a run record through the domain wire codec, keeping unknown fields. */
+export function decodeRun(record: BeadsRecord, timestamps: WireTimestampCodec): { readonly run: BeadsRunRecord } | { readonly error: BeadsRecordError } {
+  try {
+    const envelope = runFromBdWire(record.raw, timestamps);
+    return { run: { ...record, type: RUN, run: envelope.run, unknown: envelope.unknown } };
+  } catch (cause) {
+    const error = cause as ZodLike;
+    const detail = error.issues?.[0];
+    const field = detail?.path.length ? detail.path.join('.') : '$';
+    return { error: { line: record.line, field, message: detail?.message ?? error.message ?? 'invalid record' } };
+  }
+}
 
 /**
  * Locate the field responsible for a codec failure.

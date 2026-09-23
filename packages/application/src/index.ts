@@ -6,5 +6,8 @@ export type { TimestampCodec } from './ports/timestamp-codec.js';
 export { canonicalTimestampCodec } from './ports/timestamp-codec.js';
 export type { TransactionManager } from './ports/transaction-manager.js';
 export { err, ok } from './result.js';
+export type { Run } from '@tasks/domain';
+export { activeRun, isActiveRunState, nextRunId, runCodeFor } from './run-codes.js';
+export { applyRunSideEffects } from './run-side-effects.js';
 export type { AppError, ConflictError, LifecycleError, MigrationError, NotFoundError, RepositoryError, Result, ValidationError } from './result.js';
 export type { AddCommentUseCase, AddDependencyUseCase, ChangeIssueStatusInput, ChangeIssueStatusUseCase, ClaimReadyIssueInput, ClaimReadyIssueUseCase, CommentInput, CreateIssueInput, CreateIssueUseCase, DependencyInput, GetIssueUseCase, UpdateIssueInput, UpdateIssueUseCase } from './use-cases/issue-use-cases.js';

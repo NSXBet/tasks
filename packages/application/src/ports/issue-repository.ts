@@ -1,4 +1,4 @@
-import type { DependencyEdge, DependencyTarget, DependencyType, Issue, IssueId, IssueStatus } from '@tasks/domain';
+import type { Agent, AgentId, DependencyEdge, DependencyTarget, DependencyType, Issue, IssueId, IssueStatus, Run, RunId, Sprint, SprintId } from '@tasks/domain';
 import type { Result } from '../result.js';
 
 export interface IssueQuery { readonly status?: IssueStatus; readonly limit?: number; readonly cursor?: IssueId; }
@@ -17,6 +17,18 @@ export interface IssueUnitOfWork {
   history(issueId: IssueId): Promise<Result<readonly AuditEntry[]>>;
   /** Atomically verify ready state and claim. `conflict` means lost race/not-ready. */
   claimReady(id: IssueId, assignee: string, expectedUpdatedAt?: Date): Promise<Result<Issue>>;
+  /** Sprints are never deleted (kept for reference); the single-active invariant lives above this port. */
+  listSprints(): Promise<Result<readonly Sprint[]>>;
+  findSprint(id: SprintId): Promise<Result<Sprint | null>>;
+  saveSprint(sprint: Sprint): Promise<Result<void>>;
+  /** Agents are never deleted, only archived; presence is computed, never stored. */
+  listAgents(): Promise<Result<readonly Agent[]>>;
+  findAgent(id: AgentId): Promise<Result<Agent | null>>;
+  saveAgent(agent: Agent): Promise<Result<void>>;
+  /** Append-only run history; adapters persist the payload verbatim and never rewrite closed runs. */
+  listRuns(issueId?: IssueId): Promise<Result<readonly Run[]>>;
+  findRun(id: RunId): Promise<Result<Run | null>>;
+  saveRun(run: Run): Promise<Result<void>>;
 }
 /** Opens one transaction and gives work only its transaction-bound repository. */
 export interface UnitOfWork {

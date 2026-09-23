@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { err, type Result } from '@tasks/application';
-import { IssueSchema, dependencyTarget, issueId, type Issue } from '@tasks/domain';
+import { AgentSchema, IssueSchema, RunSchema, agentId, dependencyTarget, issueId, runId, type Agent, type Issue, type Run } from '@tasks/domain';
 import { SqliteAdapter, sqliteMigrations } from '../dist/index.js';
 
 const adapters: SqliteAdapter[] = [];
@@ -57,9 +57,48 @@ afterEach(() => {
   for (const adapter of adapters.splice(0)) adapter.close();
 });
 
+function agent(patch: Partial<Agent> = {}): Agent {
+  return AgentSchema.parse({
+    id: agentId('code-reviewer'),
+    name: 'Code Reviewer',
+    description: 'reviews code',
+    owner: 'yuri',
+    runtime: 'host:mac',
+    access: 'workspace',
+    mode: 'default',
+    status: 'offline',
+    instructions: 'review the diff',
+    skills: ['review'],
+    env: { MODEL: 'glm' },
+    archivedAt: null,
+    createdAt,
+    updatedAt: initialUpdatedAt,
+    wireUnknown: { futureAgentField: { retained: true } },
+    ...patch,
+  });
+}
+
+function run(owner: Issue, patch: Partial<Run> = {}): Run {
+  return RunSchema.parse({
+    id: runId('tk-run-owner-run-1'),
+    issueId: owner.id,
+    agentId: null,
+    trigger: 'manual',
+    state: 'queued',
+    startedAt: null,
+    closedAt: null,
+    messages: [],
+    usage: { tokens: null, cost: null },
+    createdAt,
+    updatedAt: initialUpdatedAt,
+    wireUnknown: { futureRunField: { retained: true } },
+    ...patch,
+  });
+}
+
 async function migrate(adapter: SqliteAdapter) {
   const result = await adapter.migrate();
-  expect(result).toMatchObject({ ok: true, value: { currentVersion: '005-issue-attachments', lockAcquired: true } });
+  expect(result).toMatchObject({ ok: true, value: { currentVersion: '008-runs', lockAcquired: true } });
 }
 
 async function save(adapter: SqliteAdapter, value: Issue) {
@@ -111,7 +150,7 @@ describe('@tasks/sqlite', () => {
     await migrate(adapter);
 
     const history = await adapter.history();
-    expect(history.ok && history.value).toHaveLength(5);
+    expect(history.ok && history.value).toHaveLength(8);
     expect(history.ok && history.value?.[0]).toMatchObject({
       id: '001-initial', order: 1, checksum: sqliteMigrations[0]?.checksum,
     });
@@ -119,6 +158,9 @@ describe('@tasks/sqlite', () => {
     expect(history.ok && history.value?.[2]).toMatchObject({ id: '003-issue-commits', order: 3, checksum: sqliteMigrations[2]?.checksum });
     expect(history.ok && history.value?.[3]).toMatchObject({ id: '004-issue-branch', order: 4, checksum: sqliteMigrations[3]?.checksum });
     expect(history.ok && history.value?.[4]).toMatchObject({ id: '005-issue-attachments', order: 5, checksum: sqliteMigrations[4]?.checksum });
+    expect(history.ok && history.value?.[5]).toMatchObject({ id: '006-sprints', order: 6, checksum: sqliteMigrations[5]?.checksum });
+    expect(history.ok && history.value?.[6]).toMatchObject({ id: '007-agents', order: 7, checksum: sqliteMigrations[6]?.checksum });
+    expect(history.ok && history.value?.[7]).toMatchObject({ id: '008-runs', order: 8, checksum: sqliteMigrations[7]?.checksum });
     expect(await adapter.migrate()).toMatchObject({ ok: true, value: { applied: [] } });
 
     const changed = { ...sqliteMigrations[0]!, checksum: 'not-the-durable-checksum' };
@@ -142,6 +184,30 @@ describe('@tasks/sqlite', () => {
     await save(adapter, value);
 
     expect(await find(adapter, value.id)).toEqual(value);
+  });
+
+  it('round-trips agents and runs including unknown wire data', async () => {
+    const adapter = db();
+    await migrate(adapter);
+    const owner = issue('tk-run-owner');
+    await save(adapter, owner);
+    const reviewer = agent({ status: 'online', archivedAt: new Date('2025-01-01T00:30:00.000Z'), updatedAt: new Date('2025-01-01T01:00:00.000Z') });
+    const execution = run(owner, {
+      agentId: reviewer.id, trigger: 'status-move', state: 'running', startedAt: initialUpdatedAt,
+      messages: [{ at: createdAt, kind: 'log', text: 'started' }], usage: { tokens: 1200, cost: 0.42 },
+    });
+
+    expect(await adapter.withinTransaction(uow => uow.saveAgent(reviewer))).toEqual({ ok: true, value: undefined });
+    expect(await adapter.withinTransaction(uow => uow.saveRun(execution))).toEqual({ ok: true, value: undefined });
+
+    expect(await adapter.withinTransaction(uow => uow.findAgent(reviewer.id))).toEqual({ ok: true, value: reviewer });
+    expect(await adapter.withinTransaction(uow => uow.findRun(execution.id))).toEqual({ ok: true, value: execution });
+    const agents = await adapter.withinTransaction(uow => uow.listAgents());
+    expect(agents.ok && agents.value?.map(entry => entry.id)).toEqual([reviewer.id]);
+    const issueRuns = await adapter.withinTransaction(uow => uow.listRuns(owner.id));
+    expect(issueRuns.ok && issueRuns.value?.map(entry => entry.id)).toEqual([execution.id]);
+    const allRuns = await adapter.withinTransaction(uow => uow.listRuns());
+    expect(allRuns.ok && allRuns.value?.map(entry => entry.id)).toEqual([execution.id]);
   });
 
   it('does not claim blocked, deferred, or non-ready issues; claims after blocker closes', async () => {

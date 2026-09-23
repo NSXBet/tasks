@@ -4,9 +4,9 @@ import type {
   MigrationFailure, MigrationHistoryEntry, MigrationPort, MigrationReport, MigrationStep,
   Result, TimestampCodec, UnitOfWork,
 } from '@tasks/application';
-import type { DependencyEdge, Issue, IssueId, Metadata } from '@tasks/domain';
-import { IssueSchema, issueFromBdWire, issueToBdWire } from '@tasks/domain';
-import type { BdWireEnvelope } from '@tasks/domain';
+import type { DependencyEdge, Issue, IssueId, Metadata, Sprint, SprintId, Agent, AgentId, Run, RunId } from '@tasks/domain';
+import { IssueSchema, SprintSchema, AgentSchema, RunSchema, issueFromBdWire, issueToBdWire, sprintFromBdWire, sprintToBdWire, agentFromBdWire, agentToBdWire, runFromBdWire, runToBdWire } from '@tasks/domain';
+import type { BdWireAgentEnvelope, BdWireEnvelope, BdWireRunEnvelope, BdWireSprintEnvelope } from '@tasks/domain';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -52,6 +52,9 @@ interface MetaFile {
 export class FileAdapter implements UnitOfWork, MigrationPort {
   readonly #dir: string;
   readonly #issuesDir: string;
+  readonly #sprintsDir: string;
+  readonly #agentsDir: string;
+  readonly #runsDir: string;
   readonly #historyDir: string;
   readonly #metaPath: string;
   readonly #lockPath: string;
@@ -62,6 +65,9 @@ export class FileAdapter implements UnitOfWork, MigrationPort {
   constructor(options: FileAdapterOptions) {
     this.#dir = options.dir;
     this.#issuesDir = path.join(options.dir, 'issues');
+    this.#sprintsDir = path.join(options.dir, 'sprints');
+    this.#agentsDir = path.join(options.dir, 'agents');
+    this.#runsDir = path.join(options.dir, 'runs');
     this.#historyDir = path.join(options.dir, 'history');
     this.#metaPath = path.join(options.dir, 'meta.json');
     this.#lockPath = path.join(options.dir, '.lock');
@@ -74,11 +80,26 @@ export class FileAdapter implements UnitOfWork, MigrationPort {
 
   #ensureDirs(): void {
     fs.mkdirSync(this.#issuesDir, { recursive: true });
+    fs.mkdirSync(this.#sprintsDir, { recursive: true });
+    fs.mkdirSync(this.#agentsDir, { recursive: true });
+    fs.mkdirSync(this.#runsDir, { recursive: true });
     fs.mkdirSync(this.#historyDir, { recursive: true });
   }
 
   #issuePath(id: string): string {
     return path.join(this.#issuesDir, `${id}.json`);
+  }
+
+  #sprintPath(id: string): string {
+    return path.join(this.#sprintsDir, `${id}.json`);
+  }
+
+  #agentPath(id: string): string {
+    return path.join(this.#agentsDir, `${id}.json`);
+  }
+
+  #runPath(id: string): string {
+    return path.join(this.#runsDir, `${id}.json`);
   }
 
   #historyPath(id: string): string {
@@ -118,6 +139,90 @@ export class FileAdapter implements UnitOfWork, MigrationPort {
     const envelope: BdWireEnvelope = { version: 1, issue, unknown: issue.wireUnknown };
     const wire = issueToBdWire(envelope, this.timestamps);
     this.#atomicWrite(this.#issuePath(issue.id), JSON.stringify(wire, null, 2) + '\n');
+  }
+
+  #readSprint(id: string): Sprint | null {
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.#sprintPath(id), 'utf-8'));
+      return sprintFromBdWire(raw, this.timestamps).sprint;
+    } catch (e: unknown) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw e;
+    }
+  }
+
+  #writeSprint(sprint: Sprint): void {
+    const envelope: BdWireSprintEnvelope = { version: 1, sprint, unknown: sprint.wireUnknown };
+    const wire = sprintToBdWire(envelope, this.timestamps);
+    this.#atomicWrite(this.#sprintPath(sprint.id), JSON.stringify(wire, null, 2) + '\n');
+  }
+
+  #listAllSprintIds(): string[] {
+    try {
+      return fs.readdirSync(this.#sprintsDir)
+        .filter((f: string) => f.endsWith('.json') && !f.includes('.tmp'))
+        .map((f: string) => f.slice(0, -5))
+        .sort();
+    } catch (e: unknown) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw e;
+    }
+  }
+
+  #readAgent(id: string): Agent | null {
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.#agentPath(id), 'utf-8'));
+      return agentFromBdWire(raw, this.timestamps).agent;
+    } catch (e: unknown) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw e;
+    }
+  }
+
+  #writeAgent(agent: Agent): void {
+    const envelope: BdWireAgentEnvelope = { version: 1, agent, unknown: agent.wireUnknown };
+    const wire = agentToBdWire(envelope, this.timestamps);
+    this.#atomicWrite(this.#agentPath(agent.id), JSON.stringify(wire, null, 2) + '\n');
+  }
+
+  #listAllAgentIds(): string[] {
+    try {
+      return fs.readdirSync(this.#agentsDir)
+        .filter((f: string) => f.endsWith('.json') && !f.includes('.tmp'))
+        .map((f: string) => f.slice(0, -5))
+        .sort();
+    } catch (e: unknown) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw e;
+    }
+  }
+
+  #readRun(id: string): Run | null {
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.#runPath(id), 'utf-8'));
+      return runFromBdWire(raw, this.timestamps).run;
+    } catch (e: unknown) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw e;
+    }
+  }
+
+  #writeRun(run: Run): void {
+    const envelope: BdWireRunEnvelope = { version: 1, run, unknown: run.wireUnknown };
+    const wire = runToBdWire(envelope, this.timestamps);
+    this.#atomicWrite(this.#runPath(run.id), JSON.stringify(wire, null, 2) + '\n');
+  }
+
+  #listAllRunIds(): string[] {
+    try {
+      return fs.readdirSync(this.#runsDir)
+        .filter((f: string) => f.endsWith('.json') && !f.includes('.tmp'))
+        .map((f: string) => f.slice(0, -5))
+        .sort();
+    } catch (e: unknown) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw e;
+    }
   }
 
   #appendHistory(issueId: string, entry: { action: string; at: Date; actor: string | null; data: Record<string, unknown> }): void {
@@ -267,6 +372,15 @@ export class FileAdapter implements UnitOfWork, MigrationPort {
   /** @internal */ _appendHistory(id: string, entry: { action: string; at: Date; actor: string | null; data: Record<string, unknown> }) { this.#appendHistory(id, entry); }
   /** @internal */ _readHistory(id: string) { return this.#readHistory(id); }
   /** @internal */ _listAllIssueIds() { return this.#listAllIssueIds(); }
+  /** @internal */ _readSprint(id: string): Sprint | null { return this.#readSprint(id); }
+  /** @internal */ _writeSprint(sprint: Sprint): void { this.#writeSprint(sprint); }
+  /** @internal */ _listAllSprintIds(): readonly string[] { return this.#listAllSprintIds(); }
+  /** @internal */ _readAgent(id: string): Agent | null { return this.#readAgent(id); }
+  /** @internal */ _writeAgent(agent: Agent): void { this.#writeAgent(agent); }
+  /** @internal */ _listAllAgentIds(): readonly string[] { return this.#listAllAgentIds(); }
+  /** @internal */ _readRun(id: string): Run | null { return this.#readRun(id); }
+  /** @internal */ _writeRun(run: Run): void { this.#writeRun(run); }
+  /** @internal */ _listAllRunIds(): readonly string[] { return this.#listAllRunIds(); }
   /**
    * @internal `dependentCount` has no dedicated store — file backend keeps one JSON
    * document per issue with no cross-issue index, unlike sqlite/postgres which answer it
@@ -502,6 +616,102 @@ class FileIssueUnitOfWork implements IssueUnitOfWork {
       return ok(this.#withDependentCount(claimed, this.adapter._dependentCounts()));
     } catch (cause) {
       return err({ kind: 'repository', operation: 'claimReady', cause });
+    }
+  }
+
+  async listSprints(): Promise<Result<readonly Sprint[]>> {
+    try {
+      const sprints: Sprint[] = [];
+      for (const id of this.adapter._listAllSprintIds()) {
+        const sprint = this.adapter._readSprint(id);
+        if (sprint) sprints.push(sprint);
+      }
+      sprints.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id));
+      return ok(sprints);
+    } catch (cause) {
+      return err({ kind: 'repository', operation: 'listSprints', cause });
+    }
+  }
+
+  async findSprint(id: SprintId): Promise<Result<Sprint | null>> {
+    try {
+      return ok(this.adapter._readSprint(id));
+    } catch (cause) {
+      return err({ kind: 'repository', operation: 'findSprint', cause });
+    }
+  }
+
+  async saveSprint(sprint: Sprint): Promise<Result<void>> {
+    try {
+      this.adapter._writeSprint(SprintSchema.parse(sprint));
+      return ok(undefined);
+    } catch (cause) {
+      return err({ kind: 'repository', operation: 'saveSprint', cause });
+    }
+  }
+
+  async listAgents(): Promise<Result<readonly Agent[]>> {
+    try {
+      const agents: Agent[] = [];
+      for (const id of this.adapter._listAllAgentIds()) {
+        const agent = this.adapter._readAgent(id);
+        if (agent) agents.push(agent);
+      }
+      agents.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id));
+      return ok(agents);
+    } catch (cause) {
+      return err({ kind: 'repository', operation: 'listAgents', cause });
+    }
+  }
+
+  async findAgent(id: AgentId): Promise<Result<Agent | null>> {
+    try {
+      return ok(this.adapter._readAgent(id));
+    } catch (cause) {
+      return err({ kind: 'repository', operation: 'findAgent', cause });
+    }
+  }
+
+  async saveAgent(agent: Agent): Promise<Result<void>> {
+    try {
+      this.adapter._writeAgent(AgentSchema.parse(agent));
+      return ok(undefined);
+    } catch (cause) {
+      return err({ kind: 'repository', operation: 'saveAgent', cause });
+    }
+  }
+
+  async listRuns(issueId?: IssueId): Promise<Result<readonly Run[]>> {
+    try {
+      const runs: Run[] = [];
+      const ids = issueId
+        ? this.adapter._listAllRunIds().filter((id) => this.adapter._readRun(id)?.issueId === issueId)
+        : this.adapter._listAllRunIds();
+      for (const id of ids) {
+        const run = this.adapter._readRun(id);
+        if (run) runs.push(run);
+      }
+      runs.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id));
+      return ok(runs);
+    } catch (cause) {
+      return err({ kind: 'repository', operation: 'listRuns', cause });
+    }
+  }
+
+  async findRun(id: RunId): Promise<Result<Run | null>> {
+    try {
+      return ok(this.adapter._readRun(id));
+    } catch (cause) {
+      return err({ kind: 'repository', operation: 'findRun', cause });
+    }
+  }
+
+  async saveRun(run: Run): Promise<Result<void>> {
+    try {
+      this.adapter._writeRun(RunSchema.parse(run));
+      return ok(undefined);
+    } catch (cause) {
+      return err({ kind: 'repository', operation: 'saveRun', cause });
     }
   }
 }

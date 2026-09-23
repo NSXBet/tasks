@@ -2,7 +2,7 @@ import { canonicalTimestampCodec } from '@tasks/application';
 import type { IssueUnitOfWork, Result, UnitOfWork } from '@tasks/application';
 import { err, ok } from '@tasks/application';
 import type { Issue, JsonValue, WireTimestampCodec } from '@tasks/domain';
-import { decodeIssue, isIssueRecord, splitRecords, type BeadsIssueRecord, type BeadsRecord, type BeadsRecordError } from './records.js';
+import { decodeAgent, decodeIssue, decodeRun, decodeSprint, isAgentRecord, isIssueRecord, isRunRecord, isSprintRecord, splitRecords, type BeadsAgentRecord, type BeadsIssueRecord, type BeadsRecord, type BeadsRecordError, type BeadsRunRecord, type BeadsSprintRecord } from './records.js';
 import { planIssues, type DanglingParent, type ParentCycle } from './plan.js';
 
 /** How to treat an issue ID that already exists in the target. */
@@ -22,6 +22,12 @@ export interface MigrationSummary {
   readonly imported: number;
   /** IDs of the issues that landed, in insertion order. */
   readonly importedIds: readonly string[];
+  /** IDs of the sprint records that landed, before issues (sprint_id FK ordering). */
+  readonly importedSprints: readonly string[];
+  /** IDs of the agent records that landed, before issues. */
+  readonly importedAgents: readonly string[];
+  /** IDs of the run records that landed, after issues (issue_id FK ordering). */
+  readonly importedRuns: readonly string[];
   readonly skipped: readonly string[];
   readonly overwritten: readonly string[];
   readonly carried: readonly CarriedRecord[];
@@ -48,9 +54,15 @@ export async function migrateBeadsJsonl(target: UnitOfWork, source: string, opti
   const { records, errors } = splitRecords(source);
 
   const issues: BeadsIssueRecord[] = [];
+  const sprints: BeadsSprintRecord[] = [];
+  const agents: BeadsAgentRecord[] = [];
+  const runs: BeadsRunRecord[] = [];
   const carried: CarriedRecord[] = [];
   const rejected: BeadsRecordError[] = [...errors];
   for (const record of records) {
+    if (isSprintRecord(record)) { const decoded = decodeSprint(record, timestamps); if ('error' in decoded) rejected.push(decoded.error); else sprints.push(decoded.sprint); continue; }
+    if (isAgentRecord(record)) { const decoded = decodeAgent(record, timestamps); if ('error' in decoded) rejected.push(decoded.error); else agents.push(decoded.agent); continue; }
+    if (isRunRecord(record)) { const decoded = decodeRun(record, timestamps); if ('error' in decoded) rejected.push(decoded.error); else runs.push(decoded.run); continue; }
     if (!isIssueRecord(record)) { carried.push(record satisfies BeadsRecord); continue; }
     const decoded = decodeIssue(record, timestamps);
     if ('error' in decoded) rejected.push(decoded.error); else issues.push(decoded.issue);
@@ -67,15 +79,27 @@ export async function migrateBeadsJsonl(target: UnitOfWork, source: string, opti
     const admitted = policy === 'skip' ? issues.filter((record) => !existingIds.has(record.issue.id)) : issues;
     const plan = planIssues(admitted, existingIds);
 
-    if (options.dryRun ?? false) return ok(summary({ read: records.length, skipped, overwritten, carried, rejected, plan, dryRun: true }));
+    if (options.dryRun ?? false) return ok(summary({ read: records.length, skipped, overwritten, carried, rejected, sprints, agents, runs, plan, dryRun: true }));
 
+    for (const record of sprints) {
+      const saved = await uow.saveSprint(record.sprint);
+      if (!saved.ok) return err(failure(`line ${record.line} sprint ${record.sprint.id}: save failed`, { cause: saved.error }));
+    }
+    for (const record of agents) {
+      const saved = await uow.saveAgent(record.agent);
+      if (!saved.ok) return err(failure(`line ${record.line} agent ${record.agent.id}: save failed`, { cause: saved.error }));
+    }
     for (const record of plan.ordered) {
       const saved = await uow.save(record.issue);
       if (!saved.ok) return err(failure(`line ${record.line} issue ${record.issue.id}: save failed`, { cause: saved.error }));
       const edges = await writeEdges(uow, record.issue);
       if (edges !== null) return err(edges);
     }
-    return ok(summary({ read: records.length, skipped, overwritten, carried, rejected, plan, dryRun: false }));
+    for (const record of runs) {
+      const saved = await uow.saveRun(record.run);
+      if (!saved.ok) return err(failure(`line ${record.line} run ${record.run.id}: save failed`, { cause: saved.error }));
+    }
+    return ok(summary({ read: records.length, skipped, overwritten, carried, rejected, sprints, agents, runs, plan, dryRun: false }));
   });
 }
 
@@ -109,8 +133,11 @@ async function runInTransaction(target: UnitOfWork, work: (uow: IssueUnitOfWork)
   return err(captured ?? failure('transaction rolled back', { cause: outcome.error }));
 }
 
-const summary = (input: { read: number; skipped: readonly string[]; overwritten: readonly string[]; carried: readonly CarriedRecord[]; rejected: readonly BeadsRecordError[]; plan: ReturnType<typeof planIssues>; dryRun: boolean }): MigrationSummary => ({
+const summary = (input: { read: number; skipped: readonly string[]; overwritten: readonly string[]; carried: readonly CarriedRecord[]; rejected: readonly BeadsRecordError[]; sprints: readonly BeadsSprintRecord[]; agents: readonly BeadsAgentRecord[]; runs: readonly BeadsRunRecord[]; plan: ReturnType<typeof planIssues>; dryRun: boolean }): MigrationSummary => ({
   read: input.read, imported: input.plan.ordered.length, importedIds: input.plan.ordered.map((record) => record.issue.id),
+  importedSprints: input.sprints.map((record) => record.sprint.id),
+  importedAgents: input.agents.map((record) => record.agent.id),
+  importedRuns: input.runs.map((record) => record.run.id),
   skipped: input.skipped, overwritten: input.overwritten,
   carried: input.carried, rejected: input.rejected, detachedParents: input.plan.detached, cycles: input.plan.cycles, dryRun: input.dryRun,
 });

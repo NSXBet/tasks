@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { IssueSchema, dependencyTarget, issueId, type Issue } from '@tasks/domain';
+import { AgentSchema, IssueSchema, RunSchema, agentId, dependencyTarget, issueId, runId, type Agent, type Issue, type Run } from '@tasks/domain';
 import { FileAdapter } from '../dist/index.js';
 
 const dirs: string[] = [];
@@ -273,5 +273,56 @@ describe('FileAdapter', () => {
         expect(page2.value.items[0]!.id).toBe('tk-item03');
       }
     }
+  });
+
+  it('round-trips agents and runs including unknown wire data', async () => {
+    const { adapter } = await makeAdapter();
+    const reviewer: Agent = {
+      id: agentId('code-reviewer'),
+      name: 'Code Reviewer',
+      description: 'reviews diffs',
+      owner: 'yuri',
+      runtime: 'host:mac',
+      access: 'workspace',
+      mode: 'autopilot',
+      status: 'online',
+      instructions: 'review the diff',
+      skills: ['review'],
+      env: { MODEL: 'glm' },
+      archivedAt: null,
+      createdAt,
+      updatedAt: now,
+      wireUnknown: { futureAgentField: { retained: true } },
+    };
+    const saved = await adapter.withinTransaction(uow => uow.saveAgent(AgentSchema.parse(reviewer)));
+    expect(saved).toEqual({ ok: true, value: undefined });
+
+    const found = await adapter.withinTransaction(uow => uow.findAgent(reviewer.id));
+    expect(found).toEqual({ ok: true, value: reviewer });
+
+    const run: Run = {
+      id: runId('tk-abc123-run-1'),
+      issueId: issueId('tk-abc123'),
+      agentId: agentId('code-reviewer'),
+      trigger: 'manual',
+      state: 'done',
+      startedAt: createdAt,
+      closedAt: now,
+      messages: [{ at: createdAt, kind: 'info', text: 'started' }],
+      usage: { tokens: 150, cost: 0.5 },
+      createdAt,
+      updatedAt: now,
+      wireUnknown: { futureRunField: { retained: true } },
+    };
+    const savedRun = await adapter.withinTransaction(uow => uow.saveRun(RunSchema.parse(run)));
+    expect(savedRun).toEqual({ ok: true, value: undefined });
+
+    const foundRun = await adapter.withinTransaction(uow => uow.findRun(run.id));
+    expect(foundRun).toEqual({ ok: true, value: run });
+
+    const listed = await adapter.withinTransaction(uow => uow.listRuns(issueId('tk-abc123')));
+    expect(listed).toEqual({ ok: true, value: [run] });
+    const none = await adapter.withinTransaction(uow => uow.listRuns(issueId('tk-none')));
+    expect(none).toEqual({ ok: true, value: [] });
   });
 });

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { PostgresAdapter, postgresMigrations } from '../src/index.js';
-import { issueId, type Issue } from '@tasks/domain';
+import { ok } from '@tasks/application';
+import { agentId, issueId, runId, type Issue } from '@tasks/domain';
 
 type Call = { text: string; values?: readonly unknown[] };
 type Reply = { rows?: Record<string, unknown>[]; rowCount?: number };
@@ -27,14 +28,14 @@ function adapter(client: MockClient) { return new PostgresAdapter({ client: clie
 
 describe('@tasks/postgres contract surface', () => {
   it('uses public schema in DDL and migration history reads/writes', async () => {
-    expect(postgresMigrations).toHaveLength(4);
+    expect(postgresMigrations).toHaveLength(7);
     expect(postgresMigrations[0]?.sql).toContain('CREATE TABLE public.schema_migrations');
     expect(postgresMigrations[0]?.sql).toContain('CREATE TABLE public.issues');
     expect(postgresMigrations[0]?.sql).toContain('REFERENCES public.issues');
-    const client = new MockClient(c => c.text.includes('to_regclass') ? { rows: [{ name: 'public.schema_migrations' }] } : { rows: [{ id: '004-issue-attachments', migration_order: 4, checksum: 'x', applied_at: at.getTime() }] });
+    const client = new MockClient(c => c.text.includes('to_regclass') ? { rows: [{ name: 'public.schema_migrations' }] } : { rows: [{ id: '007-runs', migration_order: 7, checksum: 'x', applied_at: at.getTime() }] });
     const store = adapter(client);
-    expect(await store.currentVersion()).toEqual({ ok: true, value: '004-issue-attachments' });
-    expect(await store.history()).toMatchObject({ ok: true, value: [{ id: '004-issue-attachments', appliedAt: at }] });
+    expect(await store.currentVersion()).toEqual({ ok: true, value: '007-runs' });
+    expect(await store.history()).toMatchObject({ ok: true, value: [{ id: '007-runs', appliedAt: at }] });
     expect(text(client)).toContain('FROM public.schema_migrations');
     expect(text(client)).not.toMatch(/FROM schema_migrations/);
   });
@@ -54,7 +55,7 @@ describe('@tasks/postgres contract surface', () => {
     const client = new MockClient(c => c.text.includes('to_regclass') ? { rows: [{ name: null }] } : { rows: [] });
     const pool = { connect: async () => client };
     const result = await new PostgresAdapter({ pool: pool as never, now: () => at }).migrate();
-    expect(result).toMatchObject({ ok: true, value: { currentVersion: '004-issue-attachments' } });
+    expect(result).toMatchObject({ ok: true, value: { currentVersion: '007-runs' } });
     expect(text(client)).toContain('INSERT INTO public.schema_migrations');
     expect(text(client)).toContain('COMMIT');
     expect(client.released).toBe(1);
@@ -87,6 +88,30 @@ describe('@tasks/postgres contract surface', () => {
     expect(claim.text).toContain('blocker.status NOT IN ($10)');
     expect(claim.values).toEqual(['worker', 'in_progress', at.getTime(), at.getTime(), 'tk-1', 'open', at.getTime(), 1735689600000, 'blocks', 'closed']);
     expect(text(client)).toContain('ROLLBACK');
+  });
+
+  it('hydrates agent and run epoch/JSONB fields and parameterizes run listing', async () => {
+    const agentRow = { id: 'code-reviewer', name: 'Code Reviewer', description: 'reviews code', owner: 'yuri', runtime: 'host:mac', access: 'workspace', mode: 'autopilot', status: 'online', instructions: 'review the diff', skills_json: '["review"]', env_json: '{"MODEL":"glm"}', archived_at: at.getTime(), created_at: 1735689600000, updated_at: at.getTime(), wire_unknown_json: '{"futureAgent":1}' };
+    const runRow = { id: 'tk-1-run-1', issue_id: 'tk-1', agent_id: 'code-reviewer', trigger: 'status-move', state: 'running', started_at: at.getTime(), closed_at: null, messages_json: '[{"at":1735689600000,"kind":"log","text":"started"}]', usage_tokens: '1200', usage_cost: 0.42, created_at: 1735689600000, updated_at: at.getTime(), wire_unknown_json: '{"futureRun":1}' };
+    const client = new MockClient(c => c.text.includes('FROM public.agents WHERE') ? { rows: [agentRow] } : c.text.includes('FROM public.runs WHERE') ? { rows: [runRow] } : { rows: [] });
+    const result = await adapter(client).withinTransaction(async uow => {
+      const foundAgent = await uow.findAgent(agentId('code-reviewer'));
+      const foundRun = await uow.findRun(runId('tk-1-run-1'));
+      const filtered = await uow.listRuns(issueId('tk-1'));
+      const all = await uow.listRuns();
+      return ok({ foundAgent, foundRun, filtered, all });
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        foundAgent: { ok: true, value: { id: 'code-reviewer', access: 'workspace', mode: 'autopilot', skills: ['review'], env: { MODEL: 'glm' }, archivedAt: at, wireUnknown: { futureAgent: 1 } } },
+        foundRun: { ok: true, value: { issueId: 'tk-1', agentId: 'code-reviewer', trigger: 'status-move', state: 'running', startedAt: at, usage: { tokens: 1200, cost: 0.42 }, messages: [{ at: new Date(1735689600000), kind: 'log', text: 'started' }], wireUnknown: { futureRun: 1 } } },
+      },
+    });
+    const runQueries = client.calls.filter(c => c.text.includes('FROM public.runs WHERE'));
+    expect(runQueries[1]?.values).toEqual([issueId('tk-1')]);
+    expect(runQueries[2]?.values).toEqual([null]);
+    expect(text(client)).toContain('BEGIN'); expect(text(client)).toContain('COMMIT');
   });
 
   it('rejects malformed declared checksum with rollback before history access', async () => {
