@@ -94,10 +94,102 @@ tk hunk <id> [--print]        # Open a Hunk review of the issue's branch/WIP
 tk hunk <id> sync             # Import live Hunk review comments into the issue
 tk export                     # Export all as JSONL
 tk update                     # Self-update the binary (--latest for nightlies, --check to inspect)
+tk agent create <name> [opts]  # Register an agent (see Agents and runs below)
+tk runs [--issue <id>] [--state <s>]  # List runs; tk run show|cancel|rerun|message <id>
 tk --help                     # Full command list
 ```
 
 `tk` discovers `.tasks/` by walking upward from cwd. Use `-C DIR` to override. `--json` for structured output, `--markdown` (or `--md`) for markdown — issue lists render as `## id — title` sections separated by `---`. `--readonly` rejects mutations.
+
+### Sprints
+
+A sprint is a focus bucket: at most one sprint is `active` per workspace, and
+`tk list` can be scoped to it. Sprints are first-class records (`.tasks/sprints/`
+on the file backend, a `sprints` table elsewhere) and survive export/import.
+
+```bash
+tk sprint start "Week 34"     # Create + activate; completes any active sprint
+tk sprint start "Week 35" --carry   # ...moving its unfinished issues into the new sprint
+tk sprint add <id>            # Move an issue into the active sprint
+tk sprint remove <id>         # Move an issue back to the backlog
+tk sprint move <id> <slug>    # Move an issue into a named sprint (any status)
+tk sprint close               # Complete the active sprint; issues return to the backlog
+tk sprint list                # Active focus first, then completed sprints
+tk list --sprint active       # Scope: active | current | backlog | none | <slug>
+```
+
+Restarting a sprint enforces the single-active invariant in one transaction:
+the previous focus is marked `completed` (stamping `completed_at`) and its
+issues drop to the backlog unless `--carry` moves them forward.
+
+### Archive (icebox)
+
+Archiving hides work from default views without deleting it — "start from
+zero" while keeping everything for reference:
+
+```bash
+tk archive <id>               # Hide: status → archived, prior status kept in metadata.archivedFrom
+tk unarchive <id>             # Restore to the status it had when archived
+tk list --archived            # Show only the icebox
+tk list --all                 # Everything, archived included
+```
+
+Default `tk list`, `tk ready`, and the TUI/Web boards all exclude archived
+issues; `tk ready` never surfaces them regardless. The TUI has an `icebox`
+tab (`!` toggles sprint membership on a card); the extension exposes
+`archive`/`unarchive` and `sprint-*` ops on the `tasks` tool.
+
+### Agents and runs
+
+Agents are a registry — who can be dispatched on issues — with runs as the
+execution record of that dispatch. Agents are first-class records like sprints
+(`.tasks/agents/` on the file backend, an `agents` table elsewhere); runs
+persist alongside them. Agents are never deleted, only archived:
+
+```bash
+tk agent create <name> --description ... --owner ... --runtime ... \
+    --access ... --mode ... --instructions ... \
+    --skill <s> --env k=v          # repeatable; status starts offline
+tk agent list [--archived] [--status online|idle|offline]
+tk agent get <id>                # alias: tk agent show
+tk agent update <id> [--description ... --instructions ...]  # ≥1 flag required
+tk agent archive <id>            # stamps archivedAt (status → offline); idempotent
+tk agent unarchive <id>          # clears archivedAt; idempotent
+tk agent copy <id> --name <new-name>   # duplicate with a fresh slug
+tk agent issues <id>             # issues assigned to the agent
+```
+
+Every dispatched execution is a run: `<issueId>-run-<n>`, queued before it
+starts, carrying its message log and token/cost usage. Runs are driven by
+issue status moves — claiming an issue (`in_progress`) queues a run,
+`ready-to-review` moves it `in_review`, rejection marks it `failed`, archiving
+cancels it, closing marks it `done` — so the ledger stays true even for runs
+driven by outside tools:
+
+```bash
+tk runs                          # newest first; --issue <id> or --state <s> to filter
+tk run show <id>                 # full record incl. messages and usage
+tk run cancel <id>               # only queued|running runs; stamps closedAt
+tk run rerun <id>                # fresh queued run for the same issue (manual trigger)
+tk run message <id> <text>       # append a log message (--stdin to pipe; terminal runs reject)
+```
+
+A run is "active" only while `queued|running` — the states that may still
+change on their own. The extension receives a `run.changed` watch event
+(`kinds: run.changed`) so sessions can react to run lifecycle transitions.
+
+Watch children (`tk watch`) self-register as runtimes in `.tasks/runtime.json`
+and heartbeat on every poll tick, so `tk runtime list` shows what is actually
+alive. A deferred issue whose `--defer-until` has passed is undefered by the
+watch tick and — when it has an assigned agent — gets a queued run with
+trigger `wakeup` (once per expiry):
+
+```bash
+tk runtime list                  # live watch children + their heartbeat ages
+tk runtime activity [n]          # recent runtime events (starts, wakeups)
+tk inbox                         # runs awaiting attention, unread first
+tk inbox read <runId>            # mark a run's inbox entry read (also: archive; --all to include)
+```
 
 ### Terminal UI
 
