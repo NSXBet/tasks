@@ -4,7 +4,7 @@ import { cwd, exit, stdin } from "node:process";
 import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { findBeadsWorkspace, inferPrefix, migrateBeadsJsonl, resolveBeadsJsonl, searchPath, type MigrationSummary } from "@tasks/beads";
-import { AgentAccessSchema, AgentModeSchema, AgentSchema, RunSchema, RunStateSchema, agentId, agentName, agentSlug, dependencyTarget, issueDescription, issueFromBdWire, issueId, issuePriority, issueTitle, issueToBdWire, runId, SprintSchema, sprintSlug, sprintToBdWire, type Agent, type AgentAccess, type AgentMode, type Issue, type IssueAttachment, type IssueId, type Metadata, type Run, type Sprint } from "@tasks/domain";
+import { AgentAccessSchema, AgentModeSchema, AgentSchema, RunSchema, RunStateSchema, agentId, agentName, agentSlug, dependencyTarget, isBlobAttachment, issueDescription, issueFromBdWire, issueId, issuePriority, issueTitle, issueToBdWire, runId, SprintSchema, sprintSlug, sprintToBdWire, type Agent, type AgentAccess, type AgentMode, type Issue, type IssueAttachment, type IssueId, type IssuePathAttachment, type Metadata, type Run, type Sprint } from "@tasks/domain";
 import { applyRunSideEffects, canonicalTimestampCodec, err, isActiveRunState, nextRunId, ok, type IssueUnitOfWork, type Result } from "@tasks/application";
 import { DEFAULT_STORAGE, describeStorage, openEphemeralScratch, openStorage, readWorkspaceConfig, resolveStorageConfig, writeWorkspaceConfig, type StorageAdapter, type StorageConfig, type WorkspaceConfig } from "@tasks/workspace";
 import { booleanFlag, directory, parseArgs, stringFlag, ArgumentParseError, type ParsedArgs } from "./args.js";
@@ -16,7 +16,7 @@ import {
   formatStatus, formatStatuses, formatTodo, formatTree, formatTypes, formatVersion, formatWhere, formatWorktreeInfo, formatWorktreeList,
   HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
-import { inboxEntries, markInboxArchived, markInboxRead, readActivity, readInboxMarkers, readRuntimeRegistry, type ActivityRow, type InboxEntry, type RuntimeRow } from "@tasks/surface";
+import { attachEvidenceUow, attachPathUow, detachBlobUow, inboxEntries, markInboxArchived, markInboxRead, readActivity, readInboxMarkers, readRuntimeRegistry, type ActivityRow, type InboxEntry, type RuntimeRow } from "@tasks/surface";
 import { bunRunner } from "./git.js";
 import { formatHunkComment, hunkCommentMetaKey, parseHunkComments, pendingHunkComments, planHunk, scratchDirectory, writeAgentContext } from "./hunk.js";
 import { buildTree, type TreeOptions } from "./tree.js";
@@ -49,19 +49,21 @@ const metadataEntry = (value: string): readonly [string, Metadata[string]] => { 
  * agents reference repo files). Inline `=json` or a trailing
  * `--attach-metadata key=value,...` carries per-attachment metadata.
  */
-const parseAttachments = (args: ParsedArgs, root: string): IssueAttachment[] => {
+/** Parses raw `path[={json}]` entries into path attachments; trailing `--attach-metadata` applies to the last entry. */
+const parseAttachmentEntries = (entries: readonly (readonly [string, string | undefined])[], root: string, trailing: string | undefined): IssuePathAttachment[] =>
+  entries.map(([entryPath, inlineMeta], index) => {
+    let metadata: Metadata = {};
+    if (inlineMeta !== undefined) { try { const parsed: unknown = JSON.parse(inlineMeta); if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) metadata = parsed as Metadata; else metadata = { value: parsed as Metadata[string] }; } catch { metadata = { value: inlineMeta }; } }
+    if (trailing !== undefined && index === entries.length - 1) { const trailingMeta: Metadata = {}; for (const part of trailing.split(",").filter(Boolean)) { const [key, value] = metadataEntry(part); trailingMeta[key] = value; } metadata = { ...metadata, ...trailingMeta }; }
+    return { path: isAbsolute(entryPath) ? entryPath : relative(root, resolve(root, entryPath)), metadata, wireUnknown: {} };
+  });
+const parseAttachments = (args: ParsedArgs, root: string): IssuePathAttachment[] => {
   const raw = args.flags.get("attach") as string | readonly string[] | undefined;
   const plan = stringFlag(args, "plan");
   if (raw === undefined && plan === undefined) return [];
-  const entries = (Array.isArray(raw) ? raw : [raw]).filter((entry): entry is string => typeof entry === "string" && entry !== "");
-  const pairs = entries.map((entry) => { const separator = entry.indexOf("="); return separator > 0 ? [entry.slice(0, separator), entry.slice(separator + 1)] as const : [entry, undefined] as const; });
-  const trailing = stringFlag(args, "attach-metadata");
-  return pairs.map(([entryPath, inlineMeta], index) => {
-    let metadata: Metadata = {};
-    if (inlineMeta !== undefined) { try { const parsed: unknown = JSON.parse(inlineMeta); if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) metadata = parsed as Metadata; else metadata = { value: parsed as Metadata[string] }; } catch { metadata = { value: inlineMeta }; } }
-    if (trailing !== undefined && index === pairs.length - 1) { const trailingMeta: Metadata = {}; for (const part of trailing.split(",").filter(Boolean)) { const [key, value] = metadataEntry(part); trailingMeta[key] = value; } metadata = { ...metadata, ...trailingMeta }; }
-    return { path: isAbsolute(entryPath) ? entryPath : relative(root, resolve(root, entryPath)), metadata, wireUnknown: {} };
-  }).concat(plan === undefined ? [] : [{ path: isAbsolute(plan) ? plan : relative(root, resolve(root, plan)), metadata: { kind: "plan" }, wireUnknown: {} }]);
+  const strings = (Array.isArray(raw) ? raw : [raw]).filter((entry): entry is string => typeof entry === "string" && entry !== "");
+  const entries = parseAttachmentEntries(strings.map((entry) => { const separator = entry.indexOf("="); return separator > 0 ? [entry.slice(0, separator), entry.slice(separator + 1)] as const : [entry, undefined] as const; }), root, stringFlag(args, "attach-metadata"));
+  return entries.concat(plan === undefined ? [] : [{ path: isAbsolute(plan) ? plan : relative(root, resolve(root, plan)), metadata: { kind: "plan" }, wireUnknown: {} }]);
 };
 /**
  * Resolves `--status <s>` or its boolean shorthands (`--open`, `--closed`,
@@ -395,8 +397,8 @@ class CommandService {
     else if (command === "label") { const label = args.positionals[3] ?? fail("label requires value"); patch = { labels: (tuicrLabel ? args.positionals[1] : args.positionals[2]) === "add" ? [...new Set([...issue.labels, label])] : issue.labels.filter((value) => value !== label) }; }
     else if (command === "update") { const fields: ReadonlyArray<readonly [string, keyof Issue, (value: string) => Issue[keyof Issue]]> = [["title", "title", issueTitle], ["description", "description", issueDescription], ["priority", "priority", (value) => issuePriority(Number(value))], ["type", "type", (value) => value], ["assignee", "assignee", (value) => value === "" ? null : value], ["owner", "owner", (value) => value], ["acceptance", "acceptanceCriteria", (value) => value], ["design", "design", (value) => value], ["spec-id", "specId", (value) => value], ["estimate", "estimate", (value) => Number(value)], ["external-ref", "externalRef", (value) => value === "" ? null : value], ["branch", "branch", (value) => value === "" ? null : value], ["parent", "parentId", (value) => value === "" ? null : issueId(value)]]; for (const [flagName, key, parse] of fields) { const raw = stringFlag(args, flagName); if (raw !== undefined) (patch as Record<string, unknown>)[key] = parse(raw); } const metadata = stringFlag(args, "metadata"); if (metadata !== undefined) { const parsed: Metadata = JSON.parse(metadata); patch = { ...patch, metadata: parsed }; } const setMetadata = stringFlag(args, "set-metadata"); if (setMetadata !== undefined) { const [key, value] = metadataEntry(setMetadata); patch = { ...patch, metadata: { ...issue.metadata, ...(patch.metadata ?? {}), [key]: value } }; } const unsetMetadata = stringFlag(args, "unset-metadata"); if (unsetMetadata !== undefined) { const next = { ...issue.metadata, ...(patch.metadata ?? {}) }; delete next[unsetMetadata]; patch = { ...patch, metadata: next }; } const labels = stringFlag(args, "label"); if (labels !== undefined) patch = { ...patch, labels: [...new Set([...issue.labels, ...labels.split(",")])] }; const addLabel = stringFlag(args, "add-label"); if (addLabel !== undefined) patch = { ...patch, labels: [...new Set([...(patch.labels ?? issue.labels), ...addLabel.split(",").filter(Boolean)])] }; const removeLabel = stringFlag(args, "remove-label"); if (removeLabel !== undefined) { const removed = new Set(removeLabel.split(",")); patch = { ...patch, labels: (patch.labels ?? issue.labels).filter((label) => !removed.has(label)) }; } let body = stringFlag(args, "body"); if (booleanFlag(args, "stdin")) body = await readInput(); if (body !== undefined) patch = { ...patch, description: issueDescription(body) }; const notes = stringFlag(args, "append-notes"); if (notes !== undefined) patch = { ...patch, notes: [issue.notes, notes].filter(Boolean).join("\n") }; } else fail(`unknown command: ${command}`);
     const status = stringFlag(args, "status"); if (status !== undefined) patch = { ...patch, status }; const due = parseDate(stringFlag(args, "due")); if (due !== undefined) patch = { ...patch, dueAt: due };
-    if (command === "update" && (args.flags.get("attach") !== undefined || stringFlag(args, "plan") !== undefined)) { const incoming = parseAttachments(args, this.root); const planPaths = new Set(stringFlag(args, "plan") === undefined ? [] : incoming.filter((entry) => entry.metadata["kind"] === "plan").map((entry) => entry.path)); const merged = [...issue.attachments.filter((entry) => !planPaths.has(entry.path) && !(planPaths.size > 0 && entry.metadata["kind"] === "plan"))]; for (const attachment of incoming) { const existing = merged.findIndex((entry) => entry.path === attachment.path); if (existing >= 0) merged[existing] = attachment; else merged.push(attachment); } patch = { ...patch, attachments: merged }; }
-    if (command === "update" && stringFlag(args, "detach") !== undefined) { const target = stringFlag(args, "detach")!; patch = { ...patch, attachments: issue.attachments.filter((entry) => entry.path !== target) }; }
+    if (command === "update" && (args.flags.get("attach") !== undefined || stringFlag(args, "plan") !== undefined)) { const incoming = parseAttachments(args, this.root); const planPaths = new Set(stringFlag(args, "plan") === undefined ? [] : incoming.filter((entry) => entry.metadata["kind"] === "plan").map((entry) => entry.path)); const merged: IssueAttachment[] = [...issue.attachments.filter((entry) => isBlobAttachment(entry) || (!planPaths.has(entry.path) && !(planPaths.size > 0 && entry.metadata["kind"] === "plan")))]; for (const attachment of incoming) { const existing = merged.findIndex((entry) => !isBlobAttachment(entry) && entry.path === attachment.path); if (existing >= 0) merged[existing] = attachment; else merged.push(attachment); } patch = { ...patch, attachments: merged }; }
+    if (command === "update" && stringFlag(args, "detach") !== undefined) { const target = stringFlag(args, "detach")!; const blobTarget = issue.attachments.find((entry) => isBlobAttachment(entry) && (entry.id === target || entry.name === target)); patch = { ...patch, attachments: blobTarget !== undefined ? (await detachBlobUow(uow, { root: this.root, tasksDir: join(this.root, ".tasks") }, id, target)).attachments : issue.attachments.filter((entry) => isBlobAttachment(entry) || entry.path !== target) }; }
     const result = changed(issue, patch); unwrap(await uow.save(result)); if (patch.status !== undefined && patch.status !== issue.status) await applyRunSideEffects(uow, result, issue.status, result.status, new Date()); if (command === "close" || command === "reopen" || command === "set-state") await this.setCurrent(result.id); return result; }); }
   /** Quick capture (`bd q`): create and return only the new id. */
   async quick(args: ParsedArgs): Promise<string> { return (await this.create(args)).id; }
@@ -405,30 +407,34 @@ class CommandService {
   async fieldPatch(args: ParsedArgs, key: "priority", value: number): Promise<Issue>;
   async fieldPatch(args: ParsedArgs, key: "assignee" | "priority", value: string | number): Promise<Issue> { const id = await this.selected(args); return transaction(this.database, async (uow) => { const issue = await get(uow, id); const patch: Partial<Issue> = key === "assignee" ? { assignee: String(value) } : { priority: issuePriority(Number(value)) }; const result = changed(issue, patch); unwrap(await uow.save(result)); return result; }); }
   async note(args: ParsedArgs, body: string): Promise<Issue> { const id = await this.selected(args); return transaction(this.database, async (uow) => { const issue = await get(uow, id); const result = changed(issue, { notes: [issue.notes, body].filter(Boolean).join("\n") }); unwrap(await uow.save(result)); return result; }); }
-  /** `tk attach <id> <path>`: add a file-path attachment (deduped by path). */
+  /** `tk attach <id> <path...>`: record path refs; `--evidence <path...>` ingests blobs (slug identity replaces in place). */
   async attach(args: ParsedArgs): Promise<Issue> {
-    const raw = args.positionals[2] ?? stringFlag(args, "attach") ?? fail("attach requires a file path");
-    const attachment = parseAttachments({ ...args, flags: new Map([...args.flags, ["attach", raw]]) }, this.root)[0] ?? fail("attach requires a file path");
+    const evidence = args.flags.get("evidence");
+    const evidencePaths = (evidence === undefined ? [] : Array.isArray(evidence) ? evidence : [evidence]).filter((value): value is string => typeof value === "string" && value !== "");
+    if (evidencePaths.length === 0) {
+      const paths = args.positionals.slice(2).filter((value): value is string => value !== undefined);
+      if (paths.length === 0) fail("attach requires a file path or --evidence <path>");
+      const id = await this.selected(args);
+      const entries = parseAttachmentEntries(paths.map((entry) => { const separator = entry.indexOf("="); return separator > 0 ? [entry.slice(0, separator), entry.slice(separator + 1)] as const : [entry, undefined] as const; }), this.root, stringFlag(args, "attach-metadata"));
+      return transaction(this.database, async (uow) => { let issue = await get(uow, id); for (const entry of entries) issue = await attachPathUow(uow, id, entry.path, entry.metadata); return issue; });
+    }
     const id = await this.selected(args);
-    return transaction(this.database, async (uow) => {
-      const issue = await get(uow, id);
-      if (issue.attachments.some((entry) => entry.path === attachment.path)) return issue;
-      const result = changed(issue, { attachments: [...issue.attachments, attachment] });
-      unwrap(await uow.save(result));
-      return result;
-    });
+    return transaction(this.database, (uow) => attachEvidenceUow(uow, { root: this.root, tasksDir: join(this.root, ".tasks") }, id, evidencePaths));
   }
-  /** `tk detach <id> <path>`: remove one attachment by path; no-op when absent. */
+  /** `tk detach <id> <path|name|id>`: remove one attachment; blob entries lose their stored bytes too. */
   async detach(args: ParsedArgs): Promise<Issue> {
-    const path = args.positionals[2] ?? stringFlag(args, "detach") ?? fail("detach requires a file path");
+    const ref = args.positionals[2] ?? stringFlag(args, "detach") ?? fail("detach requires a file path");
     const id = await this.selected(args);
     return transaction(this.database, async (uow) => {
       const issue = await get(uow, id);
-      const attachments = issue.attachments.filter((entry) => entry.path !== path);
-      if (attachments.length === issue.attachments.length) return issue;
-      const result = changed(issue, { attachments });
-      unwrap(await uow.save(result));
-      return result;
+      if (issue.attachments.some((entry) => !isBlobAttachment(entry) && entry.path === ref)) {
+        const attachments = issue.attachments.filter((entry) => isBlobAttachment(entry) || entry.path !== ref);
+        if (attachments.length === issue.attachments.length) return issue;
+        const result = changed(issue, { attachments });
+        unwrap(await uow.save(result));
+        return result;
+      }
+      return detachBlobUow(uow, { root: this.root, tasksDir: join(this.root, ".tasks") }, id, ref);
     });
   }
   async tag(args: ParsedArgs, label: string): Promise<Issue> { const id = await this.selected(args); return transaction(this.database, async (uow) => { const issue = await get(uow, id); const result = changed(issue, { labels: [...new Set([...issue.labels, label])] }); unwrap(await uow.save(result)); return result; }); }

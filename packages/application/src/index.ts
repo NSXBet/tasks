@@ -1,4 +1,5 @@
 export type { Clock } from './ports/clock.js';
+export type { BlobInput, BlobMeta, BlobStore } from './ports/blob-store.js';
 export type { ApplicationCompositionRoot, ApplicationPorts, MigrationFailure, MigrationHistoryEntry, MigrationPort, MigrationReport, MigrationStep } from './ports/composition-root.js';
 export type { IdGenerator } from './ports/id-generator.js';
 export type { AuditEntry, IssuePage, IssueQuery, IssueRepository, IssueUnitOfWork, UnitOfWork } from './ports/issue-repository.js';

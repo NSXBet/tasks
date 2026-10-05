@@ -8,6 +8,7 @@ export * from './operations/query.js';
 export * from './operations/mutate.js';
 export * from './operations/deps.js';
 export * from './operations/comments.js';
+export * from './operations/attachments.js';
 export * from './operations/views.js';
 export * from './watch/protocol.js';
 export * from './watch/core.js';

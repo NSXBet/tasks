@@ -1,6 +1,7 @@
 import { writeSync } from "node:fs";
 import { exit } from "node:process";
 import type { Agent, Issue, Run } from "@tasks/domain";
+import { isBlobAttachment } from "@tasks/domain";
 import type { ActivityRow, InboxEntry, RuntimeRow } from "@tasks/surface";
 import type { IssueTree, TreeNode } from "./tree.js";
 
@@ -85,7 +86,7 @@ export function issueWire(issue: Issue): Record<string, unknown> {
     due_at: iso(issue.dueAt), defer_until: iso(issue.deferUntil), parent: issue.parentId, sprint: issue.sprintId, labels: [...issue.labels],
     notes: issue.notes, design: issue.design, acceptance_criteria: issue.acceptanceCriteria, estimated_minutes: issue.estimate,
     spec_id: issue.specId, external_ref: issue.externalRef, branch: issue.branch, metadata: issue.metadata,
-    attachments: issue.attachments.map((attachment) => ({ path: attachment.path, metadata: attachment.metadata })),
+    attachments: issue.attachments.map((attachment) => (isBlobAttachment(attachment) ? { ...attachment } : { path: attachment.path, metadata: attachment.metadata })),
     dependencies: issue.dependencies.map((edge) => ({ issue_id: edge.issueId, depends_on_id: edge.target, type: edge.type, created_at: edge.createdAt.toISOString(), created_by: edge.createdBy, metadata: edge.metadata })),
     dependency_count: issue.dependencyCount, dependent_count: issue.dependentCount,
     comments: issue.comments.map((comment) => ({ id: comment.id, issue_id: comment.issueId, author: comment.author, text: comment.text, created_at: comment.createdAt.toISOString() })),
@@ -164,7 +165,7 @@ export function formatShow(issue: Issue): string {
   if (issue.acceptanceCriteria !== null) sections.push(formatSection("ACCEPTANCE CRITERIA", issue.acceptanceCriteria.trimEnd()));
   if (issue.notes !== null) sections.push(formatSection("NOTES", issue.notes.trimEnd()));
   if (issue.branch !== null) sections.push(`${bold("BRANCH:")} ${cyan(issue.branch)}`);
-  if (issue.attachments.length > 0) sections.push(`${bold("ATTACHMENTS:")} ${issue.attachments.map((attachment) => cyan(attachment.path)).join(", ")}`);
+  if (issue.attachments.length > 0) sections.push(`${bold("ATTACHMENTS:")} ${issue.attachments.map((attachment) => cyan(isBlobAttachment(attachment) ? `${attachment.name} (${attachment.id}, ${(attachment.size / 1024).toFixed(1)} kB)` : attachment.path)).join(", ")}`);
   if (issue.dependencies.length > 0) sections.push(formatSection("DEPENDENCIES", issue.dependencies.map((edge) => `→ ${cyan(edge.target)} (${edge.type})`).join("\n")));
   if (issue.parentId !== null) sections.push(`${bold("PARENT:")} ${cyan(issue.parentId)}`);
   if (issue.comments.length > 0) sections.push(formatSection(`COMMENTS (${issue.comments.length})`, issue.comments.map((comment) => `${dim(datetime(comment.createdAt))} ${green(comment.author)}\n${indent(comment.text.trimEnd())}`).join("\n\n")));

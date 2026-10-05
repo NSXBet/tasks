@@ -20,6 +20,9 @@
       "path": "./packages/workspace"
     },
     {
+      "path": "./packages/s3"
+    },
+    {
       "path": "./packages/surface"
     },
     {

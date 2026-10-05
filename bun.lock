@@ -77,10 +77,22 @@
       "dependencies": {
         "@tasks/application": "workspace:*",
         "@tasks/domain": "workspace:*",
+        "@tasks/workspace": "workspace:*",
         "pg": "^8.16.3",
       },
       "devDependencies": {
         "@types/pg": "^8.15.5",
+      },
+    },
+    "packages/s3": {
+      "name": "@tasks/s3",
+      "version": "0.1.0",
+      "dependencies": {
+        "@tasks/application": "workspace:*",
+        "@tasks/domain": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/node": "^22.0.0",
       },
     },
     "packages/sqlite": {
@@ -140,6 +152,7 @@
         "@tasks/domain": "workspace:*",
         "@tasks/file": "workspace:*",
         "@tasks/postgres": "workspace:*",
+        "@tasks/s3": "workspace:*",
         "@tasks/sqlite": "workspace:*",
         "zod": "^4.2.1",
       },
@@ -220,6 +233,8 @@
     "@tasks/file": ["@tasks/file@workspace:packages/file"],
 
     "@tasks/postgres": ["@tasks/postgres@workspace:packages/postgres"],
+
+    "@tasks/s3": ["@tasks/s3@workspace:packages/s3"],
 
     "@tasks/sqlite": ["@tasks/sqlite@workspace:packages/sqlite"],
 

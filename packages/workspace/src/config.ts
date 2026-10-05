@@ -30,12 +30,32 @@ export const StorageConfigSchema = z.discriminatedUnion('backend', [
 ]);
 export type StorageConfig = z.infer<typeof StorageConfigSchema>;
 
+/** Where evidence/inline blobs live; refs on issues stay backend-agnostic. */
+export const AttachmentsConfigSchema = z.object({
+  /** fs (default) keeps bytes under `.tasks/attachments/`; s3 = S3-compatible; postgres stores bytes in the same database. */
+  store: z.enum(['fs', 's3', 'postgres']).optional(),
+  /** fs backend only: track `.tasks/attachments/**` with git-lfs (default true). */
+  lfs: z.boolean().optional(),
+  /** S3-compatible settings; credentials come from the ambient AWS credential chain (prefer `profile`). */
+  s3: z.object({
+    bucket: z.string().min(1),
+    region: z.string().min(1).optional(),
+    prefix: z.string().min(1).optional(),
+    endpoint: z.string().min(1).optional(),
+    profile: z.string().min(1).optional(),
+  }).optional(),
+  /** Postgres blob settings: which env var carries the connection string (default DATABASE_URL). */
+  postgres: z.object({ urlEnv: z.string().min(1).optional() }).optional(),
+}).strict().optional();
+export type AttachmentsConfig = z.infer<typeof AttachmentsConfigSchema>;
+
 /** File is the default backend: git-friendly, no native driver, works with zero configuration. */
 export const DEFAULT_STORAGE: StorageConfig = Object.freeze({ backend: 'file' });
 
 export const WorkspaceConfigSchema = z.object({
   prefix: z.string().min(1).optional(),
   storage: StorageConfigSchema.optional(),
+  attachments: AttachmentsConfigSchema,
 }).passthrough();
 export type WorkspaceConfig = z.infer<typeof WorkspaceConfigSchema>;
 

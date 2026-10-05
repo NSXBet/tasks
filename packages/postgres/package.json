@@ -8,6 +8,11 @@
       "bun": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./blob": {
+      "bun": "./src/blob.ts",
+      "types": "./dist/blob.d.ts",
+      "default": "./dist/blob.js"
     }
   },
   "scripts": {
@@ -18,6 +23,7 @@
   "dependencies": {
     "@tasks/application": "workspace:*",
     "@tasks/domain": "workspace:*",
+    "@tasks/workspace": "workspace:*",
     "pg": "^8.16.3"
   },
   "devDependencies": {

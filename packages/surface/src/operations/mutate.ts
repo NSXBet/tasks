@@ -1,5 +1,5 @@
 import type { AgentId, Issue, IssueAttachment, Run } from '@tasks/domain';
-import { issuePriority, issueTitle, issueDescription, issueId, dependencyTarget, IssueAttachmentSchema } from '@tasks/domain';
+import { issuePriority, issueTitle, issueDescription, issueId, dependencyTarget, isBlobAttachment, IssueAttachmentSchema } from '@tasks/domain';
 import { activeRun, applyRunSideEffects, err, nextRunId, ok, type IssueUnitOfWork, type Result } from '@tasks/application';
 import type { SurfaceStore } from '../store.js';
 import { getOrThrow, readCurrentId, writeCurrentId } from '../store.js';
@@ -30,27 +30,33 @@ export interface UpdatePatch {
   readonly attachments?: readonly IssueAttachment[];
 }
 
-/** Attach a file path (deduped by path); metadata optional. */
-export const attachFile = (store: SurfaceStore, id: string, path: string, metadata?: IssueAttachment['metadata']) => store.transact(async (uow) => {
+/** Path-attach core (deduped by path); metadata optional. */
+export const attachPathUow = async (uow: IssueUnitOfWork, id: string, path: string, metadata?: IssueAttachment['metadata']): Promise<Issue> => {
   const issue = await getOrThrow(uow, id);
-  if (issue.attachments.some(attachment => attachment.path === path)) return issue;
+  if (issue.attachments.some(attachment => !isBlobAttachment(attachment) && attachment.path === path)) return issue;
   const attachment = IssueAttachmentSchema.parse({ path, ...(metadata === undefined ? {} : { metadata }) });
   const next = changed(issue, { attachments: [...issue.attachments, attachment] });
   const saved = await uow.save(next);
   if (!saved.ok) throw new MessageError('save failed');
   return next;
-});
+};
 
-/** Remove one attachment by path; no-op when absent. */
-export const detachFile = (store: SurfaceStore, id: string, path: string) => store.transact(async (uow) => {
+/** Attach a file path (deduped by path); metadata optional. */
+export const attachFile = (store: SurfaceStore, id: string, path: string, metadata?: IssueAttachment['metadata']) => store.transact(async (uow) => attachPathUow(uow, id, path, metadata));
+
+/** Path-detach core (no-op when absent). */
+export const detachPathUow = async (uow: IssueUnitOfWork, id: string, path: string): Promise<Issue> => {
   const issue = await getOrThrow(uow, id);
-  const attachments = issue.attachments.filter(attachment => attachment.path !== path);
+  const attachments = issue.attachments.filter(attachment => isBlobAttachment(attachment) || attachment.path !== path);
   if (attachments.length === issue.attachments.length) return issue;
   const next = changed(issue, { attachments });
   const saved = await uow.save(next);
   if (!saved.ok) throw new MessageError('save failed');
   return next;
-});
+};
+
+/** Remove one attachment by path; no-op when absent. */
+export const detachFile = (store: SurfaceStore, id: string, path: string) => store.transact(async (uow) => detachPathUow(uow, id, path));
 
 const nullableString = (value: string | null | undefined): string | null | undefined => value === '' ? null : value;
 

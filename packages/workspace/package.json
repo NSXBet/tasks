@@ -11,8 +11,8 @@
     }
   },
   "scripts": {
-    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/file build && bun run --filter @tasks/postgres build && tsc -p tsconfig.json",
-    "check": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/file build && bun run --filter @tasks/postgres build && tsc --noEmit -p tsconfig.json",
+    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/file build && bun run --filter @tasks/s3 build && bun run --filter @tasks/postgres build && tsc -p tsconfig.json",
+    "check": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/file build && bun run --filter @tasks/s3 build && bun run --filter @tasks/postgres build && tsc --noEmit -p tsconfig.json",
     "test": "bun run build && cd ../.. && bun test packages/workspace/test/workspace.test.ts"
   },
   "dependencies": {
@@ -21,7 +21,8 @@
     "@tasks/file": "workspace:*",
     "@tasks/postgres": "workspace:*",
     "@tasks/sqlite": "workspace:*",
-    "zod": "^4.2.1"
+    "zod": "^4.2.1",
+    "@tasks/s3": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0"
