@@ -56,16 +56,16 @@ describe("compareVersions", () => {
 
 describe("isUpToDate", () => {
   it("compares stable releases by semver", () => {
-    expect(isUpToDate("v0.4.0", "stable")).toBe(true);
-    expect(isUpToDate("v0.3.9", "stable")).toBe(true);
-    expect(isUpToDate("v0.5.0", "stable")).toBe(false);
+    expect(isUpToDate("v0.5.0", "stable")).toBe(true);
+    expect(isUpToDate("v0.4.9", "stable")).toBe(true);
+    expect(isUpToDate("v0.6.0", "stable")).toBe(false);
   });
 
   it("falls back to semver when no build ref is baked in", () => {
     // Source checkouts compile without TK_BUILD_REF; a nightly tag sharing
     // the semver core with VERSION is reported current rather than stale.
-    expect(isUpToDate("v0.4.0-nightly.20261004.abcdef", "nightly")).toBe(true);
-    expect(isUpToDate("v0.5.0-nightly.20261004.abcdef", "nightly")).toBe(false);
+    expect(isUpToDate("v0.5.0-nightly.20261005.abcdef", "nightly")).toBe(true);
+    expect(isUpToDate("v0.6.0-nightly.20261005.abcdef", "nightly")).toBe(false);
   });
 });
 

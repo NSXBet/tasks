@@ -8,6 +8,25 @@ matching section as its release notes — add a section for every new version
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-05
+
+### Added
+
+- `tk skill install`: links the agent skill into the standard skills.sh roots —
+  `.agents/skills` (project, default) or `~/.agents/skills` (`--global`) — with
+  an interactive scope prompt on TTYs; refuses to clobber an existing install
+  unless `--force` (interactive runs confirm first). `tk skill --install <dir>`
+  still targets arbitrary directories, and `tk skill --json` gains
+  `target`/`scope`. The symlink points at the skill directory, so installs track
+  upgrades.
+- Markdown issue rendering shows blob-backed attachments as `name (id)` next to
+  path refs.
+
+### Changed
+
+- Help, PRIME, and the shipped SKILL.md document evidence ingest: `tk attach
+  --evidence`, `evidence:<id>` comment refs, and blob-aware `tk detach`.
+
 ## [0.4.0] - 2026-10-04
 
 ### Added
