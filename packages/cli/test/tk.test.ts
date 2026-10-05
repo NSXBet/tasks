@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 const executable = join(process.cwd(), "packages/cli/src/tk.ts");
 const workspaces: string[] = [];
 function workspace(): string { const value = mkdtempSync(join(tmpdir(), "tk-cli-")); workspaces.push(value); return value; }
-function run(directory: string, args: readonly string[], input?: string): { readonly stdout: string; readonly stderr: string; readonly status: number } { const result = Bun.spawnSync([process.execPath, executable, "-C", directory, ...args], { stdin: input === undefined ? undefined : new TextEncoder().encode(input), stdout: "pipe", stderr: "pipe" }); return { stdout: new TextDecoder().decode(result.stdout), stderr: new TextDecoder().decode(result.stderr), status: result.exitCode }; }
+function run(directory: string, args: readonly string[], input?: string, env?: Record<string, string>): { readonly stdout: string; readonly stderr: string; readonly status: number } { const result = Bun.spawnSync([process.execPath, executable, "-C", directory, ...args], { stdin: input === undefined ? undefined : new TextEncoder().encode(input), stdout: "pipe", stderr: "pipe", env: env === undefined ? undefined : { ...process.env, ...env } }); return { stdout: new TextDecoder().decode(result.stdout), stderr: new TextDecoder().decode(result.stderr), status: result.exitCode }; }
 function json<T>(directory: string, args: readonly string[], input?: string): T { const result = run(directory, [...args, "--json"], input); expect(result.status, result.stderr).toBe(0); return JSON.parse(result.stdout) as T; }
 afterEach(() => { while (workspaces.length) rmSync(workspaces.pop()!, { recursive: true, force: true }); });
 
@@ -639,10 +639,32 @@ describe("tk executable", () => {
     // path subcommand: location only.
     const path = run(directory, ["skill", "path"]);
     expect(path.stdout.trim()).toMatch(/SKILL\.md$/);
-    // --install symlinks the skill into the target directory.
+    // --install symlinks the skill directory into the target directory.
     const installDir = join(directory, "skills");
     const installed = run(directory, ["skill", "--install", installDir]);
     expect(installed.status).toBe(0);
-    expect(readFileSync(join(installDir, "tasks"), "utf8")).toContain("name: tasks");
+    expect(readFileSync(join(installDir, "tasks", "SKILL.md"), "utf8")).toContain("name: tasks");
+  });
+
+  it("installs the skill skills.sh-style: project default, conflict guard, --force, --global", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    // Existing .agents/skills makes project-local the silent default.
+    mkdirSync(join(directory, ".agents", "skills"), { recursive: true });
+    const local = run(directory, ["skill", "install"]);
+    expect(local.status).toBe(0);
+    expect(local.stdout).toContain(".agents/skills/tasks");
+    // Non-interactive conflict refuses without --force.
+    const conflict = run(directory, ["skill", "install"]);
+    expect(conflict.status).not.toBe(0);
+    expect(conflict.stderr).toContain("--force");
+    expect(readFileSync(join(directory, ".agents", "skills", "tasks", "SKILL.md"), "utf8")).toContain("name: tasks");
+    // --force replaces; --global targets ~/.agents/skills of the given HOME.
+    const forced = run(directory, ["skill", "install", "--force"]);
+    expect(forced.status).toBe(0);
+    const home = join(directory, "home");
+    const global = run(directory, ["skill", "install", "--global"], undefined, { HOME: home });
+    expect(global.status).toBe(0);
+    expect(readFileSync(join(home, ".agents", "skills", "tasks", "SKILL.md"), "utf8")).toContain("name: tasks");
   });
 });

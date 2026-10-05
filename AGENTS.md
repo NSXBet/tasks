@@ -9,7 +9,6 @@ tk ready              # Find available work
 tk show <id>          # View issue details
 tk update <id> --claim  # Claim work atomically
 tk close <id>         # Complete work
-tk dolt push          # Push tasks data to remote
 ```
 
 ## Non-Interactive Shell Commands

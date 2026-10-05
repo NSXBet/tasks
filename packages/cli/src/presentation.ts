@@ -328,6 +328,10 @@ export function formatMigration(report: Record<string, unknown>): string {
 const mdCell = (text: string): string => text.replace(/\|/g, "\\|").replace(/\n/g, " ");
 const mdDate = (value: string | null | undefined): string => (value ? value.slice(0, 10) : "");
 
+/** One attachment in markdown: blob entries show `name (id)`, path entries the path. */
+const markdownAttachment = (attachment: Readonly<Record<string, unknown>>): string =>
+  "kind" in attachment ? `\`${String(attachment["name"])} (${String(attachment["id"])})\`` : `\`${String(attachment["path"])}\``;
+
 /** One wire issue as a `## <id> — <title>` section; `verbose` adds long-form fields. */
 function markdownIssue(record: Readonly<Record<string, unknown>>, verbose: boolean): string[] {
   const status = String(record["status"] ?? "open");
@@ -340,7 +344,7 @@ function markdownIssue(record: Readonly<Record<string, unknown>>, verbose: boole
   if (record["owner"] !== null && record["owner"] !== undefined) extras.push(`Owner: ${record["owner"]}`);
   if (Array.isArray(record["labels"]) && record["labels"].length > 0) extras.push(`Labels: ${(record["labels"] as readonly unknown[]).map((label) => `#${String(label)}`).join(" ")}`);
   if (record["branch"] !== null && record["branch"] !== undefined) extras.push(`Branch: \`${String(record["branch"])}\``);
-  if (Array.isArray(record["attachments"]) && record["attachments"].length > 0) extras.push(`Attachments: ${(record["attachments"] as readonly Readonly<Record<string, unknown>>[]).map((attachment) => `\`${String(attachment["path"])}\``).join(", ")}`);
+  if (Array.isArray(record["attachments"]) && record["attachments"].length > 0) extras.push(`Attachments: ${(record["attachments"] as readonly Readonly<Record<string, unknown>>[]).map(markdownAttachment).join(", ")}`);
   if (record["parent"] !== null && record["parent"] !== undefined) extras.push(`Parent: ${record["parent"]}`);
   if (record["due_at"] !== null && record["due_at"] !== undefined) extras.push(`Due: ${mdDate(record["due_at"] as string)}`);
   if (Array.isArray(record["dependencies"]) && record["dependencies"].length > 0) extras.push(`Depends on: ${(record["dependencies"] as readonly Readonly<Record<string, unknown>>[]).map((edge) => `\`${String(edge["depends_on_id"])}\` (${String(edge["type"])})`).join(", ")}`);
@@ -613,7 +617,7 @@ export const PRIME = `# tk workflow context
 - Typical loop: ${cyan("tk ready")} → ${cyan("tk show <id>")} → ${cyan("tk update <id> --status in_progress")} → ${cyan("tk comment <id> ...")} → ${cyan("tk close <id>")}.
 - Use ${cyan("tk dep add <id> <blocker>")} to record blockers; ${cyan("tk tree")} renders the tree; ${cyan("tk stale")}/${cyan("tk orphans")}/${cyan("tk duplicates")}/${cyan("tk lint")} for hygiene.
 - Review changes with Hunk: link its branch via ${cyan("tk update <id> --branch <name>")}, open the review with ${cyan("tk hunk <id>")}, pull reviewer comments back with ${cyan("tk hunk <id> sync")}.
-- File references attach to issues: ${cyan("tk attach <id> <path>")} (paths are stored workspace-relative; bare name = repo root). ${cyan("--plan <path>")} on create/update sets the issue's plan through the same system (replaces prior plan). ${cyan("tk skill")} prints the full agent skill.
+- File references attach to issues: ${cyan("tk attach <id> <path>")} (paths are stored workspace-relative; bare name = repo root). ${cyan("tk attach <id> --evidence <file>...")} ingests bytes instead — the blob lands under ${cyan(".tasks/attachments/")} (mime-sniffed, deduped by name, re-attach replaces), referenced from comments as ${cyan("evidence:<id>")}. ${cyan("tk detach <id> <path|name|id>")} removes either kind (evidence bytes go with it). ${cyan("--plan <path>")} on create/update sets the issue's plan through the same system (replaces prior plan). ${cyan("tk skill")} prints the full agent skill.
 - Run ${cyan("tk help")} for the full command list.
 `;
 

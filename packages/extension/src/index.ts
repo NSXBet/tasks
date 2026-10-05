@@ -145,7 +145,7 @@ export default function tasksExtension(pi: ExtensionAPI) {
       "close(id, reason?) · reopen(id) · defer(id, until?) · undefer(id) · claim(id) → issue",
       "comment(id, body) → issue · comments(id) → issue",
       "update(id, title?, description?, priority?, type?, assignee?, owner?, branch?, parent?, notes?, acceptanceCriteria?, design?, specId?, externalRef?, estimate?, dueAt?, status?, plan?, attachments?[]) → issue",
-      "attach(id, path, attachmentMetadata?) · detach(id, path) — file-path attachments (references, not copies); bare path = repo root (foo.yaml). Use plan instead when setting the issue's plan file",
+      "attach(id, path, attachmentMetadata?) · detach(id, path) — file-path attachments (references, not copies); bare path = repo root (foo.yaml). Use plan instead when setting the issue's plan file. Blob-backed evidence and detach-by-blob-ref are CLI-only: tk attach <id> --evidence <path>... / tk detach <id> <name-or-id>",
       "rename(id, newId) · delete(ids) · duplicate(id, canonical) · supersede(id, replacement)",
       "todo(title) · todo-done(ids) — task-type shortcuts",
       "search(text) · query(expr: 'status=open', 'title~bug') · history(id) → audit entries",

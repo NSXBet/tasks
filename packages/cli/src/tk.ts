@@ -622,8 +622,8 @@ WORKING WITH ISSUES
   comment <id> <body>     Add comment (--stdin for pipe)
   comments <id>           View comments
   note <id> <text>        Append a note
-  attach <id> <path>      Attach a file path (--attach-metadata k=v,k2=v2)
-  detach <id> <path>      Remove an attachment
+  attach <id> <path>      Attach a file path (--attach-metadata k=v,k2=v2); --evidence <path>... ingests blobs instead
+  detach <id> <ref>       Remove one attachment: path, blob name, or blob id (evidence bytes deleted with it)
   create/update --plan <path>  Set the issue plan file (kind=plan attachment; replaces prior plan)
   assign <id> <user>      Set assignee
   priority <id> <0-4>     Set priority
@@ -690,7 +690,7 @@ SETUP
   update                  Self-update the binary (--latest for nightlies; tk update <id> updates an issue)
   quickstart              Quick start guide
   prime                   AI-optimized workflow context
-  skill [path] [--install <dir>]  Print the tasks agent skill (LLM-facing docs: ops table, attachments/plans); path = location only, --install symlinks into an agent skills dir
+  skill [path|install]    Print the tasks agent skill (LLM-facing docs: ops table, attachments/evidence/plans); path = location only, install links it into .agents/skills (default) or ~/.agents/skills (--global; --force replaces an existing install)
   onboard                 Snippet for your agent instructions file
   human                   Focused help menu for human users
 
@@ -865,7 +865,7 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
   // any git repo, like bd hooks). Dispatch before workspace resolution.
   if (command === "hooks") { await runHooks(args, start, json); return; }
   if (command === "setup") { await runAgentHooksSetup(args, start, json); return; }
-  if (command === "skill") { const result = await runSkill(args, import.meta.dir); if (json) output({ path: result.path, skill: result.skill }, true); else if (markdown) process.stdout.write(formatMarkdown(result, false)); else console.log(result.text); return; }
+  if (command === "skill") { const result = await runSkill(args, import.meta.dir, root); if (json) output({ path: result.path, skill: result.skill, target: result.target, scope: result.scope }, true); else if (markdown) process.stdout.write(formatMarkdown(result, false)); else console.log(result.text); return; }
   // Bare `tk update` (no issue id) self-updates the binary; it must dispatch
   // before workspace resolution so it works outside any .tasks/ workspace.
   if (command === "update" && args.positionals.length === 1) { await runSelfUpdate(args, json); return; }

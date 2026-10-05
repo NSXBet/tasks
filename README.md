@@ -344,7 +344,7 @@ tk migrate --bd /path/to/bd      # pin the beads executable
 
 The source workspace is never renamed, moved, or modified, so `bd` keeps
 working against `.beads/` after migration. Beads stores issues in an embedded
-Dolt database that only `bd` can read — `.beads/issues.jsonl` is a passive
+database that only `bd` can read — `.beads/issues.jsonl` is a passive
 export that is usually empty — so `bd export` is the default source and an
 empty JSONL is reported as an error rather than a successful empty migration.
 

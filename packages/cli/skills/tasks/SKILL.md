@@ -54,8 +54,8 @@ Prefer the `tasks` tool over shelling out to `tk`. The tool returns structured J
 | `graph` | — → nodes + edges |
 | `duplicates` / `lint` | `ids?` → findings |
 | `children` / `epic` | `id` → child list / `{ epic, children, done, eligible }` |
-| `attach` | `id`, `path` (required), `attachmentMetadata?` → issue |
-| `detach` | `id`, `path` (required) → issue |
+| `attach` | `id`, `path` (required), `attachmentMetadata?` → issue. Blob-backed evidence: CLI only, `tk attach <id> --evidence <path>...` |
+| `detach` | `id`, `path` (required) → issue. Blob entries (name/id): CLI only, `tk detach <id> <name-or-id>` |
 
 ## File attachments and plans
 
@@ -66,7 +66,15 @@ Attachments are **references, not copies** — they store a path plus optional m
   `tasks { "op": "create", "title": "auth rework", "plan": ".agents/plans/auth.md" }`.
   This attaches the file with `kind: "plan"` metadata; setting a new plan **replaces the prior plan attachment** and leaves other attachments untouched. One plan per issue.
 - Full-list replace: `attachments: [{ path, metadata? }]` on create/update replaces the entire list (empty array clears). Prefer `plan`/`attach` for single files.
-- Remove: `tasks { "op": "detach", "id": "tk-x", "path": "docs/spec.md" }` (no-op if absent).
+- Remove: `tasks { "op": "detach", "id": "tk-x", "path": "docs/spec.md" }` (path refs only; evidence blobs need the CLI detach).
+
+## Evidence blobs (CLI)
+
+`tk attach <id> --evidence <path>...` **copies bytes into the workspace** (`.tasks/attachments/`), replacing path references: entries become `{kind, id (ev-…), name, mime, size, sha256}`. Use it for proof of work — screenshots, logs, outputs — that must survive the file moving.
+
+- Stored backend: `attachments.store` in `.tasks/config.json` (`fs` default; `s3`/`postgres` available); `attachments.lfs` tracks `fs` blobs with git-lfs.
+- Re-attach with the same file name replaces the prior evidence entry in place (same id, new bytes).
+- Reference evidence from comments as `evidence:<id>` (e.g. `see evidence:ev-a1b2c3`); `tk detach <id> <name-or-id>` removes the entry and its stored bytes.
 
 ## CLI equivalents
 
@@ -74,7 +82,8 @@ Attachments are **references, not copies** — they store a path plus optional m
 
 ```bash
 tk attach <id> <path>                       # attach (--attach-metadata k=v,k2=v2 applies to this path)
-tk detach <id> <path>                       # remove attachment
+tk attach <id> --evidence shot.png log.txt  # ingest copies: blob entry {id, name, mime, size, sha256}
+tk detach <id> <path|name|id>               # remove attachment (evidence bytes deleted with it)
 tk create "title" --plan docs/plan.md       # plan via attachment system
 tk create "title" --attach foo.yaml --attach 'docs/plan.md={"kind":"plan"}'  # repeatable; inline JSON = metadata
 tk update <id> --plan new-plan.md           # replaces prior plan, keeps other attachments
@@ -87,4 +96,4 @@ tk update <id> --detach <path>              # remove
 - One issue per deliverable; use `parent` for subtasks of an epic and `dep-add` for blockers.
 - Never close an issue whose acceptance criteria are not visibly met — say what you did in the close reason.
 - Prefer `--json` when parsing `tk` output programmatically; `--markdown` renders `## id — title` sections.
-- `tk skill path` prints this skill's installed location; `tk skill --install <dir>` symlinks it into an agent skills directory. Re-run after upgrades so guidance stays aligned.
+- `tk skill path` prints this skill's installed location; `tk skill install` symlinks the skill directory into `.agents/skills` (project default) or `~/.agents/skills` (`--global`); `--force` replaces an existing install. Symlinks track upgrades — re-install only when the link breaks.
