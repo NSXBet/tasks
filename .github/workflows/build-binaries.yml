@@ -40,7 +40,11 @@ jobs:
       - name: Build packages (tests import compiled dist)
         run: |
           find packages -name 'tsconfig.tsbuildinfo' -delete
-          bun run --filter '*' build
+          # Sequential, in dependency order: `--filter '*' build` runs every
+          # package script concurrently and their nested dep-builds race on
+          # the shared dist/ output (TS2307 flakes). The root script chains
+          # them serially instead.
+          bun run build
 
       - name: Run tests
         run: bun test packages/*/test/*.test.ts
