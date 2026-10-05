@@ -8,6 +8,31 @@ matching section as its release notes — add a section for every new version
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-04
+
+### Added
+
+- Blob-backed evidence attachments: path refs gain blob-backed siblings
+  `{id, name, mime, size, sha256}` on issues, round-tripped through the bd wire
+  format with unknown-field preservation. `tk attach --evidence <files>` ingests
+  bytes into the configured store — fs under `.tasks/attachments/` (git-lfs
+  staged automatically), any S3-compatible bucket, or the shared PostgreSQL
+  database — sniffing mime from file content; `tk detach <id|name>` removes the
+  stored bytes. Comment bodies reference blobs as `evidence:<id>`.
+- Agent dispatch: agent, run, and sprint schemas persisted through every storage
+  adapter; status moves drive run lifecycle with sprint operations and runtimes;
+  `tk agent`, `tk run`, `tk runtime`, and inbox commands across CLI, TUI, and web.
+- Web UI: browser client and server package sharing the issue command surface.
+
+### Changed
+
+- TUI keybindings and the destructive-action confirm flow.
+
+### Fixed
+
+- Self-update resolves the rolling `nightly` release by tag and buffers large
+  asset downloads.
+
 ## [0.3.0] - 2026-09-11
 
 ### Added
