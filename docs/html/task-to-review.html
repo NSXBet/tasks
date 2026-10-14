@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Task → review — implementation plan</title>
+<script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+<script src="data/task-to-review-data.js"></script>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#10151c; --panel2:#0d1117; --border:#1d2833; --border2:#273445;
+    --text:#d7e1ea; --muted:#7c8b99; --accent:#3ddc97; --blue:#58a6ff; --red:#f85149; --green:#3fb950; --amber:#d29922; --purple:#a78bfa;
+  }
+  body{background:var(--bg); color:var(--text); font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .panel{background:var(--panel); border:1px solid var(--border);}
+  .pill{border:1px solid var(--border2); border-radius:9999px; padding:1px 8px; font-size:10px; letter-spacing:.08em;}
+  .pill-done{color:var(--green); border-color:rgba(63,185,80,.4);}
+  .pill-run{color:var(--blue); border-color:rgba(88,166,255,.4);}
+  .pill-open{color:var(--accent); border-color:rgba(61,220,151,.4);}
+  .pill-idle{color:var(--muted);}
+  .pill-amber{color:var(--amber); border-color:rgba(210,153,34,.4);}
+  .avatar{width:20px;height:20px;border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#0b0f14;}
+  .ln{display:inline-block;width:34px;text-align:right;padding-right:10px;color:#41505f;user-select:none;}
+  .del{background:rgba(248,81,73,.12); color:#ffb3ad;} .del .ln{color:rgba(248,81,73,.55);}
+  .add{background:rgba(63,185,80,.10); color:#b3f0c6;} .add .ln{color:rgba(63,185,80,.55);}
+  .ctx{color:#9fb0bf;} .ctx .ln{color:#41505f;}
+  .anchor-dot{position:absolute;left:-9px;top:50%;transform:translateY(-50%);width:7px;height:7px;border-radius:9999px;background:var(--accent);box-shadow:0 0 0 2px rgba(61,220,151,.25);}
+  .kbd{border:1px solid var(--border2); border-bottom-width:2px; border-radius:5px; padding:0 5px; font-size:10px; color:var(--muted);}
+  .term{background:var(--panel2); border:1px solid var(--border); border-radius:12px;}
+  .term .bar{display:flex;gap:6px;padding:10px 12px;border-bottom:1px solid var(--border);}
+  .term .dot{width:9px;height:9px;border-radius:9999px;}
+  a{color:var(--blue);}
+  ::selection{background:rgba(61,220,151,.3);}
+  .section-num{color:var(--muted); font-size:11px; letter-spacing:.2em;}
+</style>
+</head>
+<body class="antialiased">
+
+<!-- ================= NAV ================= -->
+<header class="sticky top-0 z-40 backdrop-blur bg-[#0b0f14]/85 border-b border-[#1d2833]">
+  <div class="max-w-[1180px] mx-auto px-5 h-12 flex items-center gap-5 text-[11px] tracking-wide">
+    <span class="text-[#3ddc97] font-bold">tk</span><span class="text-[#7c8b99]">/</span><span>task → review</span>
+    <nav class="ml-auto flex gap-4 text-[#7c8b99]">
+      <a href="#record">record</a><a href="#views">views</a><a href="#diff">diff</a><a href="#reuse">reuse</a><a href="#how">how</a><a href="#build">build</a><a href="#verify">verify</a><a href="#requests">requests</a>
+    </nav>
+  </div>
+</header>
+
+<main class="max-w-[1180px] mx-auto px-5 pb-24">
+
+  <!-- ================= HERO ================= -->
+  <section class="pt-14 pb-10">
+    <div class="text-[11px] tracking-[.25em] text-[#7c8b99]">IMPLEMENTATION PLAN · 2026-10-08 · NSXBet/tasks</div>
+    <h1 class="mt-4 text-4xl font-bold tracking-tight">Task <span class="text-[#3ddc97]">→</span> review</h1>
+    <p class="mt-4 max-w-[760px] text-[13px] leading-6 text-[#9fb0bf]">
+      One record, shaped like a GitHub PR: the agent works in a worktree, the branch is the evidence,
+      commits and diff are <span class="text-[#d7e1ea]">derived</span> — never handed over file by file.
+      Review is diff, copied from hunk and reimplemented as tk's own component, in the terminal and on the web.
+    </p>
+    <p class="mt-2 max-w-[760px] text-[12px] leading-6 text-[#7c8b99]">
+      It gives the user the <span class="text-[#c3d0dc]">experience</span> of a pull request — but the PR experience
+      is not what defines it. The task→review flow is. <span class="text-[#41505f]">R49</span>
+    </p>
+    <div class="mt-5 flex flex-wrap gap-2 text-[10px]">
+      <span class="pill">tk work → tk finish → tk review</span>
+      <span class="pill">harness registry: omp first</span>
+      <span class="pill pill-amber">additive — nothing replaced</span>
+    </div>
+  </section>
+
+  <!-- ================= ADDITIVE BANNER ================= -->
+  <section class="panel rounded-xl p-4 mb-14 border-[#273445] flex items-start gap-4">
+    <div class="text-[#d29922] text-lg leading-none mt-0.5">+</div>
+    <p class="text-[12px] leading-6 text-[#c3d0dc]">
+      <span class="text-[#d29922] font-bold">NEW views are a plus — they do not replace anything.</span>
+      The task view, artifact view and diff view are <span class="text-[#d7e1ea]">additional</span> views in the web and TUI.
+      Existing views — list, kanban, <code class="text-[#3ddc97]">tk show</code>, issues, epics, graph — stay exactly as they are.
+      <span class="text-[#7c8b99]">R47</span>
+    </p>
+  </section>
+
+  <!-- ================= THE RECORD ================= -->
+  <section id="record" class="mb-6">
+    <div class="section-num">§1 · THE RECORD</div>
+    <h2 class="mt-2 text-xl font-bold">tk show TK-142 — the PR-shaped record</h2>
+    <div class="term mt-4 max-w-[720px]">
+      <div class="bar"><span class="dot bg-[#f85149]"></span><span class="dot bg-[#d29922]"></span><span class="dot bg-[#3fb950]"></span><span class="ml-3 text-[10px] text-[#7c8b99]">platform-api — zsh</span></div>
+      <div class="px-5 py-4 text-[12.5px] leading-[1.7] whitespace-pre"><span class="text-[#7c8b99]">$</span> tk show TK-142
+
+  <span class="text-[#d7e1ea] font-bold">TK-142  Fix flaky retry logic in uploader</span>            <span class="text-[#3ddc97]">● ready-to-review</span>
+  <span class="text-[#41505f]">─────────────────────────────────────────────────────────────</span>
+  branch     <span class="text-[#58a6ff]">tk/TK-142 → main</span>          worktree <span class="text-[#9fb0bf]">~/worktrees/TK-142</span>
+  commits    <span class="text-[#d7e1ea]">3</span>                         (vs main)
+  diff       <span class="text-[#3fb950]">+38</span> <span class="text-[#f85149]">−12</span>   <span class="text-[#9fb0bf]">3 files</span>         computed from the branch
+  agent      <span class="text-[#a78bfa]">omp</span> · session <span class="text-[#a78bfa]">a1b2c3d4</span>     finished 14:32
+  harness    <span class="text-[#3ddc97]">omp</span> <span class="text-[#7c8b99]">(first)</span> · codex · cursor   <span class="text-[#41505f]">one registry, data not code</span>
+  <span class="text-[#41505f]">─────────────────────────────────────────────────────────────</span>
+  review  ▸ <span class="text-[#3ddc97]">TUI</span>  tk review TK-142            <span class="text-[#9fb0bf]">diff TUI, full page</span>
+          ▸ <span class="text-[#58a6ff]">web</span>  <span class="text-[#58a6ff]">https://…/tasks/TK-142</span>    <span class="text-[#9fb0bf]">open in browser</span></div>
+    </div>
+    <p class="mt-3 text-[12px] leading-6 text-[#7c8b99] max-w-[720px]">
+      The branch with its commits, the diff computed from that branch, the session that produced it,
+      two doors into review. The agent line renders from the harness registry — omp first, codex and cursor
+      next; adding a harness type is an entry, not a patch. Every surface that shows a task carries the same
+      two doors. The agent supplies nothing — there is no file list to hand over.
+      <span class="text-[#41505f]">R02 · R04 · R05 · R07 · R08 · R09 · R10 · R16 · R50 · R51</span>
+    </p>
+  </section>
+
+  <!-- ================= VIEWS ================= -->
+  <section id="views" class="mb-6">
+    <div class="section-num">§2 · THE THREE VIEWS — TUI + WEB, ADDITIVE</div>
+    <h2 class="mt-2 text-xl font-bold">Reverse-engineered from HumanLayer, built twice</h2>
+    <p class="mt-2 text-[12px] leading-6 text-[#7c8b99] max-w-[760px]">
+      Around the record: three views, each rendered below as it lands in the web and the TUI.
+      Left: the working tasks. Middle: the task, front and center — comments and artifacts as the default view.
+      Every file commentable, line by line or whole file, like GitHub.
+    </p>
+  </section>
+
+  <!-- ========== VIEW 1: TASK VIEW ========== -->
+  <figure class="mb-14">
+    <figcaption class="mb-3 text-[11px] tracking-widest text-[#7c8b99]">VIEW 1 · TASK VIEW — description front and center · sessions table · artifacts rail <span class="text-[#41505f]">R33 R34 R35 R36</span></figcaption>
+    <div class="panel rounded-xl overflow-hidden">
+      <!-- titlebar -->
+      <div class="flex items-center gap-3 px-4 h-10 border-b border-[#1d2833] text-[11px]">
+        <span class="text-[#3ddc97] font-bold">tk</span>
+        <span class="text-[#41505f]">/</span><span>TK-142</span>
+        <span class="pill pill-open ml-2">● ready-to-review</span>
+        <span class="pill ml-auto">TUI ⇄ WEB</span>
+      </div>
+      <div class="grid grid-cols-[210px_1fr_230px] min-h-[340px]">
+        <!-- left: working tasks -->
+        <div class="border-r border-[#1d2833] py-3 text-[11.5px]">
+          <div class="px-4 pb-2 text-[10px] tracking-widest text-[#7c8b99]">TASKS</div>
+          <div class="px-4 py-1.5 text-[#9fb0bf] flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#3fb950]"></span>auth refactor</div>
+          <div class="px-4 py-1.5 text-[#9fb0bf] flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#d29922]"></span>api limiting</div>
+          <div class="px-4 py-1.5 text-[#9fb0bf] flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#7c8b99]"></span>dashboard</div>
+          <div class="px-4 py-1.5 bg-[#141b24] text-[#d7e1ea] font-bold border-l-2 border-[#3ddc97] flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#58a6ff]"></span>uploader retries</div>
+          <div class="px-4 py-1.5 text-[#9fb0bf] flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#7c8b99]"></span>flaky tests triage</div>
+          <div class="px-4 py-1.5 text-[#9fb0bf] flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#7c8b99]"></span>docs pass</div>
+          <div class="px-4 pt-3 text-[10px] text-[#41505f]">…the task list tk already has (kanban)</div>
+        </div>
+        <!-- center: task front and center -->
+        <div class="py-5 px-6">
+          <h3 class="text-[19px] font-bold leading-snug">Fix flaky retry logic in uploader</h3>
+          <div class="mt-2 flex items-center gap-2 text-[10.5px] text-[#7c8b99]">
+            <span class="pill">repo ~/workdir/platform-api</span>
+            <span class="pill pill-run">tk/TK-142 → main</span>
+          </div>
+          <div class="mt-4 flex gap-2">
+            <button class="px-3 h-7 rounded-md bg-[#1a2531] border border-[#273445] text-[10.5px] text-[#d7e1ea]">▶ start work</button>
+            <button class="px-3 h-7 rounded-md bg-[#12332a] border border-[#1f6b52] text-[10.5px] text-[#3ddc97]">◧ open diff</button>
+            <span class="text-[9.5px] text-[#41505f] self-center ml-1">opens the diff view</span>
+          </div>
+          <!-- sessions table -->
+          <div class="mt-6">
+            <div class="text-[10px] tracking-widest text-[#7c8b99] pb-1.5 border-b border-[#1d2833]">SESSIONS — agent runs recorded on the task</div>
+            <table class="w-full text-[11px] mt-1">
+              <tr class="text-[#41505f] text-[9.5px] tracking-widest"><td class="py-1.5">STATUS</td><td>SESSION</td><td>UPD</td></tr>
+              <tr class="border-t border-[#1d2833]"><td class="py-1.5"><span class="pill pill-done">DONE</span></td><td class="text-[#9fb0bf]">research patterns</td><td class="text-[#7c8b99]">10m</td></tr>
+              <tr class="border-t border-[#1d2833]"><td class="py-1.5"><span class="pill pill-run">RUNNING</span></td><td class="text-[#9fb0bf]">design discussion</td><td class="text-[#7c8b99]">2m</td></tr>
+              <tr class="border-t border-[#1d2833]"><td class="py-1.5"><span class="pill pill-done">DONE</span></td><td class="text-[#9fb0bf]">retry harness spike</td><td class="text-[#7c8b99]">1h</td></tr>
+            </table>
+          </div>
+          <!-- comments preview -->
+          <div class="mt-5">
+            <div class="text-[10px] tracking-widest text-[#7c8b99] pb-1.5 border-b border-[#1d2833]">COMMENTS · 7</div>
+            <div class="mt-2 space-y-2">
+              <div class="flex items-start gap-2 text-[11px]"><span class="avatar bg-[#a78bfa]">K</span><span class="text-[#9fb0bf]">will the mutex deadlock under load? <span class="ln-ref text-[#41505f]">→ retry.ts:12–14</span></span></div>
+              <div class="flex items-start gap-2 text-[11px]"><span class="avatar bg-[#3ddc97]">A</span><span class="text-[#9fb0bf]">bounded at MAX=5, timeout surfaces as <code>RetryError</code>.</span></div>
+            </div>
+          </div>
+        </div>
+        <!-- right: artifacts rail -->
+        <div class="border-l border-[#1d2833] py-3 px-4 text-[11.5px]">
+          <div class="pb-2 text-[10px] tracking-widest text-[#7c8b99]">ARTIFACTS</div>
+          <div class="space-y-1">
+            <div class="flex items-center gap-2 py-1"><span class="text-[#d29922]">▸ research.md</span><span class="ml-auto pill pill-open">● 2</span></div>
+            <div class="flex items-center gap-2 py-1 bg-[#141b24] -mx-2 px-2 rounded"><span class="text-[#3ddc97]">▸ retry.ts</span><span class="ml-auto pill pill-open">● 5</span></div>
+            <div class="flex items-center gap-2 py-1"><span class="text-[#9fb0bf]">▸ auth.ts</span><span class="ml-auto pill pill-open">● 5</span></div>
+            <div class="flex items-center gap-2 py-1"><span class="text-[#9fb0bf]">▸ bench.txt</span><span class="ml-auto pill pill-open">● 1</span></div>
+          </div>
+          <p class="pt-4 text-[10px] leading-5 text-[#41505f]">attached files (<code>tk attach</code>) + changed files derived from the branch — each with its comment count</p>
+        </div>
+      </div>
+    </div>
+  </figure>
+
+  <!-- ========== VIEW 2: ARTIFACT VIEW ========== -->
+  <figure class="mb-14">
+    <figcaption class="mb-3 text-[11px] tracking-widest text-[#7c8b99]">VIEW 2 · ARTIFACT VIEW — every file, commentable · line-by-line or entire file · like GitHub <span class="text-[#41505f]">R37 R38 R39</span></figcaption>
+    <div class="panel rounded-xl overflow-hidden">
+      <div class="flex items-center gap-3 px-4 h-10 border-b border-[#1d2833] text-[11px]">
+        <span class="text-[#41505f]">TK-142</span><span class="text-[#41505f]">/</span><span class="text-[#d7e1ea] font-bold">retry.ts</span>
+        <span class="pill pill-open ml-2">5 OPEN</span>
+        <span class="pill ml-auto">comments · artifacts default view</span>
+      </div>
+      <div class="grid grid-cols-[1fr_300px] min-h-[360px]">
+        <!-- artifact pane -->
+        <div class="relative py-4 text-[11.5px] leading-[1.75] overflow-x-auto">
+          <div class="px-4 pb-2 text-[10px] tracking-widest text-[#7c8b99]">SRC/UPLOADER/RETRY.TS — changed file content</div>
+          <div class="px-4 relative">
+            <div class="ctx"><span class="ln">41</span><span class="pl-1">export async function withRetry&lt;T&gt;(token: string): Promise&lt;T&gt; {</span></div>
+            <div class="ctx"><span class="ln">42</span><span class="pl-1">  const session = await getSession(token)</span></div>
+            <div class="del relative"><span class="anchor-dot"></span><span class="ln">43</span><span class="pl-1">-  const res = await fetch(REFRESH_URL, { token })</span></div>
+            <div class="del"><span class="ln">44</span><span class="pl-1">-  if (res.status === 401) return retry(token)</span></div>
+            <div class="add"><span class="ln">43</span><span class="pl-1">+  const res = await refreshMutex.run(token, async () =&gt; {</span></div>
+            <div class="add"><span class="ln">44</span><span class="pl-1">+    return fetch(REFRESH_URL, { token })</span></div>
+            <div class="add"><span class="ln">45</span><span class="pl-1">+  })</span></div>
+            <div class="ctx"><span class="ln">46</span><span class="pl-1">  if (!res.ok) throw new RetryError(res.status)</span></div>
+            <div class="ctx"><span class="ln">47</span><span class="pl-1">  return res.json() as Promise&lt;T&gt;</span></div>
+            <div class="ctx"><span class="ln">48</span><span class="pl-1">}</span></div>
+          </div>
+          <div class="px-4 pt-4 text-[10.5px] leading-5 text-[#41505f]">docs render as docs · code renders as code · same comment surface on both</div>
+        </div>
+        <!-- comments panel -->
+        <div class="border-l border-[#1d2833] py-4 px-4 text-[11px] flex flex-col">
+          <div class="text-[10px] tracking-widest text-[#7c8b99] pb-2 border-b border-[#1d2833]">COMMENTS · 5 OPEN</div>
+          <div class="mt-3 space-y-4 overflow-y-auto">
+            <div class="panel rounded-lg p-2.5 border-[#273445]">
+              <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#a78bfa]">K</span><span class="text-[#d7e1ea]">kyle</span><span>2m</span><span class="ml-auto pill pill-open">lines 43–45</span></div>
+              <p class="mt-1.5 leading-5 text-[#c3d0dc]">will the mutex deadlock if <code>REFRESH_URL</code> itself refreshes?</p>
+              <div class="mt-1.5 flex gap-2 text-[9px] text-[#58a6ff]"><span>REPLY</span><span class="text-[#41505f]">·</span><span class="text-[#9fb0bf]">resolve</span></div>
+            </div>
+            <div class="panel rounded-lg p-2.5 border-[#273445]">
+              <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#3ddc97]">A</span><span class="text-[#d7e1ea]">assistant</span><span>1m</span><span class="ml-auto pill">retry.ts (file)</span></div>
+              <p class="mt-1.5 leading-5 text-[#c3d0dc]">bounded at MAX=5; the timeout surfaces as <code>RetryError</code>, so the caller can retry without us.</p>
+            </div>
+            <div class="panel rounded-lg p-2.5 border-[#273445]">
+              <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#58a6ff]">S</span><span class="text-[#d7e1ea]">sarah</span><span>just now</span><span class="ml-auto pill pill-open">line 46</span></div>
+              <p class="mt-1.5 leading-5 text-[#c3d0dc]">throw before returning the parsed body? good catch by the test.</p>
+            </div>
+          </div>
+          <!-- composer -->
+          <div class="mt-3 panel rounded-lg border-[#273445] p-2">
+            <div class="text-[9.5px] text-[#41505f] flex gap-3"><span class="text-[#3ddc97]">whole file</span><span class="text-[#58a6ff]">selection → lines 43–45</span></div>
+            <div class="mt-1.5 h-6 rounded bg-[#0d1117] border border-[#1d2833] px-2 flex items-center text-[10px] text-[#41505f]">mention a line, a file, or a person…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </figure>
+
+  <!-- ========== VIEW 3: SESSION / DIFF VIEW ========== -->
+  <figure class="mb-16">
+    <figcaption class="mb-3 text-[11px] tracking-widest text-[#7c8b99]">VIEW 3 · SESSION VIEW — the agent's rationale above the change · message box below <span class="text-[#41505f]">R30 R31 R32</span></figcaption>
+    <div class="panel rounded-xl overflow-hidden">
+      <div class="flex items-center gap-3 px-4 h-10 border-b border-[#1d2833] text-[11px]">
+        <span class="text-[#41505f]">TK-142</span><span class="text-[#41505f]">/</span><span>session</span><span class="text-[#a78bfa]">a1b2c3d4</span>
+        <span class="pill pill-run ml-2">RUNNING</span>
+        <span class="pill ml-auto">comments feed the agent</span>
+      </div>
+      <div class="py-5 px-6 max-w-[820px]">
+        <!-- agent message -->
+        <div class="text-[11.5px] leading-6 text-[#9fb0bf]">
+          <span class="avatar bg-[#3ddc97] mr-1.5 -mt-0.5">A</span>
+          <em>Session rationale — the refresh path was racy under concurrent retries. Switched to a
+          bounded async mutex and capped attempts at 5; a regression test now replays the 401 storm.</em>
+        </div>
+        <!-- EDIT block -->
+        <div class="term mt-4 overflow-hidden">
+          <div class="flex items-center gap-2 px-3 h-8 border-b border-[#1d2833] text-[10.5px]">
+            <span class="pill pill-amber">EDIT</span>
+            <span class="text-[#d7e1ea]">src/middleware/auth.ts</span>
+            <span class="ml-auto"><span class="text-[#3fb950]">+4</span> <span class="text-[#f85149]">−2</span></span>
+            <span class="text-[9px] text-[#41505f]">comment · edit in place</span>
+          </div>
+          <div class="py-1 text-[11.5px] leading-[1.75]">
+            <div class="ctx"><span class="ln">12</span><span class="pl-1">export async function requireRole(role: Role) {</span></div>
+            <div class="del"><span class="ln">13</span><span class="pl-1">-  const res = await fetch(REFRESH_URL, {</span></div>
+            <div class="add"><span class="ln">13</span><span class="pl-1">+  const res = await refreshMutex.run(token, async () =&gt; {</span></div>
+            <div class="add"><span class="ln">14</span><span class="pl-1">+    return fetch(REFRESH_URL, { token })</span></div>
+            <div class="add"><span class="ln">15</span><span class="pl-1">+  })</span></div>
+            <div class="ctx"><span class="ln">16</span><span class="pl-1">  if (res.status !== 200) return null</span></div>
+          </div>
+        </div>
+        <!-- second rationale -->
+        <div class="mt-4 text-[11.5px] leading-6 text-[#9fb0bf]">
+          <span class="avatar bg-[#3ddc97] mr-1.5 -mt-0.5">A</span>
+          <em>Tests: retry.test.ts replays a 401 storm; assertions on attempt count and backoff.</em>
+        </div>
+        <!-- message box -->
+        <div class="mt-4 panel rounded-lg border-[#273445] p-2 flex items-center gap-2">
+          <span class="avatar bg-[#a78bfa]">Y</span>
+          <div class="h-7 flex-1 rounded bg-[#0d1117] border border-[#1d2833] px-2 flex items-center text-[10.5px] text-[#41505f]">Send a message…</div>
+          <button class="px-3 h-7 rounded-md bg-[#12332a] border border-[#1f6b52] text-[10.5px] text-[#3ddc97]">send</button>
+        </div>
+      </div>
+    </div>
+  </figure>
+
+  <!-- ================= DIFF ================= -->
+  <section id="diff" class="mb-6">
+    <div class="section-num">§3 · THE DIFF VIEW — COPIED FROM HUNK</div>
+    <h2 class="mt-2 text-xl font-bold">Exactly hunk, copied — the terminal diff viewer</h2>
+    <p class="mt-2 text-[12px] leading-6 text-[#7c8b99] max-w-[780px]">
+      Hunk (modem-dev/hunk) is a review-first terminal diff viewer built on OpenTUI and Pierre diffs.
+      tk copies it and reimplements it as <code class="text-[#3ddc97]">packages/review</code> — swapped inputs, outputs and storage,
+      same rendering stack. Below: the diff view, copied from hunk — files pane, unified/split diff, hunk headers,
+      line numbers, agent-context notes, review notes with replies — full page and modal.
+      <span class="text-[#41505f]">R40 R41 R44 R45 R46</span>
+    </p>
+  </section>
+
+  <!-- ========== DIFF FULL PAGE ========== -->
+  <figure class="mb-6">
+    <figcaption class="mb-3 text-[11px] tracking-widest text-[#7c8b99]">DIFF · FULL PAGE — <code class="text-[#3ddc97]">tk diff TK-142</code> · <code class="text-[#3ddc97]">tk review TK-142</code> · keybindings are hunk's own</figcaption>
+    <div class="term overflow-hidden rounded-xl border-[#273445]">
+      <!-- menu bar -->
+      <div class="flex items-center gap-5 px-4 h-8 border-b border-[#1d2833] text-[10.5px] text-[#9fb0bf]">
+        <span class="text-[#3ddc97] font-bold">diff</span><span>File</span><span>View</span><span>Navigate</span><span>Commit</span><span>Help</span>
+        <span class="ml-auto pill pill-open">tk/TK-142 → main</span>
+      </div>
+      <div class="grid grid-cols-[240px_1fr]">
+        <!-- files pane -->
+        <div class="border-r border-[#1d2833] py-3 text-[11px]">
+          <div class="px-4 pb-2 text-[10px] tracking-widest text-[#7c8b99]">FILES · 3</div>
+          <div class="px-4 py-1.5 flex items-center gap-2"><span class="pill pill-amber">M</span><span class="text-[#3ddc97] truncate">src/uploader/retry.ts</span><span class="ml-auto whitespace-nowrap text-[9.5px]"><span class="text-[#3fb950]">+18</span> <span class="text-[#f85149]">−4</span></span></div>
+          <div class="px-4 py-1.5 flex items-center gap-2 bg-[#141b24] border-l-2 border-[#3ddc97]"><span class="pill pill-amber">M</span><span class="text-[#d7e1ea] truncate">src/middleware/auth.ts</span><span class="ml-auto whitespace-nowrap text-[9.5px]"><span class="text-[#3fb950]">+12</span> <span class="text-[#f85149]">−6</span></span></div>
+          <div class="px-4 py-1.5 flex items-center gap-2"><span class="pill pill-done">A</span><span class="text-[#9fb0bf] truncate">test/uploader/retry.test.ts</span><span class="ml-auto whitespace-nowrap text-[9.5px]"><span class="text-[#3fb950]">+8</span> <span class="text-[#f85149]">−0</span></span></div>
+          <div class="px-4 pt-4 text-[10px] leading-5 text-[#41505f]">watching worktree — re-derives as commits land <span class="text-[#3ddc97]">●</span></div>
+        </div>
+        <!-- diff pane -->
+        <div class="py-3 text-[11.5px] leading-[1.75] min-h-[330px]">
+          <div class="px-4 pb-1 flex items-center gap-2 text-[10px] text-[#7c8b99]">
+            <span class="text-[#d7e1ea] font-bold">src/uploader/retry.ts</span>
+            <span class="pill">unified</span><span class="text-[#41505f]">1 unified · 2 split</span>
+          </div>
+          <div class="px-4 py-1 text-[10.5px] text-[#a78bfa]">@@
+
+ -41,9 +41,11 @@ async function retry(token: string)</div>
+          <div class="ctx"><span class="ln">41</span><span class="ln">41</span><span class="pl-1">export async function withRetry&lt;T&gt;(token: string): Promise&lt;T&gt; {</span></div>
+          <div class="ctx"><span class="ln">42</span><span class="ln">42</span><span class="pl-1">  const session = await getSession(token)</span></div>
+          <div class="del"><span class="ln">43</span><span class="ln"></span><span class="pl-1">-  const res = await fetch(REFRESH_URL, { token })</span></div>
+          <div class="del"><span class="ln">44</span><span class="ln"></span><span class="pl-1">-  if (res.status === 401) return retry(token)</span></div>
+          <div class="add"><span class="ln"></span><span class="ln">43</span><span class="pl-1">+  const res = await refreshMutex.run(token, async () =&gt; {</span></div>
+          <div class="add"><span class="ln"></span><span class="ln">44</span><span class="pl-1">+    return fetch(REFRESH_URL, { token })</span></div>
+          <div class="add"><span class="ln"></span><span class="ln">45</span><span class="pl-1">+  })</span></div>
+          <div class="ctx"><span class="ln">45</span><span class="ln">46</span><span class="pl-1">  if (!res.ok) throw new RetryError(res.status)</span></div>
+          <!-- agent context note -->
+          <div class="mx-4 mt-3 panel rounded-lg border-[#273445] p-2.5 text-[10.5px] leading-5">
+            <span class="pill pill-run">a · agent notes</span>
+            <p class="mt-1.5 text-[#9fb0bf] italic">Rationale: the retry loop raced the refresh window — a 401 storm could hold a half-refreshed
+            token. Bounded mutex (MAX=5) with <code>RetryError</code> on timeout.</p>
+          </div>
+          <!-- review note -->
+          <div class="mx-4 mt-3 panel rounded-lg border-[#1f6b52] p-2.5 text-[10.5px] leading-5">
+            <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#a78bfa]">K</span><span class="text-[#d7e1ea]">kyle</span><span>on line 43</span>
+              <span class="ml-auto flex gap-2 text-[9px] text-[#58a6ff]"><span class="kbd">E</span><span>edit</span><span class="kbd">R</span><span>reply</span></span></div>
+            <p class="mt-1.5 text-[#c3d0dc]">will the mutex deadlock if the refresh endpoint itself returns 401?</p>
+          </div>
+        </div>
+      </div>
+      <!-- footer keys -->
+      <div class="flex flex-wrap gap-x-4 gap-y-1 px-4 h-8 items-center border-t border-[#1d2833] text-[9.5px] text-[#7c8b99]">
+        <span><span class="kbd">q</span> quit</span><span><span class="kbd">r</span> refresh</span><span><span class="kbd">c</span> note</span><span><span class="kbd">]</span>/<span class="kbd">[</span> hunk</span><span><span class="kbd">.</span>/<span class="kbd">,</span> file</span><span><span class="kbd">1</span>/<span class="kbd">2</span> layout</span><span><span class="kbd">s</span> files pane</span><span><span class="kbd">l</span> line numbers</span><span><span class="kbd">z</span> context</span><span><span class="kbd">/</span> search</span><span><span class="kbd">v</span> select</span><span><span class="kbd">y</span> copy</span><span><span class="kbd">a</span> notes</span><span><span class="kbd">t</span> theme</span><span><span class="kbd">?</span> help</span>
+      </div>
+    </div>
+  </figure>
+
+  <!-- ========== DIFF MODAL ========== -->
+  <figure class="mb-14">
+    <figcaption class="mb-3 text-[11px] tracking-widest text-[#7c8b99]">DIFF · MODAL — click any diff surface in the TUI or web; esc closes, ⤢ expands to full page</figcaption>
+    <div class="panel rounded-xl overflow-hidden relative">
+      <!-- dimmed task view behind -->
+      <div class="grid grid-cols-[160px_1fr] min-h-[300px] opacity-30 blur-[1px] select-none" aria-hidden="true">
+        <div class="border-r border-[#1d2833] py-3 text-[11px]">
+          <div class="px-4 pb-2 text-[10px] tracking-widest text-[#7c8b99]">TASKS</div>
+          <div class="px-4 py-1.5 text-[#9fb0bf]">auth refactor</div>
+          <div class="px-4 py-1.5 text-[#9fb0bf]">api limiting</div>
+          <div class="px-4 py-1.5 text-[#d7e1ea] font-bold">uploader retries</div>
+        </div>
+        <div class="py-5 px-6">
+          <h3 class="text-[17px] font-bold">Fix flaky retry logic in uploader</h3>
+          <div class="mt-3 flex gap-2"><span class="px-3 h-6 rounded-md bg-[#1a2531] border border-[#273445] text-[10px] text-[#d7e1ea] inline-flex items-center">▶ start work</span><span class="px-3 h-6 rounded-md bg-[#12332a] border border-[#1f6b52] text-[10px] text-[#3ddc97] inline-flex items-center">◧ open diff</span></div>
+          <div class="mt-4 text-[10px] tracking-widest text-[#7c8b99] pb-1.5 border-b border-[#1d2833]">SESSIONS</div>
+        </div>
+      </div>
+      <!-- modal frame -->
+      <div class="absolute inset-0 flex items-center justify-center p-6">
+        <div class="term w-full max-w-[720px] rounded-xl border-[#2f4256] shadow-2xl shadow-black/60">
+          <div class="flex items-center gap-2 px-3 h-8 border-b border-[#1d2833] text-[10.5px]">
+            <span class="pill pill-open">tk diff TK-142</span>
+            <span class="text-[#d7e1ea]">src/uploader/retry.ts</span>
+            <span class="ml-auto flex gap-2 text-[9px]"><span class="pill pill-idle">esc close</span><span class="pill pill-open">⤢ full page</span></span>
+          </div>
+          <div class="py-1 text-[11.5px] leading-[1.75]">
+            <div class="px-3 py-1 text-[10.5px] text-[#a78bfa]">@@ -41,9 +41,11 @@ async function retry(token: string)</div>
+            <div class="ctx"><span class="ln">42</span><span class="pl-1">  const session = await getSession(token)</span></div>
+            <div class="del"><span class="ln">43</span><span class="pl-1">-  const res = await fetch(REFRESH_URL, { token })</span></div>
+            <div class="add"><span class="ln">43</span><span class="pl-1">+  const res = await refreshMutex.run(token, async () =&gt; {</span></div>
+            <div class="add"><span class="ln">44</span><span class="pl-1">+    return fetch(REFRESH_URL, { token })</span></div>
+            <div class="ctx"><span class="ln">46</span><span class="pl-1">  if (!res.ok) throw new RetryError(res.status)</span></div>
+            <div class="mx-3 my-2 panel rounded-lg border-[#1f6b52] p-2 text-[10.5px]">
+              <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#a78bfa]">K</span><span class="text-[#d7e1ea]">kyle</span><span>on line 43</span>
+                <span class="ml-auto flex gap-2 text-[9px] text-[#58a6ff]"><span class="kbd">E</span><span>edit</span><span class="kbd">R</span><span>reply</span><span class="kbd">D</span><span>delete</span></span></div>
+              <p class="mt-1 text-[#c3d0dc]">commenting works in the modal too — lands on the task record</p>
+            </div>
+          </div>
+          <div class="flex gap-x-4 px-3 h-7 items-center border-t border-[#1d2833] text-[9.5px] text-[#7c8b99]">
+            <span><span class="kbd">c</span> note</span><span><span class="kbd">]</span>/<span class="kbd">[</span> hunk</span><span><span class="kbd">1</span>/<span class="kbd">2</span> layout</span><span><span class="kbd">?</span> help</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </figure>
+
+  <!-- ========== ENTRY POINTS ========== -->
+  <section class="mb-16">
+    <div class="grid md:grid-cols-3 gap-3 text-[11px]">
+      <div class="panel rounded-xl p-3.5">
+        <div class="text-[10px] tracking-widest text-[#7c8b99] pb-1.5">CLI</div>
+        <p class="leading-5 text-[#c3d0dc]"><code class="text-[#3ddc97]">tk diff TK-142</code> opens the diff view on the task's diff. <code class="text-[#3ddc97]">tk review TK-142</code> opens the full review surface.</p>
+      </div>
+      <div class="panel rounded-xl p-3.5">
+        <div class="text-[10px] tracking-widest text-[#7c8b99] pb-1.5">TUI</div>
+        <p class="leading-5 text-[#c3d0dc]">“open diff” in the task view, a changed-file card in the artifacts rail, or an EDIT block in a session — all open the diff view.</p>
+      </div>
+      <div class="panel rounded-xl p-3.5">
+        <div class="text-[10px] tracking-widest text-[#7c8b99] pb-1.5">WEB</div>
+        <p class="leading-5 text-[#c3d0dc]">click any diff surface → the diff view as a modal; ⤢ expands to the full page. Same store the TUI writes.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= REUSE ================= -->
+  <section id="reuse" class="mb-16">
+    <div class="section-num">§4 · ONE MODULE, MANY SURFACES</div>
+    <h2 class="mt-2 text-xl font-bold">Reusable by construction</h2>
+    <p class="mt-2 text-[12px] leading-6 text-[#7c8b99] max-w-[780px]">
+      Git diff shows up in many places — so the diff component is one module, vendored once and rendered everywhere.
+      Every surface below is the same <code class="text-[#3ddc97]">packages/review</code> component with the same three behaviors:
+      live, editable, commentable. <span class="text-[#41505f]">R48</span>
+    </p>
+    <div class="mt-4 panel rounded-xl p-4">
+      <div class="flex flex-col md:flex-row gap-4">
+        <div class="md:w-[300px] panel rounded-lg border-[#1f6b52] p-3.5">
+          <div class="text-[11px] text-[#3ddc97] font-bold">packages/review</div>
+          <p class="mt-1.5 leading-5 text-[11px] text-[#9fb0bf]">slice copied from hunk — changeset, review document, watch controller, reducer. Renderer: OpenTUI (terminal) · @pierre/diffs (web, ./react + ./edit).</p>
+        </div>
+        <ul id="surfaces" class="flex-1 grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-[11.5px]"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= HOW ================= -->
+  <section id="how" class="mb-16">
+    <div class="section-num">§5 · HOW IT GETS THERE</div>
+    <h2 class="mt-2 text-xl font-bold">Seven steps — every step names the code it touches</h2>
+    <div id="steps" class="mt-4 space-y-3"></div>
+  </section>
+
+  <!-- ================= BUILD ================= -->
+  <section id="build" class="mb-16">
+    <div class="section-num">§6 · BUILD ORDER</div>
+    <h2 class="mt-2 text-xl font-bold">Waves of runnable slices</h2>
+    <table class="mt-4 w-full text-[11px] panel rounded-xl overflow-hidden">
+      <thead><tr class="text-left text-[9.5px] tracking-widest text-[#7c8b99] border-b border-[#1d2833]"><th class="p-2.5">#</th><th class="p-2.5">BUILD</th><th class="p-2.5">DELIVERS</th><th class="p-2.5">VERIFIED BY</th></tr></thead>
+      <tbody id="build-rows"></tbody>
+    </table>
+  </section>
+
+  <!-- ================= VERIFY ================= -->
+  <section id="verify" class="mb-16">
+    <div class="section-num">§7 · VERIFICATION</div>
+    <h2 class="mt-2 text-xl font-bold">Observable results</h2>
+    <ol id="verify-list" class="mt-4 space-y-2 text-[11.5px] leading-6 list-decimal list-inside text-[#c3d0dc]"></ol>
+  </section>
+
+  <!-- ================= REQUESTS ================= -->
+  <section id="requests">
+    <div class="section-num">§8 · THE REQUEST LEDGER</div>
+    <h2 class="mt-2 text-xl font-bold">Every request, atomic</h2>
+    <p class="mt-2 text-[12px] leading-6 text-[#7c8b99] max-w-[780px]">
+      All requirements gathered so far, each one its own request — so nothing gets lost.
+      These are not tasks; they are the standing list of what was asked.
+    </p>
+    <ul id="request-list" class="mt-4 space-y-1"></ul>
+  </section>
+
+  <footer class="mt-20 pt-6 border-t border-[#1d2833] text-[10px] text-[#41505f] flex gap-4">
+    <span>generated 2026-10-08 · docs/html/task-to-review.html</span>
+    <span class="ml-auto">source: .agents/plans/2026-10-08-task-to-review.md</span>
+  </footer>
+</main>
+
+<script>
+  const D = window.DATA.taskAsPr;
+  const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+  // surfaces
+  document.getElementById("surfaces").innerHTML = D.surfaces.map(s => `
+    <li class="flex items-center gap-2 py-0.5"><span class="w-1 h-1 rounded-full bg-[#3ddc97]"></span><span class="text-[#c3d0dc]">${esc(s.label)}</span><span class="ml-auto pill pill-idle">${esc(s.where)}</span></li>`).join("");
+
+  // steps — each step a card: number, tag, touches, points, flow diagram, term
+  const flowHTML = flow => !flow ? "" : `
+    <div class="mt-3 flex items-center flex-wrap gap-x-1.5 gap-y-1.5 text-[10px]">
+      ${flow.map((f,i)=>`${i?'<span class="text-[#3ddc97]">→</span>':''}<span class="rounded-md border border-[#273445] bg-[#0d1117] px-2.5 py-1.5 text-[#9fe8cd] whitespace-nowrap">${esc(f)}</span>`).join("")}
+    </div>`;
+  document.getElementById("steps").innerHTML = D.steps.map(st => `
+    <div class="panel rounded-xl p-4 border-[#1d2833]">
+      <div class="flex items-start gap-3">
+        <span class="w-8 h-8 shrink-0 rounded-lg bg-[#0d1117] border border-[#273445] flex items-center justify-center text-[14px] font-bold text-[#3ddc97]">${st.n}</span>
+        <div class="min-w-0">
+          <h3 class="text-[13.5px] font-bold leading-5">${esc(st.title)}</h3>
+          <div class="text-[9.5px] tracking-[.2em] text-[#7c8b99] mt-1">STEP ${st.n} · ${esc(String(st.tag).toUpperCase())}</div>
+        </div>
+        <div class="ml-auto hidden sm:flex flex-wrap gap-1 justify-end max-w-[380px]">
+          ${st.touches.map(t=>`<span class="pill pill-idle">${esc(t)}</span>`).join("")}
+        </div>
+      </div>
+      <ul class="mt-3 space-y-1.5">
+        ${st.points.map(p=>`<li class="flex gap-2.5 text-[11.5px] leading-5 text-[#9fb0bf]"><span class="text-[#3ddc97] shrink-0">▸</span><span>${esc(p)}</span></li>`).join("")}
+      </ul>
+      ${flowHTML(st.flow)}
+      ${st.term ? `<div class="term mt-3 rounded-lg"><div class="px-4 py-2.5 text-[11.5px]"><span class="text-[#7c8b99]">$</span> <span class="text-[#d7e1ea]">${esc(st.term.replace(/^\$ /,""))}</span></div></div>` : ""}
+    </div>`).join("");
+
+  // build rows — grouped by phase: interfaces first, then make it real
+  const phaseHead = {
+    "interfaces first": `mock CLI, mock TUI, mock web. The user evaluates the <span class="text-[#d7e1ea]">interaction</span> before any real code exists; every action answers <span class="text-[#d7e1ea]">"WIP"</span>.`,
+    "make it real": `the code lands inside the shells the user already approved. No interface is invented after the mocks.`,
+  };
+  let lastPhase = null;
+  document.getElementById("build-rows").innerHTML = D.buildOrder.map(b => {
+    const head = b.phase !== lastPhase ? `
+      <tr class="border-t border-[#1d2833]"><td colspan="4" class="p-2.5 bg-[#0d1117]">
+        <div class="text-[10px] tracking-[.2em] ${b.phase==="interfaces first" ? "text-[#d29922]" : "text-[#3ddc97]"}">${esc(b.phase).toUpperCase()} — ${phaseHead[b.phase] || ""}</div>
+      </td></tr>` : "";
+    lastPhase = b.phase;
+    const mock = b.phase === "interfaces first";
+    return head + `
+    <tr class="border-t border-[#1d2833] align-top">
+      <td class="p-2.5 text-[#3ddc97] font-bold">${b.n}</td>
+      <td class="p-2.5 text-[#c3d0dc] leading-5">${mock ? `<span class="pill pill-amber mr-1.5">WIP</span>` : ""}${esc(b.build)}</td>
+      <td class="p-2.5 text-[#9fb0bf] leading-5">${esc(b.delivers)}</td>
+      <td class="p-2.5 text-[#7c8b99] leading-5">${esc(b.verified)}</td>
+    </tr>`;
+  }).join("");
+
+  // verify
+  document.getElementById("verify-list").innerHTML = D.verify.map(v => `<li>${esc(v)}</li>`).join("");
+
+  // requests
+  document.getElementById("request-list").innerHTML = D.requests.map(r => `
+    <li class="panel rounded-lg px-3 py-1.5 flex items-start gap-3 text-[11.5px]">
+      <span class="pill pill-open mt-0.5 shrink-0">${r.id}</span>
+      <span class="text-[#c3d0dc] leading-5">${esc(r.text)}</span>
+    </li>`).join("");
+</script>
+</body>
+</html>
