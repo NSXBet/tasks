@@ -39,7 +39,7 @@ it("emits large JSON intact through a pipe with a slow reader", async () => {
 
 describe("tk executable", () => {
   it("supports conductor list, show, comment and close paths", () => { const directory = workspace(); json(directory, ["init", "--prefix", "tk"]); const epic = json<{ id: string }>(directory, ["create", "epic", "--type", "epic"]); const child = json<{ id: string }>(directory, ["create", "child", "--parent", epic.id]); expect(json<readonly { id: string }[]>(directory, ["list", "--parent", epic.id])).toHaveLength(1); expect(json<readonly { id: string }[]>(directory, ["show", child.id])[0]!.id).toBe(child.id); expect(json<{ comments: readonly { text: string }[] }>(directory, ["comment", child.id, "--body", "note"]).comments[0]!.text).toBe("note"); expect(json<{ status: string }>(directory, ["close", child.id]).status).toBe("closed"); });
-  it("supports tuicr workspace, current, comments, dependencies, lifecycle and edits", () => { const directory = workspace(); json(directory, ["init"]); const first = json<{ id: string }>(directory, ["create", "first"]); const second = json<{ id: string }>(directory, ["create", "second"]); expect(json<{ workspace: string }>(directory, ["where"]).workspace).toBe(directory); expect(json<readonly { id: string }[]>(directory, ["show", "--current"])[0]!.id).toBe(second.id); json(directory, ["comment", "--current", "--stdin"], "stdin note"); expect(json<readonly { text: string }[]>(directory, ["comments", "--current"])[0]!.text).toBe("stdin note"); expect(json<readonly { id: string }[]>(directory, ["list"])).toHaveLength(2); json(directory, ["dep", second.id, "add", first.id]); expect(json<readonly { id: string }[]>(directory, ["dep", second.id, "list"])[0]!.id).toBe(first.id); json(directory, ["dep", second.id, "remove", first.id]); json(directory, ["dep", second.id, "relate", first.id]); json(directory, ["dep", second.id, "unrelate", first.id]); expect(json<{ status: string }>(directory, ["set-state", second.id, "in_progress"]).status).toBe("in_progress"); expect(json<{ title: string; description: string }>(directory, ["update", second.id, "--title", "edited", "--body", "body"]).title).toBe("edited"); expect(json<{ status: string }>(directory, ["close", second.id]).status).toBe("closed"); expect(json<{ status: string }>(directory, ["reopen", second.id]).status).toBe("open"); });
+  it("supports tuicr workspace, comments, dependencies, lifecycle and edits", () => { const directory = workspace(); json(directory, ["init"]); const first = json<{ id: string }>(directory, ["create", "first"]); const second = json<{ id: string }>(directory, ["create", "second"]); expect(json<{ workspace: string }>(directory, ["where"]).workspace).toBe(directory); expect(json<readonly { id: string }[]>(directory, ["show", second.id])[0]!.id).toBe(second.id); json(directory, ["comment", second.id, "--stdin"], "stdin note"); expect(json<readonly { text: string }[]>(directory, ["comments", second.id])[0]!.text).toBe("stdin note"); expect(json<readonly { id: string }[]>(directory, ["list"])).toHaveLength(2); json(directory, ["dep", second.id, "add", first.id]); expect(json<readonly { id: string }[]>(directory, ["dep", second.id, "list"])[0]!.id).toBe(first.id); json(directory, ["dep", second.id, "remove", first.id]); json(directory, ["dep", second.id, "relate", first.id]); json(directory, ["dep", second.id, "unrelate", first.id]); expect(json<{ status: string }>(directory, ["set-state", second.id, "in_progress"]).status).toBe("in_progress"); expect(json<{ title: string; description: string }>(directory, ["update", second.id, "--title", "edited", "--body", "body"]).title).toBe("edited"); expect(json<{ status: string }>(directory, ["close", second.id]).status).toBe("closed"); expect(json<{ status: string }>(directory, ["reopen", second.id]).status).toBe("open"); });
   it("creates from title flag without positional while keeping positional title", () => { const directory = workspace(); json(directory, ["init"]); expect(json<{ title: string }>(directory, ["create", "--title", "flag title"]).title).toBe("flag title"); expect(json<{ title: string }>(directory, ["create", "positional title"]).title).toBe("positional title"); });
   it("classifies argument-parser failures with JSON error envelope", () => { const directory = workspace(); const result = run(directory, ["create", "--title", "--json"]); expect(result.status).not.toBe(0); expect(JSON.parse(result.stderr)).toEqual({ error: { kind: "parse", message: "--title requires value" } }); });
   it("blocks writes in readonly mode with JSON error envelope", () => { const directory = workspace(); json(directory, ["init"]); const result = run(directory, ["create", "blocked", "--readonly", "--json"]); expect(result.status).not.toBe(0); expect(JSON.parse(result.stderr)).toEqual({ error: { kind: "readonly", message: "readonly mode blocks writes" } }); });
@@ -666,5 +666,117 @@ describe("tk executable", () => {
     const global = run(directory, ["skill", "install", "--global"], undefined, { HOME: home });
     expect(global.status).toBe(0);
     expect(readFileSync(join(home, ".agents", "skills", "tasks", "SKILL.md"), "utf8")).toContain("name: tasks");
+  });
+
+  // Regression: `worktree` was implemented (runWorktree) and documented in
+  // help, but main() never dispatched it — every call died with "unknown
+  // command: worktree". Worktree commands only need git, not a .tasks
+  // workspace, so they must work in a workspaceless repo too.
+  it("dispatches worktree commands in a workspaceless repo and guards writes", () => {
+    const repo = workspace();
+    const git = (...args: readonly string[]) => { const result = Bun.spawnSync(["git", ...args], { cwd: repo, stdout: "pipe", stderr: "pipe" }); expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0); };
+    git("init", "-q");
+    git("-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init");
+    // No .tasks anywhere: info still reports the workspace state.
+    const info = json<{ tasks: string; tasks_dir: string | null }>(repo, ["worktree", "info"]);
+    expect(info.tasks).toBe("none");
+    expect(info.tasks_dir).toBeNull();
+    // create registers the worktree and gitignores it under the main root
+    // (relative path even when cwd resolves through a symlink).
+    const created = json<{ name: string; created: boolean }>(repo, ["worktree", "create", "demo"]);
+    expect(created).toMatchObject({ name: "demo", created: true });
+    expect(existsSync(join(repo, "demo"))).toBe(true);
+    expect(readFileSync(join(repo, ".gitignore"), "utf8")).toContain("demo");
+    const listed = json<ReadonlyArray<{ name: string }>>(repo, ["worktree", "list"]);
+    expect(listed.map((entry) => entry.name)).toContain("demo");
+    // --readonly blocks worktree mutation like every other write.
+    const blocked = run(repo, ["--readonly", "worktree", "create", "other"]);
+    expect(blocked.status).not.toBe(0);
+    expect(blocked.stderr).toContain("readonly");
+    const removed = json<{ removed: boolean }>(repo, ["worktree", "remove", "--force", "demo"]);
+    expect(removed.removed).toBe(true);
+  });
+});
+
+describe("tk review mock surface (Phase 0)", () => {
+  // Canonical Phase-0 scenario per .agents/plans/2026-10-08-task-to-review.md.
+  const reviewIssue = () => ({
+    _type: "issue",
+    id: "tk-142",
+    title: "Fix flaky retry logic in uploader",
+    description: "Retries in uploader race the refresh mutex; two concurrent refreshes deadlock under load. Serialize refreshes and drop the retry storm.",
+    status: "ready-to-review",
+    priority: 2,
+    branch: "tk/tk-142",
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    metadata: {
+      review: {
+        base: "main @ 9f13ee4",
+        worktree: "../platform-api-tk-142",
+        sessions: [
+          { id: "sess-7f3k", agent: "omp", status: "done", topic: "research patterns", duration: "10m" },
+          { id: "sess-k2q9", agent: "omp", status: "running", topic: "design discussion", duration: "2m" },
+        ],
+        artifacts: [
+          { path: "src/uploader/retry.ts", added: 38, removed: 12, comments: 5 },
+          { path: "src/uploader/refresh-mutex.ts", added: 24, removed: 0, comments: 2 },
+          { path: "bench/retry-bench.txt", added: 9, removed: 2, comments: 1 },
+        ],
+        diff: [{ file: "src/uploader/retry.ts", lines: [
+          { kind: "del", text: "const res = await fetch(REFRESH_URL, {" },
+          { kind: "add", text: "const res = await refreshMutex.run(token, async () => {" },
+        ] }],
+        agentAuthors: ["agent"],
+      },
+    },
+    comments: [
+      { id: "c1", issue_id: "tk-142", author: "kyle", text: "will the mutex deadlock under concurrent upload?", created_at: "2026-01-01T00:00:00Z" },
+      { id: "c2", issue_id: "tk-142", author: "agent", text: "@kyle serialized refresh via refreshMutex.run — no shared state", created_at: "2026-01-01T00:01:00Z" },
+      { id: "c3", issue_id: "tk-142", author: "sarah", text: "prefer channel-based retry", created_at: "2026-01-01T00:02:00Z" },
+      { id: "c4", issue_id: "tk-142", author: "agent", text: "@sarah channel would drop ordering guarantees; mutex keeps backpressure", created_at: "2026-01-01T00:03:00Z" },
+      { id: "c5", issue_id: "tk-142", author: "alex", text: "bench shows −70% p99; LGTM", created_at: "2026-01-01T00:04:00Z" },
+    ],
+  });
+
+  it("renders the review record from the fixture via tk show", () => {
+    const directory = workspace();
+    json(directory, ["init", "--prefix", "tk"]);
+    json(directory, ["import"], JSON.stringify(reviewIssue()));
+    const shown = run(directory, ["show", "tk-142"]);
+    expect(shown.status, shown.stderr).toBe(0);
+    for (const fragment of ["Fix flaky retry logic in uploader", "tk/tk-142", "main @ 9f13ee4", "../platform-api-tk-142", "src/uploader/retry.ts", "+38", "−12", "bench/retry-bench.txt", "sess-7f3k", "sess-k2q9", "research patterns", "design discussion", "will the mutex deadlock under concurrent upload?", "serialized refresh via refreshMutex.run", "channel-based retry", "ordering guarantees", "bench shows −70% p99; LGTM", "[agent]"]) {
+      expect(shown.stdout, fragment).toContain(fragment);
+    }
+  });
+
+  it("tk work shows branch context and a WIP action", () => {
+    const directory = workspace();
+    json(directory, ["init", "--prefix", "tk"]);
+    json(directory, ["import"], JSON.stringify(reviewIssue()));
+    const result = run(directory, ["work", "tk-142"]);
+    expect(result.status, result.stderr).toBe(0);
+    for (const fragment of ["tk/tk-142", "main @ 9f13ee4", "../platform-api-tk-142", "WIP"]) {
+      expect(result.stdout, fragment).toContain(fragment);
+    }
+  });
+
+  it("tk review shows diff hunks and WIP actions", () => {
+    const directory = workspace();
+    json(directory, ["init", "--prefix", "tk"]);
+    json(directory, ["import"], JSON.stringify(reviewIssue()));
+    const result = run(directory, ["review", "tk-142"]);
+    expect(result.status, result.stderr).toBe(0);
+    for (const fragment of ["src/uploader/retry.ts", "- const res = await fetch(REFRESH_URL, {", "+ const res = await refreshMutex.run(token, async () => {", "WIP"]) {
+      expect(result.stdout, fragment).toContain(fragment);
+    }
+  });
+
+  it("keeps the review metadata in the JSON wire record", () => {
+    const directory = workspace();
+    json(directory, ["init", "--prefix", "tk"]);
+    json(directory, ["import"], JSON.stringify(reviewIssue()));
+    const record = json<readonly { metadata: { review?: { base?: string } } }[]>(directory, ["show", "tk-142"])[0]!;
+    expect(record.metadata.review?.base).toBe("main @ 9f13ee4");
   });
 });
