@@ -131,7 +131,7 @@ export default function tasksExtension(pi: ExtensionAPI) {
     Type.Literal("runtime-list"), Type.Literal("runtime-activity"),
     Type.Literal("inbox"), Type.Literal("inbox-read"), Type.Literal("inbox-archive"),
   ]);
-  const Id = Type.Optional(Type.String({ description: "Issue id (e.g. tk-abc). Use `--current` semantics via op show without id to read the current pointer." }));
+  const Id = Type.Optional(Type.String({ description: "Issue id (e.g. tk-abc). Required for id-scoped ops like show, update and status." }));
 
   pi.registerTool({
     name: "tasks",
@@ -231,7 +231,7 @@ export default function tasksExtension(pi: ExtensionAPI) {
               const made = await s.create({ title: (p["title"] as string | undefined) ?? "" });
               return made.ok ? { ok: true, value: made.value.id } : made;
             }
-            case "show": return id === undefined ? s.current() : s.show(id);
+            case "show": return s.show(id ?? "");
             case "list": return s.list({
               ...(p["status"] === undefined ? {} : { status: p["status"] as string }),
               ...(p["parent"] === undefined ? {} : { parent: p["parent"] as string }),
