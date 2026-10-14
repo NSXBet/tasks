@@ -1,6 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Issue, IssueId } from '@tasks/domain';
+import type { Issue } from '@tasks/domain';
 import { issueId } from '@tasks/domain';
 import { err, ok, type IssueUnitOfWork, type Result } from '@tasks/application';
 import { openStorage, type OpenStorageOptions, type StorageAdapter, type StorageConfig } from '@tasks/workspace';
@@ -81,15 +80,6 @@ export const openSurfaceStore = async (root: string, options: SurfaceOptions = {
   return new SurfaceStoreImpl(root, tasksDir, config.prefix ?? 'tk', actor, options.readonly ?? false, handle);
 };
 
-/** `.tasks/current` file — the CLI's selected-issue pointer, shared with the surface. */
-export const readCurrentId = async (tasksDir: string): Promise<string | null> => {
-  const value = await readFile(join(tasksDir, 'current'), 'utf8').catch(() => '');
-  return value.trim() || null;
-};
-
-export const writeCurrentId = async (tasksDir: string, id: IssueId): Promise<void> => {
-  await writeFile(join(tasksDir, 'current'), `${id}\n`);
-};
 
 /** Fetch an issue or fail with the CLI-identical message. */
 export const getOrThrow = async (uow: IssueUnitOfWork, raw: string): Promise<Issue> => {

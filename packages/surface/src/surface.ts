@@ -17,7 +17,7 @@ export * from './watch/protocol.js';
 import { createIssue, type CreateInput } from './operations/create.js';
 import {
   showIssue, listIssues, readyIssues, blockedIssues, searchIssues, queryIssues,
-  staleIssues, orphanIssues, childrenOf, epicView, currentId, type ListOptions,
+  staleIssues, orphanIssues, childrenOf, epicView, type ListOptions,
 } from './operations/query.js';
 import {
   updateIssue, changeStatus, deferIssue, undeferIssue, claimIssue, assignIssue,
@@ -30,9 +30,10 @@ import {
 } from './operations/sprint.js';
 import { depList, depAdd, depRemove, link, type DependencyRow } from './operations/deps.js';
 import { addComment, commentsOf } from './operations/comments.js';
+import { evidenceRead, type EvidenceRead } from './operations/attachments.js';
 import {
   allIssues, counts, stats, boardTree, dependencyGraph, duplicatePairs,
-  lintIssues, currentIssue,
+  lintIssues,
 } from './operations/views.js';
 import type { WatchSubscription } from './watch/protocol.js';
 import { spawnWatchChild, type WatchHandle } from './watch/core.js';
@@ -76,8 +77,6 @@ export interface TasksSurface {
   orphans(): ReturnType<typeof orphanIssues>;
   children(id: string): ReturnType<typeof childrenOf>;
   epic(id: string): ReturnType<typeof epicView>;
-  current(): ReturnType<typeof currentId>;
-  currentId(): ReturnType<typeof currentId>;
   // mutate
   update(id: string, patch: UpdatePatch): ReturnType<typeof updateIssue>;
   status(id: string, change: StatusChange): ReturnType<typeof changeStatus>;
@@ -114,6 +113,8 @@ export interface TasksSurface {
   detach(id: string, path: string): ReturnType<typeof detachFile>;
   comments(id: string): ReturnType<typeof commentsOf>;
   comment(id: string, body: string): ReturnType<typeof addComment>;
+  /** Read stored blob bytes for an evidence ref (`evidence:<id>`, bare id, or name); null when unknown. */
+  evidenceRead(id: string, ref: string): EvidenceRead;
   // views
   all(): ReturnType<typeof allIssues>;
   counts(): ReturnType<typeof counts>;
@@ -151,8 +152,6 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     orphans: () => orphanIssues(store),
     children: (id) => childrenOf(store, id),
     epic: (id) => epicView(store, id),
-    current: () => currentId(store),
-    currentId: () => currentId(store),
     update: (id, patch) => updateIssue(store, id, patch),
     status: (id, change) => changeStatus(store, id, change),
     defer: (id, until) => deferIssue(store, id, until),
@@ -187,6 +186,7 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     stats: () => stats(store),
     comment: (id, body) => addComment(store, id, body),
     comments: (id) => commentsOf(store, id),
+    evidenceRead: (id, ref) => evidenceRead(store, id, ref),
     tree: (options) => boardTree(store, options),
     graph: () => dependencyGraph(store),
     duplicates: (minSimilarity) => duplicatePairs(store, minSimilarity),
