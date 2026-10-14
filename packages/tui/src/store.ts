@@ -8,7 +8,6 @@ import { createSurface, type TasksSurface, type WatchEvent } from "@tasks/surfac
  */
 export interface Board {
   readonly issues: readonly Issue[];
-  readonly currentId: string | null;
   /** Slug of the workspace's single active sprint; null when no focus bucket. */
   readonly activeSprintId: string | null;
   readonly counts: { readonly open: number; readonly inProgress: number; readonly readyToReview: number; readonly blocked: number; readonly closed: number; readonly archived: number };
@@ -24,11 +23,10 @@ export const isReady = (issue: Issue, all: readonly Issue[]): boolean =>
   && (issue.deferUntil === null || issue.deferUntil <= new Date())
   && !isBlocked(issue, all);
 
-export const buildBoard = (issues: readonly Issue[], currentId: string | null, activeSprintId: string | null = null): Board => {
+export const buildBoard = (issues: readonly Issue[], activeSprintId: string | null = null): Board => {
   const tally = (predicate: (issue: Issue) => boolean): number => issues.filter(predicate).length;
   return {
     issues,
-    currentId,
     activeSprintId,
     counts: {
       open: tally((issue) => issue.status === "open"),
@@ -376,10 +374,9 @@ const openTuiStore = async (root: string): Promise<TuiStore> => {
   const loadBoard = async (): Promise<Board> => {
     const page = await surface.all();
     if (!page.ok) throw new Error(page.error.message);
-    const currentId = await surface.currentId();
     const sprints = await surface.sprintList();
     const activeSprintId = sprints.ok ? sprints.value.find((sprint) => sprint.status === "active")?.id ?? null : null;
-    return buildBoard(page.value, currentId, activeSprintId);
+    return buildBoard(page.value, activeSprintId);
   };
   const watch = (onEvent: (event: WatchEvent) => void, intervalMs = 1000): (() => void) => {
     let lastSignature = "";
