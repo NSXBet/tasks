@@ -41,6 +41,9 @@ export const CommandPalette = () => {
       { key: "2", view: "board", glyph: "▦", label: "go to Board" },
       { key: "3", view: "graph", glyph: "⟐", label: "go to Graph" },
       { key: "4", view: "insights", glyph: "◎", label: "go to Insights" },
+      { key: "5", view: "task", glyph: "❐", label: "go to Task" },
+      { key: "6", view: "artifact", glyph: "▤", label: "go to Artifacts" },
+      { key: "7", view: "diff", glyph: "±", label: "go to Diff" },
     ] as const).map((entry) => ({
       glyph: entry.glyph, label: entry.label, group: "view", keycap: entry.key,
       run: (): void => actions.setView(entry.view),

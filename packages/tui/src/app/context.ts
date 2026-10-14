@@ -3,7 +3,7 @@ import type { UpdatePatch } from "@tasks/surface";
 import type { Board, FilterKind, TuiStore } from "../store.js";
 import type { WatchEvent } from "@tasks/surface";
 
-export type ViewKind = "list" | "board" | "graph" | "insights";
+export type ViewKind = "list" | "board" | "graph" | "insights" | "task" | "artifact" | "diff";
 
 export type ComposerMode =
   | "closed"
@@ -66,6 +66,8 @@ export interface AppState {
   readonly insightsSel: { readonly panel: number; readonly row: number };
   /** Configured WIP limit for the In-Progress column warning; null = off. */
   readonly wipLimit: number | null;
+  /** Diff-modal visibility (diff view variant rendered as overlay). */
+  readonly diffOpen: boolean;
   readonly toast: string | null;
 }
 
@@ -102,6 +104,8 @@ export interface AppActions {
   readonly setGraphId: (id: string | null) => void;
   readonly setInsightsSel: (sel: { readonly panel: number; readonly row: number }) => void;
   readonly openGraph: (id: string) => void;
+  readonly openDiffModal: () => void;
+  readonly closeDiffModal: () => void;
   readonly notify: (message: string) => void;
   readonly quit: () => void;
 }

@@ -5,6 +5,9 @@ import { AppContext, useApp, type AppActions, type AppContextValue, type AppStat
 import { Composer } from "./composer.js";
 import { HelpOverlay } from "./help.js";
 import { NavRail } from "./nav.js";
+import { TaskView } from "./task.js";
+import { ArtifactView } from "./artifact.js";
+import { DiffView, DiffModal } from "./diff.js";
 import { IssueList } from "./list.js";
 import { KanbanBoard } from "./kanban.js";
 import { IssueDetail } from "./detail.js";
@@ -25,7 +28,7 @@ interface AppProps {
 
 const clampPriority = (value: number): number => Math.min(4, Math.max(0, value));
 
-const emptyBoard: Board = { issues: [], currentId: null, activeSprintId: null, counts: { open: 0, inProgress: 0, readyToReview: 0, blocked: 0, closed: 0, archived: 0 }, fetchedAt: new Date(0) };
+const emptyBoard: Board = { issues: [], activeSprintId: null, counts: { open: 0, inProgress: 0, readyToReview: 0, blocked: 0, closed: 0, archived: 0 }, fetchedAt: new Date(0) };
 
 /**
  * Root component: owns all app state (board, selection, view, composer) and
@@ -49,6 +52,7 @@ export const App = ({ store, actor, onQuit, wipLimit = null }: AppProps) => {
   const [boardSel, setBoardSel] = useState({ col: 0, row: 0 });
   const [graphId, setGraphId] = useState<string | null>(null);
   const [graphWalk, setGraphWalk] = useState(0);
+  const [diffOpen, setDiffOpen] = useState(false);
   const [insightsSel, setInsightsSel] = useState({ panel: 0, row: 0 });
   const [toast, setToast] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState<WatchEvent | null>(null);
@@ -175,14 +179,16 @@ export const App = ({ store, actor, onQuit, wipLimit = null }: AppProps) => {
     setGraphWalk,
     setInsightsSel,
     openGraph: (id) => { setGraphId(id); setView("graph"); setHelpOpen(false); },
+    openDiffModal: () => setDiffOpen(true),
+    closeDiffModal: () => setDiffOpen(false),
     notify,
     quit: onQuit,
   }), [store, refresh, notify, reportError, onQuit]);
 
   const state: AppState = useMemo(() => ({
     store, actor, board, stale, view, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer,
-    boardSel: { ...boardSel }, graphId, graphWalk, insightsSel: { ...insightsSel }, wipLimit, toast,
-  }), [store, actor, board, stale, view, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer, boardSel, graphId, graphWalk, insightsSel, wipLimit, toast]);
+    boardSel: { ...boardSel }, graphId, graphWalk, diffOpen, insightsSel: { ...insightsSel }, wipLimit, toast,
+  }), [store, actor, board, stale, view, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer, boardSel, graphId, graphWalk, diffOpen, insightsSel, wipLimit, toast]);
 
   const value: AppContextValue = useMemo(() => ({ state, actions, lastEvent }), [state, actions, lastEvent]);
 
@@ -210,6 +216,12 @@ export const App = ({ store, actor, onQuit, wipLimit = null }: AppProps) => {
                 <KanbanBoard />
               ) : view === "graph" ? (
                 <DependencyGraph />
+              ) : view === "task" ? (
+                <TaskView />
+              ) : view === "artifact" ? (
+                <ArtifactView />
+              ) : view === "diff" ? (
+                <DiffView />
               ) : (
                 <Insights />
               )}
@@ -219,6 +231,7 @@ export const App = ({ store, actor, onQuit, wipLimit = null }: AppProps) => {
           </box>
         )}
         <TaskModal key={modalId ?? "none"} />
+        {diffOpen && !paletteOpen && !helpOpen ? <DiffModal /> : null}
       </box>
     </AppContext.Provider>
   );
@@ -245,8 +258,15 @@ const ShellKeys = (): null => {
     if (state.composer.mode !== "closed") return;
     if (key.sequence === ":" ) { actions.setPaletteOpen(true); return; }
     if (key.sequence === "?" ) { actions.toggleHelp(); return; }
-    const viewKey = ({ "1": "list", "2": "board", "3": "graph", "4": "insights", b: "board", g: "graph", i: "insights" } as const)[key.sequence];
+    if (state.diffOpen) { if (key.name === "escape") actions.closeDiffModal(); return; }
+    const viewKey = ({ "1": "list", "2": "board", "3": "graph", "4": "insights", "5": "task", "6": "artifact", "7": "diff", b: "board", g: "graph", i: "insights" } as const)[key.sequence];
     if (viewKey !== undefined) { actions.setView(viewKey); return; }
+    if (state.view === "task" || state.view === "artifact" || state.view === "diff") {
+      // Mock views own their keys (WIP actions / diff navigation); shell only
+      // provides escape-to-list.
+      if (key.name === "escape") actions.setView("list");
+      return;
+    }
     if (key.name === "escape") {
       if (state.detailId !== null) { actions.closeDetail(); return; }
       if (state.view !== "list") { actions.setView("list"); return; }

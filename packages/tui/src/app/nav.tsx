@@ -20,6 +20,9 @@ const viewEntries: readonly ViewEntry[] = [
   { key: "2", view: "board", glyph: "▦", label: "Board" },
   { key: "3", view: "graph", glyph: "⟐", label: "Graph" },
   { key: "4", view: "insights", glyph: "◎", label: "Insights" },
+  { key: "5", view: "task", glyph: "❐", label: "Task" },
+  { key: "6", view: "artifact", glyph: "▤", label: "Artifacts" },
+  { key: "7", view: "diff", glyph: "±", label: "Diff" },
 ];
 
 export const NavRail = () => {
@@ -31,6 +34,9 @@ export const NavRail = () => {
     board: String(boardCount),
     graph: String(depCount),
     insights: "",
+    task: "",
+    artifact: "3",
+    diff: "1",
   };
   const count = (view: ViewKind): string => counts[view];
 

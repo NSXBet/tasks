@@ -1,25 +1,51 @@
-import { useMemo } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { useApp } from "./context.js";
 import { colors, priorityColor, priorityLabel, statusColor } from "../theme.js";
 import { relativeAge, truncate } from "../format.js";
 import { dependencyTree } from "../store.js";
+import type { BlobContent } from "@tasks/surface";
 
-type MdLine = { readonly kind: "h" | "li" | "code" | "quote" | "text" | "blank"; readonly text: string };
+type MdLine = { readonly kind: "h" | "li" | "code" | "quote" | "img" | "text" | "blank"; readonly text: string };
 
-/** Minimal markdown shaping: headers, list bullets, code fences, quotes. */
+/** An `evidence:<id>` ref exactly as produced by `tk attach` / comment ingest. */
+const EVIDENCE_CHUNK_RE = /^evidence:ev-[a-z0-9]{6}$/;
+
+/** Minimal markdown shaping: headers, list bullets, code fences, quotes. Evidence refs become img lines. */
 const mdLines = (source: string): readonly MdLine[] => {
   const out: MdLine[] = [];
   let inCode = false;
-  for (const raw of source.split("\n")) {
-    if (raw.startsWith("```")) { inCode = !inCode; continue; }
-    if (inCode) { out.push({ kind: "code", text: raw }); continue; }
-    if (raw.trim() === "") { out.push({ kind: "blank", text: "" }); continue; }
-    if (/^#{1,6}\s/.test(raw)) out.push({ kind: "h", text: raw.replace(/^#{1,6}\s*/, "").trim() });
-    else if (/^\s*[-*]\s+/.test(raw)) out.push({ kind: "li", text: raw.replace(/^(\s*)[-*]\s+/, "$1· ") });
-    else if (/^>\s?/.test(raw)) out.push({ kind: "quote", text: raw.replace(/^>\s?/, "") });
-    else out.push({ kind: "text", text: raw });
+  for (const chunk of source.split(/(evidence:ev-[a-z0-9]{6})/)) {
+    if (EVIDENCE_CHUNK_RE.test(chunk)) { out.push({ kind: "img", text: chunk.slice("evidence:".length) }); continue; }
+    for (const raw of chunk.split("\n")) {
+      if (raw.startsWith("```")) { inCode = !inCode; continue; }
+      if (inCode) { out.push({ kind: "code", text: raw }); continue; }
+      if (raw.trim() === "") { out.push({ kind: "blank", text: "" }); continue; }
+      if (/^#{1,6}\s/.test(raw)) out.push({ kind: "h", text: raw.replace(/^#{1,6}\s*/, "").trim() });
+      else if (/^\s*[-*]\s+/.test(raw)) out.push({ kind: "li", text: raw.replace(/^(\s*)[-*]\s+/, "$1· ") });
+      else if (/^>\s?/.test(raw)) out.push({ kind: "quote", text: raw.replace(/^>\s?/, "") });
+      else out.push({ kind: "text", text: raw });
+    }
   }
   return out;
+};
+
+/** One evidence image, fetched through the surface. Loading → pending mark; unknown bytes → missing mark. */
+const BlobImage = ({ issueId, refId }: { readonly issueId: string; readonly refId: string }) => {
+  const { state } = useApp();
+  const [content, setContent] = useState<BlobContent | null | "loading">("loading");
+
+  useEffect(() => {
+    let alive = true;
+    void state.store.surface
+      .evidenceRead(issueId, `evidence:${refId}`)
+      .then((outcome) => { if (alive) setContent(outcome.ok ? outcome.value : null); });
+    return () => { alive = false; };
+  }, [state.store.surface, issueId, refId]);
+
+  if (content === "loading") return <text fg={colors.dim} content={`   ▣ ${refId} …`} />;
+  if (content === null) return <text fg={colors.red} content={`   ▣ ${refId} (missing bytes)`} />;
+  if (!content.meta.mime.startsWith("image/")) return <text fg={colors.dim} content={`   ▣ ${content.meta.name} (${content.meta.mime})`} />;
+  return <image source={content.bytes} fit="fit" protocol="auto" style={{ width: 44, height: 18, marginLeft: 2 }} />;
 };
 
 /** Right pane: full issue detail. Owns its scroll; closes with Escape. */
@@ -62,6 +88,7 @@ export const IssueDetail = () => {
         {description.length > 0 ? (
           <box style={{ flexDirection: "column", marginBottom: 1 }}>
             {description.map((line, index) => {
+              if (line.kind === "img") return <BlobImage key={index} issueId={issue.id} refId={line.text} />;
               if (line.kind === "blank") return <text key={index} content=" " />;
               if (line.kind === "h") return <text key={index} fg={colors.text}>{line.text}</text>;
               if (line.kind === "code") return <text key={index} fg={colors.cyan} content={`  ${line.text}`} />;
@@ -88,9 +115,13 @@ export const IssueDetail = () => {
         {issue.comments.map((comment) => (
           <box key={comment.id} style={{ flexDirection: "column" }}>
             <text><span fg={colors.dim}>▎</span><span fg={colors.cyan}>{` ${comment.author}`}</span><span fg={colors.dim}>{` (${relativeAge(comment.createdAt, state.board.fetchedAt)} ago)`}</span></text>
-            {comment.text.split("\n").map((line, index) => (
-              <text key={`${comment.id}:${index}`}><span fg={colors.dim}>▎</span><span fg={colors.dim}>{` ${truncate(line, 96)}`}</span></text>
-            ))}
+            {comment.text.split(/(evidence:ev-[a-z0-9]{6})/).map((chunk, index) => {
+              if (EVIDENCE_CHUNK_RE.test(chunk)) return <BlobImage key={`${comment.id}:${index}`} issueId={issue.id} refId={chunk.slice("evidence:".length)} />;
+              if (chunk === "") return null;
+              return chunk.split("\n").map((line, lineIndex) => (
+                <text key={`${comment.id}:${index}:${lineIndex}`}><span fg={colors.dim}>▎</span><span fg={colors.dim}>{` ${truncate(line, 96)}`}</span></text>
+              ));
+            })}
           </box>
         ))}
       </scrollbox>
