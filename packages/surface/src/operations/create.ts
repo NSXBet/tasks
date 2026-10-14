@@ -3,7 +3,6 @@ import type { DependencyEdge, Issue, IssueAttachment, Metadata } from '@tasks/do
 import { dependencyTarget, issueDescription, issueId, issuePriority, issueTitle, IssueAttachmentSchema } from '@tasks/domain';
 import type { IssueUnitOfWork } from '@tasks/application';
 import type { SurfaceStore } from '../store.js';
-import { writeCurrentId } from '../store.js';
 import { MessageError } from '../errors.js';
 
 /** bd-style collision-resistant issue IDs: <prefix>-<base36 hash>, short like bd (bd-0t0, bd-45g). */
@@ -127,7 +126,6 @@ export const createIssue = async (store: SurfaceStore, input: CreateInput) => {
     await addEdges(uow, issue, input.deps ?? [], now, store.actor);
     const made = await uow.findById(issue.id);
     if (!made.ok || made.value === null) throw new MessageError('reload after create failed');
-    await writeCurrentId(store.tasksDir, made.value.id);
     return made.value;
   });
 };

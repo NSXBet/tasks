@@ -1,12 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, basename, resolve } from 'node:path';
-import type { Issue, IssueBlobAttachment } from '@tasks/domain';
-import { isBlobAttachment } from '@tasks/domain';
+import type { BlobMeta, Issue, IssueBlobAttachment } from '@tasks/domain';
+import { isBlobAttachment, parseEvidenceRef } from '@tasks/domain';
 import { ensureLfsAttributes, guessMime, newBlobId, openBlobStore, readWorkspaceConfig } from '@tasks/workspace';
 import { err, ok, type IssueUnitOfWork, type Result } from '@tasks/application';
 import type { SurfaceStore } from '../store.js';
 import { getOrThrow } from '../store.js';
-import { MessageError } from '../errors.js';
+import { MessageError, type SurfaceError } from '../errors.js';
 
 /** Workspace paths the blob ops need; both CLI and SurfaceStore can supply these. */
 export interface BlobContext {
@@ -62,6 +62,16 @@ const detachBlobCore = async (uow: IssueUnitOfWork, ctx: BlobContext, id: string
   return ok(next);
 };
 
+/** A stored blob with its bytes; served to renderers that display evidence inline. */
+export interface BlobContent {
+  readonly meta: BlobMeta;
+  readonly bytes: Uint8Array;
+}
+
+/** Resolve an issue attachment to a blob entry by ref (bare `ev-…` id or exact name); null when absent. */
+const resolveBlobAttachment = (issue: Issue, ref: string): IssueBlobAttachment | null =>
+  issue.attachments.find((attachment): attachment is IssueBlobAttachment => isBlobAttachment(attachment) && (attachment.id === ref || attachment.name === ref)) ?? null;
+
 /** Attach files as evidence entries (`tk attach`). */
 export const attachEvidence = (store: SurfaceStore, id: string, paths: readonly string[]) => store.transact(async (uow) => unwrapBlob(await attachBlobsCore(uow, { root: store.root, tasksDir: store.tasksDir }, id, paths, 'evidence')));
 
@@ -70,6 +80,24 @@ export const attachInline = (store: SurfaceStore, id: string, paths: readonly st
 
 /** Remove a blob entry; no-op when absent. */
 export const detachBlob = (store: SurfaceStore, id: string, ref: string) => store.transact(async (uow) => unwrapBlob(await detachBlobCore(uow, { root: store.root, tasksDir: store.tasksDir }, id, ref)));
+
+/** Evidence read outcome: bytes + metadata, or null when the ref or stored bytes are unknown. */
+export type EvidenceRead = Promise<Result<BlobContent | null, SurfaceError>>;
+
+/** Read stored blob bytes + metadata for an evidence ref (`evidence:<id>`, bare id, or name); null when the entry or bytes are unknown. Read-only. */
+export const evidenceRead = (store: SurfaceStore, id: string, ref: string): EvidenceRead =>
+  store.transact(async (uow) => {
+    const issue = await getOrThrow(uow, id);
+    const bare = parseEvidenceRef(ref) ?? ref;
+    const attachment = resolveBlobAttachment(issue, bare);
+    if (attachment === null) return null;
+    const config = await readWorkspaceConfig(store.tasksDir);
+    const blobs = await openBlobStore({ tasksDir: store.tasksDir, config });
+    const meta = await blobs.meta(attachment.id);
+    if (meta === null) return null;
+    const bytes = await blobs.read(attachment.id);
+    return bytes === null ? null : { meta, bytes };
+  });
 
 const unwrapBlob = (outcome: Result<Issue>): Issue => {
   if (!outcome.ok) throw new MessageError(outcome.error.kind === 'validation' ? outcome.error.message : 'blob operation failed');

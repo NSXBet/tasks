@@ -1,7 +1,7 @@
 import type { Issue } from '@tasks/domain';
 import { issueId, sprintSlug } from '@tasks/domain';
 import type { SurfaceStore } from '../store.js';
-import { getOrThrow, readCurrentId } from '../store.js';
+import { getOrThrow } from '../store.js';
 import { MessageError } from '../errors.js';
 
 /** Options accepted by `list`/`ready`; mirrors the CLI's filters. */
@@ -158,6 +158,3 @@ export const epicView = (store: SurfaceStore, id: string) => store.transact(asyn
   const done = children.filter((issue) => issue.status === 'closed').length;
   return { epic: epicIssue, children, done, eligible: children.length > 0 && done === children.length && epicIssue.status !== 'closed' };
 });
-
-/** Current issue pointer, or null when unset. */
-export const currentId = (store: SurfaceStore) => readCurrentId(store.tasksDir);

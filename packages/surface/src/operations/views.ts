@@ -1,7 +1,5 @@
 import type { Issue } from '@tasks/domain';
-import { issueId } from '@tasks/domain';
 import type { SurfaceStore } from '../store.js';
-import { readCurrentId } from '../store.js';
 import { MessageError } from '../errors.js';
 import { buildTree, type IssueTree, type TreeOptions } from '../tree.js';
 import { LINT_SECTIONS } from '../envelope.js';
@@ -99,15 +97,3 @@ export const lintIssues = (store: SurfaceStore, options: { readonly ids?: readon
     return missing.length === 0 ? [] : [{ issue, missing }];
   });
 });
-
-export const currentIssue = (store: SurfaceStore) => store.transact(async (uow) => {
-  const raw = await readCurrentId(store.tasksDir);
-  if (raw === null) return null;
-  return getOrThrowNull(uow, raw);
-});
-
-const getOrThrowNull = async (uow: Parameters<Parameters<SurfaceStore['transact']>[0]>[0], raw: string): Promise<Issue | null> => {
-  const found = await uow.findById(issueId(raw));
-  if (!found.ok) throw new MessageError('read failed');
-  return found.value;
-};

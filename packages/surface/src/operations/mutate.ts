@@ -2,7 +2,7 @@ import type { AgentId, Issue, IssueAttachment, Run } from '@tasks/domain';
 import { issuePriority, issueTitle, issueDescription, issueId, dependencyTarget, isBlobAttachment, IssueAttachmentSchema } from '@tasks/domain';
 import { activeRun, applyRunSideEffects, err, nextRunId, ok, type IssueUnitOfWork, type Result } from '@tasks/application';
 import type { SurfaceStore } from '../store.js';
-import { getOrThrow, readCurrentId, writeCurrentId } from '../store.js';
+import { getOrThrow } from '../store.js';
 import { MessageError } from '../errors.js';
 
 const now = (): Date => new Date();
@@ -115,7 +115,6 @@ export const changeStatus = (store: SurfaceStore, id: string, change: StatusChan
   const saved = await uow.save(next);
   if (!saved.ok) throw new MessageError('save failed');
   await applyRunSideEffects(uow, next, issue.status, status, now());
-  if (status === 'closed' || status === 'open') await writeCurrentId(store.tasksDir, next.id);
   return next;
 });
 
@@ -165,7 +164,6 @@ export const claimIssue = (store: SurfaceStore, id: string) => store.transact(as
   const issue = await getOrThrow(uow, id);
   const claimed = await uow.claimReady(issue.id, store.actor);
   if (!claimed.ok) throw new MessageError('claim failed: issue not ready or taken');
-  await writeCurrentId(store.tasksDir, claimed.value.id);
   return claimed.value;
 });
 
@@ -267,8 +265,6 @@ export const renameIssue = (store: SurfaceStore, from: string, to: string) => st
   }
   const deleted = await uow.delete(issue.id);
   if (!deleted.ok) throw new MessageError('delete failed');
-  const current = await readCurrentId(store.tasksDir);
-  if (current === issue.id) await writeCurrentId(store.tasksDir, issueId(to));
   return { from: issue.id, to: issueId(to) };
 });
 
