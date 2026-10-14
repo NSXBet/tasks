@@ -28,7 +28,7 @@ Prefer the `tasks` tool over shelling out to `tk`. The tool returns structured J
 |---|---|
 | `create` | `title` (required), `description?`, `type?` (task\|bug\|feature\|epic\|chore), `priority?` (0-4, default 2), `parent?`, `labels?[]`, `deps?[]`, `assignee?`, `owner?`, `dueAt?` (ISO), `estimate?`, `acceptanceCriteria?`, `design?`, `specId?`, `externalRef?`, `branch?`, `notes?`, `plan?` (path), `attachments?[]` → issue |
 | `quick` | `title` → `{ id }` |
-| `show` | `id?` (omit = current pointer) → issue |
+| `show` | `id` → issue |
 | `list` | `status?`, `parent?`, `assignee?`, `label?`, `limit?` → issues |
 | `ready` | `limit?`, `claim?` → unblocked issues |
 | `blocked` | — → issues with unclosed blockers |
