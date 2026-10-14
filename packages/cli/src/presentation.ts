@@ -154,22 +154,63 @@ function formatSection(title: string, body: string): string {
   return `${bold(title)}\n${indent(body)}`;
 }
 
+/**
+ * Phase-0 mock surface: the free-form metadata bag (`metadata.review`) carries
+ * the review-scenario data (base/worktree, agent sessions, changed-file
+ * artifacts, diff hunks, agent comment authors) until real sources land.
+ */
+export interface ReviewSession { readonly id: string; readonly agent: string; readonly status: string; readonly topic: string; readonly duration: string; }
+export interface ReviewArtifact { readonly path: string; readonly added: number; readonly removed: number; readonly comments: number; }
+export interface ReviewDiffLine { readonly kind: "add" | "del"; readonly text: string; }
+export interface ReviewDiffFile { readonly file: string; readonly lines: readonly ReviewDiffLine[]; }
+export interface ReviewMeta { readonly base?: string; readonly worktree?: string; readonly sessions?: readonly ReviewSession[]; readonly artifacts?: readonly ReviewArtifact[]; readonly diff?: readonly ReviewDiffFile[]; readonly agentAuthors?: readonly string[]; }
+export const reviewMeta = (issue: Issue): ReviewMeta => {
+  const review = issue.metadata["review"];
+  return review !== null && typeof review === "object" && !Array.isArray(review) ? review as ReviewMeta : {};
+};
+
 export function formatShow(issue: Issue): string {
   const head = `${statusColored(issue.status)} ${cyan(issue.id)} · ${bold(issue.title)}   [${priorityBadge(issue.priority)} · ${statusLabel(issue.status)}]`;
   const meta = [issue.owner === null ? null : `Owner: ${issue.owner}`, issue.assignee === null ? null : `Assignee: ${issue.assignee}`, `Type: ${issue.type}`, issue.estimate === null ? null : `Estimate: ${issue.estimate}m`].filter(Boolean).join(" · ");
   const dates = [field("Created:", date(issue.createdAt)), issue.startedAt === null ? null : field("Started:", date(issue.startedAt)), field("Updated:", date(issue.updatedAt)), issue.closedAt === null ? null : field("Closed:", date(issue.closedAt)), issue.dueAt === null ? null : field("Due:", date(issue.dueAt)), issue.deferUntil === null ? null : field("Deferred:", date(issue.deferUntil))].filter(Boolean).join("  ");
+  const review = reviewMeta(issue);
+  const agentAuthors: Record<string, true> = Object.fromEntries((review.agentAuthors ?? []).map((author) => [author, true as const]));
   const sections: string[] = [head, dim(meta), dim(dates)];
   sections.push(formatSection("DESCRIPTION", issue.description.trim() === "" ? dim("(none)") : issue.description.trimEnd()));
   if (issue.labels.length > 0) sections.push(`${bold("LABELS:")} ${issue.labels.map((label) => magenta(`#${label}`)).join(" ")}`);
   if (issue.design !== null) sections.push(formatSection("DESIGN", issue.design.trimEnd()));
   if (issue.acceptanceCriteria !== null) sections.push(formatSection("ACCEPTANCE CRITERIA", issue.acceptanceCriteria.trimEnd()));
   if (issue.notes !== null) sections.push(formatSection("NOTES", issue.notes.trimEnd()));
-  if (issue.branch !== null) sections.push(`${bold("BRANCH:")} ${cyan(issue.branch)}`);
+  if (issue.branch !== null) sections.push([`${bold("BRANCH:")} ${cyan(issue.branch)}`, review.base === undefined ? null : `${field("base:", review.base)}`, review.worktree === undefined ? null : `${field("worktree:", review.worktree)}`].filter(Boolean).join("\n"));
+  if (review.artifacts !== undefined && review.artifacts.length > 0) sections.push(formatSection(`ARTIFACTS (${review.artifacts.length})`, review.artifacts.map((artifact) => `${cyan(artifact.path)}  ${green(`+${artifact.added}`)}${red(`−${artifact.removed}`)}  ${dim(`${artifact.comments} comment(s)`)}`).join("\n")));
+  if (review.sessions !== undefined && review.sessions.length > 0) sections.push(formatSection(`SESSIONS (${review.sessions.length})`, review.sessions.map((session) => `${session.status === "running" ? green("▸") : dim("·")} ${cyan(session.id)}  ${session.agent}  ${session.status}  ${dim(`${session.topic} · ${session.duration}`)}`).join("\n")));
   if (issue.attachments.length > 0) sections.push(`${bold("ATTACHMENTS:")} ${issue.attachments.map((attachment) => cyan(isBlobAttachment(attachment) ? `${attachment.name} (${attachment.id}, ${(attachment.size / 1024).toFixed(1)} kB)` : attachment.path)).join(", ")}`);
   if (issue.dependencies.length > 0) sections.push(formatSection("DEPENDENCIES", issue.dependencies.map((edge) => `→ ${cyan(edge.target)} (${edge.type})`).join("\n")));
   if (issue.parentId !== null) sections.push(`${bold("PARENT:")} ${cyan(issue.parentId)}`);
-  if (issue.comments.length > 0) sections.push(formatSection(`COMMENTS (${issue.comments.length})`, issue.comments.map((comment) => `${dim(datetime(comment.createdAt))} ${green(comment.author)}\n${indent(comment.text.trimEnd())}`).join("\n\n")));
+  if (issue.comments.length > 0) sections.push(formatSection(`COMMENTS (${issue.comments.length})`, issue.comments.map((comment) => `${dim(datetime(comment.createdAt))} ${green(comment.author)}${agentAuthors[comment.author] === true ? cyan("  [agent]") : ""}\n${indent(comment.text.trimEnd())}`).join("\n\n")));
   return sections.join("\n\n");
+}
+
+/** `tk work` mock: shows the branch context; env setup is a WIP stub. */
+export function formatWork(issue: Issue): string {
+  const head = `${statusColored(issue.status)} ${cyan(issue.id)} · ${bold(issue.title)}   [${priorityBadge(issue.priority)} · ${statusLabel(issue.status)}]`;
+  const review = reviewMeta(issue);
+  const branch = [`${bold("BRANCH:")} ${cyan(issue.branch ?? dim("(none)"))}`, review.base === undefined ? null : `${field("base:", review.base)}`, review.worktree === undefined ? null : `${field("worktree:", review.worktree)}`].filter(Boolean).join("\n");
+  return [head, branch, `${bold("ENV SETUP:")} WIP`].join("\n");
+}
+
+/** `tk review` mock: shows diff hunks from metadata; edit/comment actions are WIP stubs. */
+export function formatReview(issue: Issue): string {
+  const head = `${statusColored(issue.status)} ${cyan(issue.id)} · ${bold(issue.title)}   [${priorityBadge(issue.priority)} · ${statusLabel(issue.status)}]`;
+  const diff = reviewMeta(issue).diff ?? [];
+  const lines: string[] = [head];
+  if (diff.length === 0) lines.push(dim("(no diff)"));
+  for (const file of diff) {
+    lines.push(bold(file.file));
+    for (const line of file.lines) lines.push(line.kind === "add" ? green(`+ ${line.text}`) : red(`- ${line.text}`));
+  }
+  lines.push(`${bold("ACTIONS:")} edit → WIP · comment → WIP`);
+  return lines.join("\n");
 }
 
 export function formatComments(issue: Issue): string {
@@ -618,7 +659,7 @@ export const PRIME = `# tk workflow context
 - Use ${cyan("tk dep add <id> <blocker>")} to record blockers; ${cyan("tk tree")} renders the tree; ${cyan("tk stale")}/${cyan("tk orphans")}/${cyan("tk duplicates")}/${cyan("tk lint")} for hygiene.
 - Review changes with Hunk: link its branch via ${cyan("tk update <id> --branch <name>")}, open the review with ${cyan("tk hunk <id>")}, pull reviewer comments back with ${cyan("tk hunk <id> sync")}.
 - File references attach to issues: ${cyan("tk attach <id> <path>")} (paths are stored workspace-relative; bare name = repo root). ${cyan("tk attach <id> --evidence <file>...")} ingests bytes instead — the blob lands under ${cyan(".tasks/attachments/")} (mime-sniffed, deduped by name, re-attach replaces), referenced from comments as ${cyan("evidence:<id>")}. ${cyan("tk detach <id> <path|name|id>")} removes either kind (evidence bytes go with it). ${cyan("--plan <path>")} on create/update sets the issue's plan through the same system (replaces prior plan). ${cyan("tk skill")} prints the full agent skill.
-- Run ${cyan("tk help")} for the full command list.
+- Run ${cyan("tk help")} for the full command list; ${cyan("tk <cmd> -h")} for a single command's flags.
 `;
 
 export const ONBOARD = `## Task tracking
@@ -639,6 +680,8 @@ export const HUMAN_HELP = `${bold("tk — essentials")}
   tk create <title>       Create an issue
   tk list                 List issues
   tk show <id>            Show details
+  tk work <id>            Open work env for an issue (WIP mock)
+  tk review <id>          Review an issue's diff (WIP mock)
   tk update <id> ...      Change fields
   tk close <id>           Close it
   tk comment <id> <text>  Leave a note

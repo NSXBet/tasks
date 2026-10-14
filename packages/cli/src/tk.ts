@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { access, copyFile, cp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { access, copyFile, cp, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { cwd, exit, stdin } from "node:process";
 import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -14,6 +14,7 @@ import {
   formatDuplicates, formatEpic, formatGraph, formatHistory, formatLint, formatList, formatMigration, formatOrphans,
   formatAgentList, formatAgentShow, formatInbox, formatReady, formatRenamePrefix, formatRunList, formatRunShow, formatRuntimeActivity, formatRuntimeList, formatSearch, formatShow, formatSprintList, formatStale, formatStats,
   formatStatus, formatStatuses, formatTodo, formatTree, formatTypes, formatVersion, formatWhere, formatWorktreeInfo, formatWorktreeList,
+  formatWork, formatReview, reviewMeta,
   HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
 import { attachEvidenceUow, attachPathUow, detachBlobUow, inboxEntries, markInboxArchived, markInboxRead, readActivity, readInboxMarkers, readRuntimeRegistry, type ActivityRow, type InboxEntry, type RuntimeRow } from "@tasks/surface";
@@ -193,7 +194,10 @@ async function runWorktree(args: ParsedArgs, start: string, json: boolean): Prom
     // No .tasks/ redirect to write: rootFrom() already follows git-common-dir
     // back to the main worktree, exactly like git worktree itself.
     const gitignore = join(mainRoot, ".gitignore");
-    const relative = path.startsWith(`${mainRoot}/`) ? path.slice(mainRoot.length + 1) : null;
+    // mainRoot comes back resolved by git (/private/var on macOS), while the
+    // lexical cwd may go through a symlink (/var) — compare in real-path space.
+    const real = await realpath(path).catch(() => path);
+    const relative = real.startsWith(`${mainRoot}/`) ? real.slice(mainRoot.length + 1) : null;
     if (relative !== null) { const existing = await readFile(gitignore, "utf8").catch(() => ""); if (!existing.split("\n").includes(relative)) await writeFile(gitignore, `${existing}${existing.endsWith("\n") || existing === "" ? "" : "\n"}${relative}\n`); }
     const result = { name, path, branch, created: true };
     if (json) output(result, true); else console.log(`${green("\u2713 Created worktree")} ${cyan(path)} on branch ${branch}`);
@@ -239,9 +243,7 @@ async function du(path: string): Promise<number> {
 
 class CommandService {
   constructor(private readonly database: StorageAdapter, private readonly root: string, private readonly config: Config, private readonly actor: string, private readonly backend: string, private readonly databasePath: string | null) {}
-  private async currentId(): Promise<string> { const value = await readFile(join(this.root, ".tasks", "current"), "utf8").catch(() => ""); return value.trim() || fail("no current issue selected"); }
-  private async setCurrent(id: IssueId): Promise<void> { await writeFile(join(this.root, ".tasks", "current"), `${id}\n`); }
-  private async selected(args: ParsedArgs): Promise<string> { return args.positionals[1] ?? (booleanFlag(args, "current") ? this.currentId() : fail("issue id required")); }
+  private async selected(args: ParsedArgs): Promise<string> { return args.positionals[1] ?? fail("issue id required"); }
   private prefix(): string { return this.config.prefix ?? "tk"; }
   async create(args: ParsedArgs): Promise<Issue> {
     const title = stringFlag(args, "title") ?? args.positionals[1] ?? fail("create requires title"); let description = stringFlag(args, "description") ?? ""; if (booleanFlag(args, "stdin")) description = await readInput();
@@ -255,7 +257,7 @@ class CommandService {
       const now = new Date(); const parent = stringFlag(args, "parent"); const estimate = stringFlag(args, "estimate");
       const issue: Issue = { id: issueId(candidate), title: issueTitle(title), description: issueDescription(description), status: stringFlag(args, "status") ?? "open", priority: issuePriority(Number(stringFlag(args, "priority") ?? 2)), type: stringFlag(args, "type") ?? "task", owner: stringFlag(args, "owner") ?? null, assignee: stringFlag(args, "assignee") ?? null, createdBy: this.actor, createdAt: now, updatedAt: now, startedAt: null, closedAt: null, dueAt: parseDate(stringFlag(args, "due")) ?? null, deferUntil: parseDate(stringFlag(args, "defer-until")) ?? null, parentId: parent === undefined ? null : issueId(parent), sprintId: null, labels: (stringFlag(args, "labels") ?? stringFlag(args, "label") ?? "").split(",").filter(Boolean), notes: stringFlag(args, "notes") ?? null, design: stringFlag(args, "design") ?? null, acceptanceCriteria: stringFlag(args, "acceptance") ?? null, estimate: estimate === undefined ? null : Number(estimate), specId: stringFlag(args, "spec-id") ?? null, externalRef: stringFlag(args, "external-ref") ?? null, branch: stringFlag(args, "branch") ?? null, metadata: parseMetadata(stringFlag(args, "metadata")) ?? {}, attachments: parseAttachments(args, this.root), wireUnknown: {}, dependencies: [], dependencyCount: 0, dependentCount: 0, comments: [], commentCount: 0 };
       unwrap(await uow.save(issue)); for (const entry of (stringFlag(args, "deps") ?? "").split(",").filter(Boolean)) { const [kind, target] = entry.includes(":") ? entry.split(/:(.*)/s) : ["blocks", entry]; unwrap(await uow.addDependency({ issueId: issue.id, target: dependencyTarget(target!), type: kind!, createdAt: now, createdBy: this.actor, metadata: {}, wireUnknown: {} })); }
-      const made = await get(uow, issue.id); await this.setCurrent(made.id); return made;
+      return get(uow, issue.id);
     });
   }
   async show(args: ParsedArgs): Promise<Issue> { return transaction(this.database, (uow) => this.selected(args).then((id) => get(uow, id))); }
@@ -289,7 +291,7 @@ class CommandService {
   async list(args: ParsedArgs, ready: boolean): Promise<readonly Issue[]> { const query = statusFilter(args); const sprintFlag = stringFlag(args, "sprint"); const archivedOnly = booleanFlag(args, "archived"); return transaction(this.database, async (uow) => { const page = unwrap(await uow.list({ ...(query === undefined || query === "all" ? {} : { status: query }), limit: Number(stringFlag(args, "limit") ?? 1000) })); const sprintMatches = sprintFlag === undefined ? undefined : await this.sprintFilter(uow, sprintFlag); const hideArchived = !archivedOnly && query !== "all";
     let items = page.items.filter((issue) => (stringFlag(args, "parent") === undefined || issue.parentId === stringFlag(args, "parent")) && (stringFlag(args, "assignee") === undefined || issue.assignee === stringFlag(args, "assignee")) && (stringFlag(args, "type") === undefined || issue.type === stringFlag(args, "type")) && (stringFlag(args, "priority") === undefined || issue.priority === Number(stringFlag(args, "priority"))) && (stringFlag(args, "label") === undefined || issue.labels.includes(stringFlag(args, "label")!)) && (sprintMatches === undefined || sprintMatches(issue)) && (!hideArchived || issue.status !== "archived") && (!archivedOnly || issue.status === "archived"));
     if (!ready) return items; const now = new Date(); items = items.filter((issue) => issue.status === "open" && (issue.deferUntil === null || issue.deferUntil <= now) && !issue.dependencies.some((edge) => edge.type === "blocks" && page.items.some((candidate) => candidate.id === edge.target && candidate.status !== "closed")));
-    if (!booleanFlag(args, "claim")) return items; const pick = items[0] ?? fail("no ready issue to claim"); const claimed = unwrap(await uow.claimReady(pick.id, this.actor)); await this.setCurrent(claimed.id); return [claimed]; }); }
+    if (!booleanFlag(args, "claim")) return items; const pick = items[0] ?? fail("no ready issue to claim"); return [unwrap(await uow.claimReady(pick.id, this.actor))]; }); }
   /** Resolves `--sprint <scope>` into an issue matcher: active/current → focus (empty view when none), backlog/none → null sprint, else a slug. */
   private async sprintFilter(uow: IssueUnitOfWork, flag: string): Promise<(issue: Issue) => boolean> {
     const value = flag.trim().toLowerCase();
@@ -399,7 +401,7 @@ class CommandService {
     const status = stringFlag(args, "status"); if (status !== undefined) patch = { ...patch, status }; const due = parseDate(stringFlag(args, "due")); if (due !== undefined) patch = { ...patch, dueAt: due };
     if (command === "update" && (args.flags.get("attach") !== undefined || stringFlag(args, "plan") !== undefined)) { const incoming = parseAttachments(args, this.root); const planPaths = new Set(stringFlag(args, "plan") === undefined ? [] : incoming.filter((entry) => entry.metadata["kind"] === "plan").map((entry) => entry.path)); const merged: IssueAttachment[] = [...issue.attachments.filter((entry) => isBlobAttachment(entry) || (!planPaths.has(entry.path) && !(planPaths.size > 0 && entry.metadata["kind"] === "plan")))]; for (const attachment of incoming) { const existing = merged.findIndex((entry) => !isBlobAttachment(entry) && entry.path === attachment.path); if (existing >= 0) merged[existing] = attachment; else merged.push(attachment); } patch = { ...patch, attachments: merged }; }
     if (command === "update" && stringFlag(args, "detach") !== undefined) { const target = stringFlag(args, "detach")!; const blobTarget = issue.attachments.find((entry) => isBlobAttachment(entry) && (entry.id === target || entry.name === target)); patch = { ...patch, attachments: blobTarget !== undefined ? (await detachBlobUow(uow, { root: this.root, tasksDir: join(this.root, ".tasks") }, id, target)).attachments : issue.attachments.filter((entry) => isBlobAttachment(entry) || entry.path !== target) }; }
-    const result = changed(issue, patch); unwrap(await uow.save(result)); if (patch.status !== undefined && patch.status !== issue.status) await applyRunSideEffects(uow, result, issue.status, result.status, new Date()); if (command === "close" || command === "reopen" || command === "set-state") await this.setCurrent(result.id); return result; }); }
+    const result = changed(issue, patch); unwrap(await uow.save(result)); if (patch.status !== undefined && patch.status !== issue.status) await applyRunSideEffects(uow, result, issue.status, result.status, new Date()); return result; }); }
   /** Quick capture (`bd q`): create and return only the new id. */
   async quick(args: ParsedArgs): Promise<string> { return (await this.create(args)).id; }
   /** Field shorthand used by `assign`/`priority`: patch one field on the selected issue. */
@@ -455,8 +457,6 @@ class CommandService {
       if (touched) unwrap(await uow.save({ ...next, updatedAt: new Date() }));
     }
     unwrap(await uow.delete(issue.id));
-    const current = await readFile(join(this.root, ".tasks", "current"), "utf8").catch(() => "");
-    if (current.trim() === from) await this.setCurrent(issueId(to));
   }
   /** Rename an issue id, retargeting parents and dependencies that reference it. */
   async rename(args: ParsedArgs): Promise<{ readonly from: string; readonly to: string }> { const from = args.positionals[1] ?? fail("rename requires old id"); const to = args.positionals[2] ?? fail("rename requires new id"); return transaction(this.database, async (uow) => { const page = unwrap(await uow.list({ limit: 100_000 })); await this.renameOne(uow, page, from, to); return { from, to }; }); }
@@ -522,9 +522,6 @@ class CommandService {
         }));
       }
       for (const issue of page.items) if (mapping.has(issue.id)) unwrap(await uow.delete(issue.id));
-      const current = await readFile(join(this.root, ".tasks", "current"), "utf8").catch(() => "");
-      const remapped = mapping.get(current.trim());
-      if (remapped !== undefined) await this.setCurrent(issueId(remapped));
       const tasksDir = join(this.root, ".tasks"); const currentConfig = await readWorkspaceConfig(tasksDir); await writeWorkspaceConfig(tasksDir, { ...currentConfig, prefix: to.replace(/-$/, "") });
       return { from, to, renamed: mapping.size, dryRun };
     });
@@ -644,7 +641,7 @@ WORKING WITH ISSUES
   hunk <id> sync          Import live Hunk review comments into the issue (deduped)
 
   tui [workspace]         Launch the terminal UI (board, kanban, graph, insights)
-  web [workspace] [-d] [--port N]  Web UI over the workspace (-d: dev mode — open browser + live reload)
+  web [workspace] [-d] [--open] [--port N]  Web UI over the workspace (-d: dev mode; --open/-d opens browser; press w to open; port: --port or TK_WEB_PORT)
   watch [--kinds k1,k2] [--ids id1,id2] [--label l] [--interval ms]
                           Watch for changes (NDJSON events on stdout)
   runtime list            Live watcher registry (id, pid, heartbeat age)
@@ -700,7 +697,7 @@ GLOBAL FLAGS
   --readonly              Reject writes
   -C, --directory <path>  Change directory before running (like git -C)
   --actor <name>          Override actor identity
-  -h, --help              Show this help
+  -h, --help              Show this help (tk help <cmd> or tk <cmd> -h shows that command)
 
 EXAMPLES
   tk q "fix login bug"                 Quick-capture an idea
@@ -723,7 +720,52 @@ EXAMPLES
 
 ENVIRONMENT
   NO_COLOR                Disable colored output
+  TK_WEB_PORT             Default port for tk web when --port is absent
 `;
+/** Fuller usage for commands whose one-line HELP entry omits real flags (`tk <cmd> -h`). */
+const CREATE_USAGE = `  create <title> [opts]   Create issue
+    -t/--type <type>, -p/--priority <0-4>, --status <s>, --due <date>, --defer-until <date>
+    --description <d> (--stdin reads it), --labels a,b, --deps kind:id,... (default kind: blocks)
+    --parent <id>, --assignee <u>, --owner <u>, --estimate <n>, --branch <b>
+    --acceptance <text>, --design <text>, --notes <text>, --spec-id <id>, --external-ref <ref>
+    --metadata <json>, --attach <path>... (--attach-metadata k=v,k2=v2), --plan <path>`;
+
+const COMMAND_USAGE_OVERRIDES: Readonly<Record<string, string>> = {
+  create: CREATE_USAGE,
+  q: `  q <title> [opts]        Quick capture: create and print only the ID${CREATE_USAGE.slice(CREATE_USAGE.indexOf("\n"))}`,
+  update: `  update <id> [flags]     Update fields
+    --title <t> --description <d> (--body <d>/--stdin), --priority <0-4>, --type <t>
+    --status <s>, --due <date>, --claim (start work), --assignee <u>, --owner <u>, --branch <b>
+    --acceptance <text>, --design <text>, --append-notes <text>
+    --parent <id>, --estimate <n>, --spec-id <id>, --external-ref <ref>
+    --label a,b, --add-label a,b, --remove-label a,b
+    --metadata <json>, --set-metadata k=v, --unset-metadata k
+    --attach <path>... (--attach-metadata k=v,k2=v2), --plan <path>, --detach <ref>`,
+  attach: `  attach <id> <path>...   Attach file paths (--attach-metadata k=v,k2=v2)
+    --evidence <path>...    Ingest file contents as blobs (slug identity replaces in place)`,
+  list: `  list [filters]          List issues
+    --status <s> --parent <id> --assignee <u> --type <t> --priority <0-4> --label <l>
+    --sprint <scope>, --limit <n>, --archived
+    Shorthands: --open --closed --all --ready-to-review --approved --rejected`,
+  ready: `  ready [--claim]         List ready (unblocked) issues; accepts list filters
+    --claim                 Claim the first ready issue (status -> in_progress)`,
+};
+
+/** `tk <cmd> -h` / `tk help <cmd>`: the command's lines from HELP plus global flags. */
+const commandHelp = (topic: string): string | null => {
+  const lines = HELP.split("\n");
+  const pattern = new RegExp(`^  ${topic.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?: |$)`);
+  const matched: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!pattern.test(lines[index]!)) continue;
+    matched.push(lines[index]!);
+    while (index + 1 < lines.length && /^ {10,}\S/.test(lines[index + 1]!)) { index += 1; matched.push(lines[index]!); }
+  }
+  const usage = COMMAND_USAGE_OVERRIDES[topic] ?? matched.join("\n");
+  if (usage === "") return null;
+  const section = (name: string): string => { const start = lines.indexOf(name); if (start === -1) return ""; let end = start + 1; while (end < lines.length && lines[end] !== "") end += 1; return lines.slice(start, end).join("\n"); };
+  return `tk ${topic}\n\n${usage}\n\n${section("GLOBAL FLAGS")}\n\n${section("ENVIRONMENT")}\n`;
+};
 /**
  * `tk watch` — foreground workspace watcher: prints NDJSON event frames
  * (`ready`/`event`/`error`) to stdout as issues change. Exit 0 on EOF (stdin
@@ -744,18 +786,20 @@ async function runTui(args: ParsedArgs, root: string | null, start: string): Pro
 }
 
 /**
- * `tk web [workspace] [-d|--dev] [--port N]` — serve the web UI over the
- * resolved workspace. Spawned as a child process so the server lifetime is
- * the CLI lifetime (Ctrl-C stops it). Dev mode auto-opens the browser and
- * live-reloads on shell edits.
+ * `tk web [workspace] [-d|--dev] [--open] [--port N]` — serve the web UI over
+ * the resolved workspace. Spawned as a child process so the server lifetime is
+ * the CLI lifetime (Ctrl-C stops it). Dev mode and `--open` launch the browser
+ * at startup; with a TTY, pressing `w` opens it. `TK_WEB_PORT` overrides the
+ * default port when `--port` is absent.
  */
 async function runWeb(args: ParsedArgs, root: string | null, start: string): Promise<void> {
   const workspace = args.positionals[1] ?? root;
   if (workspace === null) fail(await beadsHint(start));
   const entry = join(import.meta.dir, "..", "..", "web", "src", "main.ts");
   const dev = booleanFlag(args, "dev");
+  const open = booleanFlag(args, "open");
   const port = stringFlag(args, "port");
-  const child = Bun.spawn(["bun", entry, workspace!, ...(dev ? ["--dev"] : []), ...(port !== undefined ? ["--port", port] : [])], { cwd: workspace!, stdin: "ignore", stdout: "inherit", stderr: "inherit" });
+  const child = Bun.spawn(["bun", entry, workspace!, ...(dev ? ["--dev"] : []), ...(open ? ["--open"] : []), ...(port !== undefined ? ["--port", port] : [])], { cwd: workspace!, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
   exit(await child.exited);
 }
 async function runWatch(args: ParsedArgs, start: string): Promise<void> {
@@ -830,7 +874,8 @@ async function main(): Promise<void> { const rawTokens = process.argv.slice(2); 
   if (command === "switch-backend" && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(SWITCH_BACKEND_HELP); return; }
   if (command === "help" && args.positionals[1] === "switch-backend") { process.stdout.write(SWITCH_BACKEND_HELP); return; }
   if (command === "update" && args.positionals.length === 1 && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(UPDATER_HELP); return; }
-  if (command === "help" || booleanFlag(args, "help") || booleanFlag(args, "h")) { process.stdout.write(HELP); return; }
+  const topic = command === "help" ? args.positionals[1] : command;
+  if (command === "help" || booleanFlag(args, "help") || booleanFlag(args, "h")) { process.stdout.write(topic === undefined ? HELP : commandHelp(topic) ?? HELP); return; }
   if (command === "tui") { await runTui(args, root, start); return; }
   if (command === "web") { await runWeb(args, root, start); return; }
   if (command === "watch") { await runWatch(args, start); return; }
@@ -871,6 +916,10 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
   if (command === "update" && args.positionals.length === 1) { await runSelfUpdate(args, json); return; }
   if (command === "codex-hook") { await runCodexHook(args.positionals[1] ?? fail("codex-hook requires event"), await readInput()); return; }
   if (command === "cursor-hook") { await runCursorHook(args.positionals[1] ?? fail("cursor-hook requires event"), await readInput()); return; }
+  // Worktree commands need git, not a .tasks workspace (`tk worktree info` must
+  // report "none" state in a workspaceless repo). Dispatch before workspace
+  // resolution; create/remove gate readonly themselves.
+  if (command === "worktree") { await runWorktree(args, start, json); return; }
   // migrate bootstraps its own workspace so a beads-only checkout needs no separate init,
   // except under --dry-run, which must leave the filesystem untouched.
   const bootstrapping = root === null && command === "migrate";
@@ -921,6 +970,8 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
     else if (command === "detach") { const issue = await service.detach(args); value = issueWire(issue); human = () => confirmation("Detached file from", issue); }
     else if (command === "q") { const id = await service.quick(args); value = { id }; human = () => id; }
     else if (command === "show") { const issue = await service.show(args); value = [issueWire(issue)]; human = () => formatShow(issue); }
+    else if (command === "work") { const issue = await service.show(args); value = [issueWire(issue), { review: reviewMeta(issue), action: "WIP" }]; human = () => formatWork(issue); }
+    else if (command === "review") { const issue = await service.show(args); value = [issueWire(issue), { review: reviewMeta(issue), action: "WIP" }]; human = () => formatReview(issue); }
     else if (command === "list" || command === "ready") { const issues = await service.list(args, command === "ready"); value = issues.map(issueWire); human = () => (command === "ready" ? formatReady(issues) : formatList(issues)); }
     else if (command === "blocked") { const all = await service.all(); const blocked = all.filter((issue) => issue.dependencies.some((edge) => edge.type === "blocks" && all.some((other) => other.id === edge.target && other.status !== "closed"))); value = blocked.map(issueWire); human = () => formatBlocked(blocked, all); }
     else if (command === "count") { const all = await service.all(); value = { total: all.length, by_status: Object.fromEntries([...new Set(all.map((issue) => issue.status))].sort().map((status) => [status, all.filter((issue) => issue.status === status).length])), by_type: Object.fromEntries([...new Set(all.map((issue) => issue.type))].sort().map((type) => [type, all.filter((issue) => issue.type === type).length])) }; human = () => formatCount(value as { total: number; by_status: Record<string, number>; by_type: Record<string, number> }); }
