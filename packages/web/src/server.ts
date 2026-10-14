@@ -107,6 +107,16 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         const activeSprint = sprints.ok ? sprints.value.find((sprint) => sprint.status === "active") ?? null : null;
         return json({ issues: page.value, actor, now: new Date().toISOString(), sprints: sprints.ok ? sprints.value : [], activeSprint });
       }
+      const blobMatch = /^\/api\/issue\/([^/]+)\/blob\/([^/]+)$/.exec(url.pathname);
+      if (request.method === "GET" && blobMatch !== null) {
+        const id = decodeURIComponent(blobMatch[1]!);
+        const ref = decodeURIComponent(blobMatch[2]!);
+        const outcome = await surface.evidenceRead(id, ref);
+        if (!outcome.ok) return json({ error: outcome.error }, 500);
+        const content = outcome.value;
+        if (content === null) return json({ error: { kind: "runtime", message: `no stored blob for ${ref}` } }, 404);
+        return new Response(content.bytes, { headers: { "content-type": content.meta.mime, "cache-control": "no-store" } });
+      }
       const body = async (): Promise<Record<string, unknown>> => {
         try {
           const parsed: unknown = await request.json();

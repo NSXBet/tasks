@@ -256,6 +256,63 @@
   }
   #toast.show { opacity: 1; }
   #toast.err { color: var(--blocked); border-color: var(--blocked); }
+  .evimg { max-width: 320px; max-height: 200px; border-radius: 8px; border: 1px solid var(--border); display: block; margin: 6px 0; cursor: zoom-in; }
+  .evref { color: var(--faint); background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; font-size: 12px; }
+  .attrow { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .atchip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--dim); text-decoration: none; }
+  .atchip:hover { border-color: var(--accent); color: var(--accent); }
+  .atchip img { width: 22px; height: 22px; object-fit: cover; border-radius: 5px; }
+  .lightbox { position: fixed; inset: 0; background: rgb(0 0 0 / 72%); display: none; align-items: center; justify-content: center; z-index: 90; cursor: zoom-out; }
+  .lightbox.show { display: flex; }
+  .lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 10px; box-shadow: 0 12px 48px rgb(0 0 0 / 55%); }
+
+  /* ---------- review mock views (phase 0) ---------- */
+  .rwrap { display: flex; gap: 14px; flex: 1; min-height: 0; padding: 14px 18px 18px; overflow: auto; align-items: flex-start; }
+  .rcol { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+  .rside { width: 360px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
+  .rtasks { width: 210px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; }
+  .rtasks .rlhead { display: flex; align-items: center; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); padding: 4px 9px 8px; }
+  .rtasks .rtrow {
+    display: flex; gap: 8px; align-items: baseline; text-align: left; width: 100%;
+    padding: 7px 9px; border-radius: 8px; border: 1px solid transparent;
+    transition: background .12s, border-color .12s;
+  }
+  .rtasks .rtrow .rid { color: var(--faint); font-size: 11.5px; flex-shrink: 0; }
+  .rtasks .rtrow .rtt {
+    color: var(--dim); font-size: 12.5px; line-height: 1.3;
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .rtasks .rtrow:hover { background: var(--panel2); }
+  .rtasks .rtrow.sel { background: var(--panel); border-color: var(--accent); }
+  .rtasks .rtrow.sel .rtt { color: var(--text); }
+  .rpanel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+  .rpanel .rhead { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  .rpanel .rhead .cnt { margin-left: auto; color: var(--faint); font-weight: 500; font-size: 12px; }
+  .rtitle { font-size: 17px; font-weight: 650; line-height: 1.35; margin-top: 8px; }
+  .rdesc { color: var(--dim); font-size: 13.5px; white-space: pre-wrap; margin-top: 10px; }
+  .rmeta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .srow, .frow {
+    display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px;
+    color: var(--dim); font-size: 13px; width: 100%; text-align: left;
+  }
+  .srow:hover, .frow:hover { background: var(--panel2); color: var(--text); }
+  .frow .fpath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .frow .plus { color: var(--closed); font-size: 12px; }
+  .frow .minus { color: var(--blocked); font-size: 12px; }
+  .frow .ccnt { color: var(--faint); font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .agchip { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); border-radius: 5px; padding: 0 6px; font-weight: 600; margin-left: 6px; }
+  .comment .reply { color: var(--faint); font-size: 11.5px; margin-top: 4px; }
+  .comment .reply:hover { color: var(--accent); }
+  .comment .quote { display: block; border-left: 2px solid var(--border); padding-left: 8px; color: var(--faint); margin: 2px 0; }
+  .dfile { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; width: 100%; }
+  .dfile .dfhead { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; }
+  .dlines { padding: 8px 0; font-size: 12.5px; line-height: 1.55; overflow-x: auto; }
+  .dl { padding: 0 12px; white-space: pre; }
+  .dl.ctx { color: var(--dim); }
+  .dl.del { color: var(--blocked); background: rgba(229,101,94,.08); }
+  .dl.add { color: var(--closed); background: rgba(122,209,154,.08); }
+  .dl.hunk { color: var(--faint); }
 </style>
 </head>
 <body>
@@ -277,6 +334,10 @@
       <button class="navitem" data-view="board"><span class="ico">▦</span><span class="name">Board</span><span class="count" data-count="board"></span></button>
       <button class="navitem" data-view="graph"><span class="ico">⟐</span><span class="name">Graph</span><span class="count" data-count="graph"></span></button>
       <button class="navitem" data-view="insights"><span class="ico">◎</span><span class="name">Insights</span><span class="count"></span></button>
+      <div class="label">Review · mock</div>
+      <button class="navitem" data-view="task"><span class="ico">◈</span><span class="name">Task</span><span class="count"></span></button>
+      <button class="navitem" data-view="artifact"><span class="ico">≣</span><span class="name">Artifact</span><span class="count"></span></button>
+      <button class="navitem" data-view="diff"><span class="ico">±</span><span class="name">Diff</span><span class="count"></span></button>
       <div class="spacer"></div>
       <div class="actor">actor <b id="actorName">—</b></div>
     </aside>
@@ -287,6 +348,9 @@
         <div class="list" id="listView" style="display:none"></div>
         <div class="pane" id="graphView" style="display:none"></div>
         <div class="pane" id="insightsView" style="display:none"></div>
+        <div class="rwrap" id="taskView" style="display:none"></div>
+        <div class="rwrap" id="artifactView" style="display:none"></div>
+        <div class="rwrap" id="diffView" style="display:none"></div>
       </div>
     </main>
   </div>
@@ -331,6 +395,7 @@
   </div>
 
   <div id="toast"></div>
+  <div class="lightbox" id="lightbox"><img id="lightboxImg" alt=""></div>
 <script type="module">
   const $ = (id) => document.getElementById(id);
   const state = {
@@ -503,6 +568,177 @@
     });
   };
 
+  /* ---------- review mock (phase 0): hard-coded canonical scenario ---------- */
+  const MOCK_VIEWS = ["task", "artifact", "diff"];
+  const MOCK = {
+    id: "tk-142",
+    title: "Fix flaky retry logic in uploader",
+    description: "Retries in uploader race the refresh mutex; two concurrent refreshes deadlock under load. Serialize refreshes and drop the retry storm.",
+    status: "ready-to-review", priority: 2,
+    branch: "tk/tk-142", base: "main @ 9f13ee4", worktree: "../platform-api-tk-142",
+    sessions: [
+      { id: "sess-7f3k", agent: "omp", state: "done", label: "research patterns", dur: "10m" },
+      { id: "sess-k2q9", agent: "omp", state: "running", label: "design discussion", dur: "2m" },
+    ],
+    artifacts: [
+      { path: "src/uploader/retry.ts", plus: 38, minus: 12, comments: 5 },
+      { path: "src/uploader/refresh-mutex.ts", plus: 24, minus: 0, comments: 2 },
+      { path: "bench/retry-bench.txt", plus: 9, minus: 2, comments: 1 },
+    ],
+    comments: [
+      { author: "kyle", agent: false, quote: null, text: "will the mutex deadlock under concurrent upload?" },
+      { author: "agent", agent: true, quote: "will the mutex deadlock under concurrent upload?", text: "serialized refresh via refreshMutex.run — no shared state" },
+      { author: "sarah", agent: false, quote: null, text: "prefer channel-based retry" },
+      { author: "agent", agent: true, quote: "prefer channel-based retry", text: "channel would drop ordering guarantees; mutex keeps backpressure" },
+      { author: "alex", agent: false, quote: null, text: "bench shows −70% p99; LGTM" },
+    ],
+    diff: {
+      path: "src/uploader/retry.ts", plus: 38, minus: 12,
+      lines: [
+        { k: "hunk", t: "@@ -41,7 +41,10 @@ export async function refresh() {" },
+        { k: "ctx", t: "  const token = await tokenCache.read();" },
+        { k: "ctx", t: "  if (!token) return null;" },
+        { k: "del", t: "-  const res = await fetch(REFRESH_URL, {" },
+        { k: "add", t: "+  const res = await refreshMutex.run(token, async () => {" },
+        { k: "add", t: "+    return await fetch(REFRESH_URL, { headers: { authorization: token } });" },
+        { k: "add", t: "+  });" },
+        { k: "ctx", t: "  if (!res.ok) throw new RetryError(res.status);" },
+        { k: "ctx", t: "  return res.json();" },
+      ],
+    },
+  };
+  const mockBuilt = new Set();
+
+  const artifactRow = (a, nav) => `
+    <button class="frow" data-nav="${nav}">
+      <span class="ico" style="width:16px;text-align:center;color:var(--faint)">≣</span>
+      <span class="fpath mono">${esc(a.path)}</span>
+      <span class="plus">+${a.plus}</span>
+      <span class="minus">−${a.minus}</span>
+      <span class="ccnt">💬 ${a.comments}</span>
+    </button>`;
+
+  const mockComment = (c) => `
+    <div class="comment">
+      <span class="who">${esc(c.author)}</span>${c.agent ? `<span class="agchip">agent</span>` : ""}<span class="at">mock</span><br>
+      ${c.quote ? `<span class="quote">↳ ${esc(c.quote)}</span>` : ""}${esc(c.text)}
+      <br><button class="reply" data-wip>reply</button>
+    </div>`;
+
+  const wireWip = (view) => view.querySelectorAll("[data-wip]").forEach((el) =>
+    el.addEventListener("click", () => toast("WIP")));
+  const wireNav = (view) => view.querySelectorAll("[data-nav]").forEach((el) =>
+    el.addEventListener("click", () => { state.view = el.dataset.nav; render(); }));
+
+  const renderTask = () => {
+    // TUI parity: center detail tracks the selected issue; rails stay fixtures.
+    const active = state.issues.find((i) => i.id === state.selected) ?? state.issues[0];
+    const m = active ? { ...MOCK, id: active.id, title: active.title, description: active.description ?? "", status: active.status, priority: active.priority } : MOCK;
+    const view = $("taskView");
+    view.innerHTML = `
+      <div class="rtasks">
+        <div class="rlhead">Tasks</div>
+        ${state.issues.map((i) => `
+          <button class="rtrow ${i.id === m.id ? "sel" : ""}" data-tsel="${esc(i.id)}">
+            <span class="rid mono">${esc(i.id)}</span>
+            <span class="rtt">${esc(i.title)}</span>
+          </button>`).join("")}
+      </div>
+      <div class="rcol">
+        <div class="rpanel">
+          <div class="rhead">
+            <span class="mono" style="color:var(--faint);font-size:12.5px">${esc(m.id)}</span>
+            ${statchip(m)}${pchip(m)}
+            <span style="margin-left:auto"></span>
+            <button class="btn primary" data-wip>Start work</button>
+            <button class="btn" data-nav="diff">Open diff</button>
+            <button class="btn" data-wip>Edit</button>
+          </div>
+          <div class="rtitle">${esc(m.title)}</div>
+          <div class="rmeta">
+            <span class="fchip2">branch <b class="mono">${esc(m.branch)}</b></span>
+            <span class="fchip2">base <b class="mono">${esc(m.base)}</b></span>
+            <span class="fchip2">worktree <b class="mono">${esc(m.worktree)}</b></span>
+          </div>
+          <div class="rdesc">${esc(m.description)}</div>
+        </div>
+        <div class="rpanel">
+          <div class="rhead">Sessions<span class="cnt">${m.sessions.length}</span></div>
+          ${m.sessions.map((s) => `
+            <button class="srow" data-wip>
+              <span class="dot" style="background:${s.state === "running" ? "var(--run)" : "var(--closed)"}"></span>
+              <span class="mono" style="color:var(--faint);font-size:12px">${esc(s.id)}</span>
+              <span>${esc(s.agent)} · ${esc(s.label)}</span>
+              <span style="margin-left:auto;color:var(--faint);font-size:12px">${esc(s.state)} · ${esc(s.dur)}</span>
+            </button>`).join("")}
+        </div>
+        <div class="rpanel">
+          <div class="rhead">Changed files<span class="cnt">${m.artifacts.length}</span></div>
+          ${m.artifacts.map((a) => artifactRow(a, "artifact")).join("")}
+        </div>
+        <div class="rpanel">
+          <div class="cbox" style="margin-bottom:0"><input placeholder="Add a comment…"><button class="btn" data-wip>Comment</button></div>
+        </div>
+      </div>`;
+    view.querySelectorAll("[data-tsel]").forEach((el) => el.addEventListener("click", () => selectIssue(el.dataset.tsel)));
+    wireWip(view);
+    wireNav(view);
+  };
+
+  const renderArtifact = () => {
+    const m = MOCK;
+    const view = $("artifactView");
+    view.innerHTML = `
+      <div class="rcol">
+        <div class="rpanel">
+          <div class="rhead">Artifacts · ${esc(m.id)}<span class="cnt">${m.artifacts.length} files · ${m.comments.length} comments</span></div>
+          ${m.artifacts.map((a) => artifactRow(a, "diff")).join("")}
+          <div class="rmeta">
+            <button class="btn" data-nav="diff">Open diff</button>
+            <button class="btn" data-wip>Edit</button>
+          </div>
+        </div>
+      </div>
+      <div class="rside">
+        <div class="rpanel">
+          <div class="rhead">Review comments<span class="cnt">${m.comments.length}</span></div>
+          <div class="comments">${m.comments.map(mockComment).join("")}</div>
+          <div class="cbox" style="margin-bottom:0"><input placeholder="Reply or comment…"><button class="btn" data-wip>Comment</button></div>
+        </div>
+      </div>`;
+    wireWip(view);
+    wireNav(view);
+  };
+
+  const renderDiff = () => {
+    const d = MOCK.diff;
+    const view = $("diffView");
+    view.innerHTML = `
+      <div class="rcol">
+        <div class="dfile">
+          <div class="dfhead">
+            <span class="mono" style="font-size:12.5px">${esc(d.path)}</span>
+            <span style="color:var(--closed);font-size:12px">+${d.plus}</span>
+            <span style="color:var(--blocked);font-size:12px">−${d.minus}</span>
+            <span style="margin-left:auto"></span>
+            <button class="btn" data-wip>Comment on diff</button>
+          </div>
+          <div class="dlines mono">
+            ${d.lines.map((l) => `<div class="dl ${l.k}">${esc(l.t)}</div>`).join("")}
+          </div>
+        </div>
+      </div>`;
+    wireWip(view);
+  };
+
+  const renderMock = (view) => {
+    if (view === "task") { renderTask(); return; } // selection-driven; rebuilds each render
+    if (mockBuilt.has(view)) return;
+    mockBuilt.add(view);
+    if (view === "artifact") renderArtifact();
+    else renderDiff();
+  };
+
   /* ---------- frame ---------- */
   const FILTERS = ["all", "open", "in_progress", "ready-to-review", "closed", "archived"];
   const renderFilters = () => {
@@ -524,8 +760,14 @@
   const render = () => {
     const issues = visible();
     railCounts(state.issues);
-    renderFilters();
-    for (const v of ["board", "list", "graph", "insights"]) {
+    // Chips only make sense where the filter applies; TUI shows them on list/board/insights only.
+    if (["list", "board", "insights"].includes(state.view)) {
+      $("filterbar").style.display = "flex";
+      renderFilters();
+    } else {
+      $("filterbar").style.display = "none";
+    }
+    for (const v of ["board", "list", "graph", "insights", "task", "artifact", "diff"]) {
       $(v + "View").style.display = state.view === v ? "flex" : "none";
       if (v === "list" || v === "graph" || v === "insights") $(v + "View").style.display = state.view === v ? "block" : "none";
     }
@@ -533,6 +775,7 @@
     if (state.view === "list") renderList(issues);
     if (state.view === "graph") renderGraph();
     if (state.view === "insights") renderInsights(issues);
+    if (MOCK_VIEWS.includes(state.view)) renderMock(state.view);
     document.querySelectorAll(".navitem[data-view]").forEach((el) => {
       el.classList.toggle("active", el.dataset.view === state.view);
     });
@@ -564,6 +807,22 @@
     try { return await fn(); }
     catch (cause) { toast(cause instanceof Error ? cause.message : "request failed", true); return null; }
   };
+
+  /* ---------- evidence + attachments ---------- */
+  const isImage = (mime) => typeof mime === "string" && mime.startsWith("image/");
+  const blobUrl = (issue, att) => `/api/issue/${encodeURIComponent(issue.id)}/blob/${encodeURIComponent(att.id)}`;
+  const fmtSize = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+  const blobAtts = (issue) => (issue.attachments ?? []).filter((a) => a.id !== undefined);
+  /** Comment body → HTML; `evidence:<id>` refs render as inline images (or file chips); unknown refs stay code. */
+  const renderBody = (issue, text) => esc(text).replace(/evidence:(ev-[a-z0-9]{6})/g, (ref, attId) => {
+    const att = blobAtts(issue).find((a) => a.id === attId);
+    if (!att) return `<code class="evref">${ref}</code>`;
+    return isImage(att.mime)
+      ? `<img class="evimg" src="${blobUrl(issue, att)}" alt="${esc(att.name)}" loading="lazy">`
+      : `<a class="atchip" href="${blobUrl(issue, att)}" target="_blank" rel="noopener">📎 ${esc(att.name)}</a>`;
+  });
+  const openLightbox = (src) => { $("lightboxImg").src = src; $("lightbox").classList.add("show"); };
+  $("lightbox").addEventListener("click", () => $("lightbox").classList.remove("show"));
 
   /* ---------- task modal ---------- */
   let modalIssue = null;
@@ -600,12 +859,15 @@
       </div>
       ${openBlockers.length ? `<div class="fieldrow"><span class="fchip2 danger">⚠ blocked by ${openBlockers.map((b) => `<button class="fchip2 link" data-open="${esc(b.id)}" style="padding:1px 8px">${esc(b.id)}</button>`).join(" ")}</span></div>` : ""}
       <div class="descbox"><textarea id="mDesc" placeholder="Describe the work… (markdown-ish)">${esc(issue.description ?? "")}</textarea></div>
+      ${blobAtts(issue).length ? `<div class="attrow">${blobAtts(issue).map((a) => isImage(a.mime)
+        ? `<a class="atchip" href="${blobUrl(issue, a)}" target="_blank" rel="noopener"><img src="${blobUrl(issue, a)}" alt=""> ${esc(a.name)}</a>`
+        : `<a class="atchip" href="${blobUrl(issue, a)}" target="_blank" rel="noopener">📎 ${esc(a.name)} · ${esc(a.mime)} · ${fmtSize(a.size)}</a>`).join("")}</div>` : ""}
       <div class="fieldrow">
         <span class="fchip2">labels <b>${esc(issue.labels.join(", ") || "none")}</b></span>
         <span class="fchip2">deps <b>${issue.dependencyCount}</b></span>
         <span class="fchip2">comments <b>${issue.commentCount}</b></span>
       </div>
-      <div class="comments">${issue.comments.map((c) => `<div class="comment"><span class="who">${esc(c.author)}</span><span class="at">${age(c.createdAt)} ago</span><br>${esc(c.text)}</div>`).join("")}</div>
+      <div class="comments">${issue.comments.map((c) => `<div class="comment"><span class="who">${esc(c.author)}</span><span class="at">${age(c.createdAt)} ago</span><br>${renderBody(issue, c.text)}</div>`).join("")}</div>
       <div class="cbox"><input id="mComment" placeholder="Add a comment…"><button class="btn" id="mCommentBtn">Comment</button></div>
       <div class="foot">
         <span>created ${age(issue.createdAt)} ago</span>
@@ -641,6 +903,8 @@
       input.value = "";
       await refresh();
     });
+    $("taskModal").querySelectorAll(".evimg").forEach((img) =>
+      img.addEventListener("click", () => openLightbox(img.src)));
   };
   const closeModal = () => { $("modalOverlay").classList.remove("show"); modalIssue = null; };
   const saveIssue = async (patch) => {
@@ -725,7 +989,7 @@
   /* ---------- keys ---------- */
   document.addEventListener("keydown", (e) => {
     const inField = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
-    if (e.key === "Escape") { closePalette(); closeNew(); closeModal(); if (inField) document.activeElement.blur(); return; }
+    if (e.key === "Escape") { closePalette(); closeNew(); closeModal(); $("lightbox").classList.remove("show"); if (inField) document.activeElement.blur(); return; }
     if (inField) return;
     if (e.key === ":" || (e.key === "k" && (e.metaKey || e.ctrlKey))) { e.preventDefault(); openPalette(); }
     else if (e.key === "1") switchView("list");
