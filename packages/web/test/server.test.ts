@@ -39,6 +39,25 @@ describe("tk web server", () => {
     }
   });
 
+  it("serves the phase-0 review mock views in the shell", async () => {
+    const root = workspace();
+    await init(root);
+    const server = await startWebServer({ root });
+    try {
+      const shell = await fetch(`${server.url}/`);
+      expect(shell.status).toBe(200);
+      const body = new TextDecoder().decode(await shell.arrayBuffer());
+      expect(body).toContain('id="taskView"');
+      expect(body).toContain('id="artifactView"');
+      expect(body).toContain('id="diffView"');
+      expect(body).toContain("tk-142");
+      expect(body).toContain("Fix flaky retry logic in uploader");
+      expect(body).toContain('toast("WIP")');
+    } finally {
+      await server.close();
+    }
+  });
+
   it("creates an issue through the API and reads it back on the board", async () => {
     const root = workspace();
     await init(root);
