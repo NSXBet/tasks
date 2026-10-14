@@ -8,6 +8,43 @@ matching section as its release notes — add a section for every new version
 
 ## [Unreleased]
 
+### Added
+
+- `tk web` picks its port from `--port N` or the `TK_WEB_PORT` env var — flag
+  wins; an unparsable value warns and falls back to the default instead of
+  silently misconfiguring.
+- `tk web --open` launches the browser at startup without dev mode, and in an
+  interactive terminal the startup line shows `press w to open` — pressing `w`
+  opens the browser at any time; Ctrl-C still quits.
+- Per-command help: `tk <cmd> -h`, `tk <cmd> --help`, and `tk help <cmd>` now
+  print that command's own usage and flags instead of the full help; `tk help`
+  and `tk -h` keep the full reference.
+
+### Fixed
+
+- `tk worktree list|create|info|remove` dispatch again: `runWorktree` was
+  implemented and documented in help, but `main()` never routed the `worktree`
+  command, so every call failed with `unknown command: worktree`. Dispatch now
+  happens before workspace resolution, so the commands also work in repos
+  without a `.tasks/` workspace (`tk worktree info` correctly reports state
+  `none`).
+- `tk worktree create` records the worktree in the main root's `.gitignore`
+  even when the working directory resolves through a symlink (macOS `/var` →
+  `/private/var`): the relative path is now computed in real-path space.
+- `tk web` review views match the TUI: the task view renders the full task
+  rail (selection drives the center detail), and the filter chips bar only
+  shows on views where the filter applies (list, board, insights) instead of
+  every view.
+
+### Removed
+
+- The `.tasks/current` last-selected-issue pointer. A single file shared by
+  every worktree made multi-agent runs race on `--current` and silently target
+  another agent's issue; `create`/`claim`/`close` also mutated it as a side
+  effect. All id-scoped commands now require the id explicitly (the `tasks`
+  tool, TUI and `tk` CLI included), and the runtime file is no longer written
+  or read.
+
 ## [0.5.0] - 2026-10-05
 
 ### Added

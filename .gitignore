@@ -12,3 +12,10 @@ node_modules/
 
 # Beads
 .beads/
+
+# Internal design references (do not ship)
+docs/html/task-to-review-references.html
+docs/html/references/
+
+# VibeWise learning notes (local)
+.vibe-wise/

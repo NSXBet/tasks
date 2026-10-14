@@ -377,15 +377,15 @@ omp install github:NSXBet/tasks
 ```
 
 omp (and pi) resolve the repo, read the `pi`/`omp` manifest keys in the root
-`package.json` — pointing at `packages/extension/src/index.ts` and the
-`packages/extension/skills/*/SKILL.md` skill — and copy the plugin into
+`package.json` — pointing at `packages/pi-extention/src/index.ts` and the
+`packages/pi-extention/skills/*/SKILL.md` skill — and copy the plugin into
 `~/.omp/plugins/`. `#ref` pins a branch, tag, or commit
 (`github:NSXBet/tasks#v1.2.0`).
 
 To install from a local checkout instead (symlinked, live for edits):
 
 ```bash
-omp install /path/to/tasks/packages/extension
+omp install /path/to/tasks/packages/pi-extention
 ```
 
 Both hosts run TypeScript directly (omp is a Bun binary; pi loads `.ts`
@@ -396,7 +396,7 @@ child entry ships inside the surface package.
 To install from a local checkout instead (symlinked, live for edits):
 
 ```bash
-omp install /path/to/tasks/packages/extension
+omp install /path/to/tasks/packages/pi-extention
 ```
 
 

@@ -56,10 +56,6 @@
         "zod": "^4.2.1",
       },
     },
-    "packages/extension": {
-      "name": "@NSXBet/tasks-extension",
-      "version": "0.2.0",
-    },
     "packages/file": {
       "name": "@tasks/file",
       "version": "0.2.0",
@@ -70,6 +66,10 @@
       "devDependencies": {
         "@types/node": "^22.0.0",
       },
+    },
+    "packages/pi-extention": {
+      "name": "pi-extention",
+      "version": "0.2.0",
     },
     "packages/postgres": {
       "name": "@tasks/postgres",
@@ -162,8 +162,6 @@
     },
   },
   "packages": {
-    "@NSXBet/tasks-extension": ["@NSXBet/tasks-extension@workspace:packages/extension"],
-
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@opentui/core": ["@opentui/core@0.5.11", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@opentui/core/-/core-0.5.11.tgz", { "dependencies": { "bun-ffi-structs": "0.3.1", "diff": "9.0.0", "marked": "17.0.1", "string-width": "7.2.0", "strip-ansi": "7.1.2" }, "optionalDependencies": { "@opentui/core-darwin-arm64": "0.5.11", "@opentui/core-darwin-x64": "0.5.11", "@opentui/core-linux-arm64": "0.5.11", "@opentui/core-linux-arm64-musl": "0.5.11", "@opentui/core-linux-x64": "0.5.11", "@opentui/core-linux-x64-musl": "0.5.11", "@opentui/core-win32-arm64": "0.5.11", "@opentui/core-win32-x64": "0.5.11" }, "peerDependencies": { "web-tree-sitter": "0.25.10" } }, "sha512-pImMfjCNx7JUp9Df1LRZBDLisWqgzOLXZKXO+hh3jA9ujBFPQnZOqbG+/N5uVAAX8IZGaqhYSQRwSZIFBmcfbQ=="],
@@ -353,6 +351,8 @@
     "pg-types": ["pg-types@2.2.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/pg-types/-/pg-types-2.2.0.tgz", { "dependencies": { "pg-int8": "1.0.1", "postgres-array": "2.0.0", "postgres-bytea": "1.0.1", "postgres-date": "1.0.7", "postgres-interval": "1.2.0" } }, "sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA=="],
 
     "pgpass": ["pgpass@1.0.5", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/pgpass/-/pgpass-1.0.5.tgz", { "dependencies": { "split2": "4.2.0" } }, "sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug=="],
+
+    "pi-extention": ["pi-extention@workspace:packages/pi-extention"],
 
     "picocolors": ["picocolors@1.1.1", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/picocolors/-/picocolors-1.1.1.tgz", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
 
