@@ -56,6 +56,8 @@ export const WorkspaceConfigSchema = z.object({
   prefix: z.string().min(1).optional(),
   storage: StorageConfigSchema.optional(),
   attachments: AttachmentsConfigSchema,
+  /** tk web's default port for this workspace; `--port` and `TK_WEB_PORT` override it. */
+  webPort: z.number().int().min(1).max(65535).optional(),
 }).passthrough();
 export type WorkspaceConfig = z.infer<typeof WorkspaceConfigSchema>;
 
