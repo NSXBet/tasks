@@ -1,23 +1,34 @@
 /**
  * tk web — local web UI over a tasks workspace, the browser sibling of the TUI.
  * One Bun HTTP server serves the single-page shell (app.html) plus a small
- * JSON API over the same typed surface the CLI and TUI use. Dev mode (`-d`)
+ * JSON API over the same typed surface the CLI and TUI use. Dev mode (`--dev`)
  * adds an SSE channel that live-reloads the page when the shell file changes
  * and opens the browser automatically.
+ *
+ * Instance model: one server per port. Binding the default port while another
+ * tk web server is already serving the workspace fails loudly with the live
+ * instance's identity instead of silently drifting to the next port.
  */
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { createSurface, type SurfaceError, type TasksSurface } from "@tasks/surface";
+import {
+  createSurface, pidAlive, probeWebServer, readRuntimeRegistry,
+  registerRuntime, unregisterRuntime, WEB_DEFAULT_PORT, WEB_RUNTIME_ID,
+  type SurfaceError, type TasksSurface, type WebRuntimeRow, type WebServerStatus,
+} from "@tasks/surface";
 
 export interface WebServerOptions {
   readonly root: string;
   readonly port?: number;
   readonly dev?: boolean;
+  /** Bind an ephemeral port instead of the default, bypassing the single-instance check. */
+  readonly randomPort?: boolean;
 }
 
 export interface WebServer {
   readonly port: number;
   readonly url: string;
+  readonly status: () => WebServerStatus;
   readonly close: () => Promise<void>;
 }
 
@@ -29,27 +40,42 @@ const json = (data: unknown, status = 200): Response =>
 
 const shellPath = (): string => join(import.meta.dir, "app.html");
 
-/** First free port at or above `want` (10 probes); falls back to 0 (ephemeral). */
-const listenPort = async (want: number): Promise<number> => {
-  for (let candidate = want; candidate < want + 10; candidate += 1) {
-    const free = await new Promise<boolean>((resolveProbe) => {
-      const probe = Bun.serve({
-        port: candidate,
-        fetch: (): Response => new Response(null),
-      });
-      probe.stop(true);
-      resolveProbe(true);
-    });
-    if (free) return candidate;
+/**
+ * Thrown when the requested port is taken. Carries the running tk web server's
+ * identity when one answered the probe, so the CLI can tell the user exactly
+ * what to stop or how to dodge the port.
+ */
+export class PortBusyError extends Error {
+  readonly port: number;
+  readonly live: WebServerStatus | null;
+  constructor(port: number, live: WebServerStatus | null) {
+    super(
+      live === null
+        ? `port ${port} is in use by another process — pick --port N or --random-port`
+        : `port ${port} already serving ${live.workspace} — stop it with tk web stop, or pick --port N / --random-port`,
+    );
+    this.name = "PortBusyError";
+    this.port = port;
+    this.live = live;
   }
-  return 0;
-};
+}
 
 export const startWebServer = async (options: WebServerOptions): Promise<WebServer> => {
   const surface: TasksSurface = await createSurface({ root: options.root });
   const actor = process.env["USER"] ?? "unknown";
   const dev = options.dev ?? false;
-  const port = await listenPort(options.port ?? 8420);
+  const startedAt = new Date().toISOString();
+  // The single-instance slot is WEB_DEFAULT_PORT; `--port N` moves it, `--random-port` bypasses it.
+  const port = options.randomPort === true ? 0 : options.port ?? WEB_DEFAULT_PORT;
+  const tasksDir = surface.store.tasksDir;
+  // Crash cleanup: a web row whose pid is gone must not block the next start.
+  // Watch rows are untouched — their heartbeat lifecycle belongs to the watcher.
+  const staleWebRows = (await readRuntimeRegistry(tasksDir)).filter(
+    (row): row is WebRuntimeRow => row.kind === "web" && !pidAlive(row.pid),
+  );
+  for (const row of staleWebRows) await unregisterRuntime(tasksDir, row.id);
+  const live = port === 0 ? null : await probeWebServer(`http://localhost:${port}`);
+  if (live !== null) throw new PortBusyError(port, live);
 
   let shellGeneration = 0;
   let reloadWaiters: Array<((chunk: string) => void) | null> = [];
@@ -68,10 +94,22 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
     }, 400);
     stopWatching = () => clearInterval(ticker);
   }
-  const server = Bun.serve({
-    port,
-    async fetch(request): Promise<Response> {
+  // Bind last: a squatted port (any non-tk process) must surface as PortBusyError,
+  // not a raw bind crash that leaves the surface store open.
+  let server: Bun.Server<never>;
+  try {
+    server = Bun.serve({
+      port,
+      async fetch(request): Promise<Response> {
       const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/api/status") {
+        return json(status());
+      }
+      if (request.method === "POST" && url.pathname === "/api/stop") {
+        // Respond first so the stopper gets a clean ack; the server tears down right after.
+        setTimeout(() => { void stopServer(); }, 50);
+        return json({ ok: true, stopped: status() });
+      }
       if (request.method === "GET" && url.pathname === "/") {
         const shell = await readFile(shellPath(), "utf8");
         return new Response(shell, { headers: { "content-type": "text/html; charset=utf-8" } });
@@ -167,20 +205,59 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         return json({ ok: true, id: created.value.id });
       }
       return json({ error: { kind: "not_found", message: `no route: ${request.method} ${url.pathname}` } }, 404);
-    },
+      },
+    });
+  } catch {
+    stopWatching?.();
+    await surface.store.close();
+    throw new PortBusyError(port, null);
+  }
+
+  // Replace-by-id registration: the fixed `web` id makes the row a singleton per workspace.
+  await registerRuntime(tasksDir, {
+    id: WEB_RUNTIME_ID,
+    kind: "web",
+    pid: process.pid,
+    port: server.port ?? port,
+    url: `http://localhost:${server.port}`,
+    workspace: options.root,
+    startedAt,
   });
+  const status = (): WebServerStatus => ({
+    tk: "web",
+    workspace: options.root,
+    pid: process.pid,
+    port: server.port ?? port,
+    url: `http://localhost:${server.port}`,
+    startedAt,
+    dev,
+  });
+
+  // Ownership proof: on macOS a second listener can "bind" a taken port without
+  // error while the kernel keeps routing traffic to the original owner, so only
+  // a live HTTP answer carrying our own pid proves we actually serve this port.
+  // Runs after `status` is defined — the probe exercises the real /api/status route.
+  const owned = await probeWebServer(`http://localhost:${server.port ?? port}`);
+  if (owned === null || owned.pid !== process.pid) {
+    stopWatching?.();
+    await server.stop(true);
+    await unregisterRuntime(tasksDir, WEB_RUNTIME_ID);
+    await surface.store.close();
+    throw new PortBusyError(port, owned);
+  }
+
+  const stopServer = async (): Promise<void> => {
+    stopWatching?.();
+    reloadWaiters = [];
+    await server.stop(true);
+    await unregisterRuntime(tasksDir, WEB_RUNTIME_ID);
+    await surface.store.close();
+  };
   return {
     port: server.port ?? 0,
     url: `http://localhost:${server.port}`,
-    close: async () => {
-      stopWatching?.();
-      reloadWaiters = [];
-      await new Promise<void>((resolveClose) => {
-        server.stop(true);
-        resolveClose();
-      });
-      await surface.store.close();
-    },
+    status,
+    close: stopServer,
   };
 };
 
