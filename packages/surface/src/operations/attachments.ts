@@ -84,20 +84,23 @@ export const detachBlob = (store: SurfaceStore, id: string, ref: string) => stor
 /** Evidence read outcome: bytes + metadata, or null when the ref or stored bytes are unknown. */
 export type EvidenceRead = Promise<Result<BlobContent | null, SurfaceError>>;
 
+/** Read blob bytes + metadata for one attachment ref (`evidence:<id>`, bare id, or name) within an open transaction; null when the entry or bytes are unknown. */
+export const evidenceReadUow = async (uow: IssueUnitOfWork, ctx: BlobContext, id: string, ref: string): Promise<BlobContent | null> => {
+  const issue = await getOrThrow(uow, id);
+  const bare = parseEvidenceRef(ref) ?? ref;
+  const attachment = resolveBlobAttachment(issue, bare);
+  if (attachment === null) return null;
+  const config = await readWorkspaceConfig(ctx.tasksDir);
+  const blobs = await openBlobStore({ tasksDir: ctx.tasksDir, config });
+  const meta = await blobs.meta(attachment.id);
+  if (meta === null) return null;
+  const bytes = await blobs.read(attachment.id);
+  return bytes === null ? null : { meta, bytes };
+};
+
 /** Read stored blob bytes + metadata for an evidence ref (`evidence:<id>`, bare id, or name); null when the entry or bytes are unknown. Read-only. */
 export const evidenceRead = (store: SurfaceStore, id: string, ref: string): EvidenceRead =>
-  store.transact(async (uow) => {
-    const issue = await getOrThrow(uow, id);
-    const bare = parseEvidenceRef(ref) ?? ref;
-    const attachment = resolveBlobAttachment(issue, bare);
-    if (attachment === null) return null;
-    const config = await readWorkspaceConfig(store.tasksDir);
-    const blobs = await openBlobStore({ tasksDir: store.tasksDir, config });
-    const meta = await blobs.meta(attachment.id);
-    if (meta === null) return null;
-    const bytes = await blobs.read(attachment.id);
-    return bytes === null ? null : { meta, bytes };
-  });
+  store.transact(async (uow) => evidenceReadUow(uow, { root: store.root, tasksDir: store.tasksDir }, id, ref));
 
 const unwrapBlob = (outcome: Result<Issue>): Issue => {
   if (!outcome.ok) throw new MessageError(outcome.error.kind === 'validation' ? outcome.error.message : 'blob operation failed');
