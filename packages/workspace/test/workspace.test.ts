@@ -27,6 +27,19 @@ describe('@tasks/workspace config', () => {
     expect(await readWorkspaceConfig(dir)).toEqual({ prefix: 'demo', storage: { backend: 'sqlite', filename: 'custom.db' } });
   });
 
+  it('round-trips webPort through config.json', async () => {
+    const dir = tasksDir();
+    await writeWorkspaceConfig(dir, { webPort: 21579 });
+    expect(await readWorkspaceConfig(dir)).toEqual({ webPort: 21579 });
+  });
+
+  it('rejects an out-of-range webPort', async () => {
+    const dir = tasksDir();
+    mkdirSync(dir, { recursive: true });
+    await Bun.write(join(dir, 'config.json'), JSON.stringify({ webPort: 70000 }));
+    await expect(readWorkspaceConfig(dir)).rejects.toThrow();
+  });
+
   it('rejects an unknown backend rather than silently ignoring it', async () => {
     const dir = tasksDir();
     mkdirSync(dir, { recursive: true });
