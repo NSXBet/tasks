@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { App } from "../src/app/App.js";
 import { openTuiStore } from "../src/store.js";
+import { attachEvidenceUow } from "@tasks/surface";
 
 const workspaces: string[] = [];
 const workspace = (): string => {
@@ -224,6 +225,93 @@ describe("tui app", () => {
       await setup.mockInput.pressKey("\r");
       const frame = await setup.waitForFrame((value) => value.includes("done 1"), { maxPasses: 60 });
       expect(frame).not.toContain("✎ title");
+    } finally {
+      setup.renderer.destroy();
+      await store.close();
+    }
+  });
+
+  test("task view renders the TK-142 fixture record with branch and comments", async () => {
+    const root = workspace();
+    const store = await openTuiStore(root);
+    const anchor = await store.surface.create({ title: "Fix flaky retry logic in uploader", priority: 1 });
+    if (!anchor.ok) throw anchor.error;
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 120, height: 80 });
+    try {
+      await setup.waitForFrame((value) => value.includes("open 0"), { maxPasses: 40 });
+      await setup.mockInput.pressKey("5");
+      const frame = await setup.waitForFrame((value) => value.includes("tk/tk-142"), { maxPasses: 40 });
+      expect(frame).toContain("Fix flaky retry logic");
+      expect(frame).toContain("COMMENTS");
+      expect(frame).toContain("SESSIONS");
+      expect(frame).toContain("ARTIFACTS");
+    } finally {
+      setup.renderer.destroy();
+      await store.close();
+    }
+  });
+
+  test("artifact view shows typed rail and resolve chips", async () => {
+    const root = workspace();
+    const store = await openTuiStore(root);
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 120, height: 80 });
+    try {
+      await setup.waitForFrame((value) => value.includes("open 0"), { maxPasses: 40 });
+      await setup.mockInput.pressKey("6");
+      const frame = await setup.waitForFrame((value) => value.includes("ARTIFACTS tk-142"), { maxPasses: 40 });
+      expect(frame).toContain("src/uploader/retry.ts");
+      expect(frame).toContain("resolved by reply");
+      expect(frame).toContain("open");
+    } finally {
+      setup.renderer.destroy();
+      await store.close();
+    }
+  });
+
+  test("diff view renders unified shell with file list and line comments", async () => {
+    const root = workspace();
+    const store = await openTuiStore(root);
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 120, height: 80 });
+    try {
+      await setup.waitForFrame((value) => value.includes("open 0"), { maxPasses: 40 });
+      await setup.mockInput.pressKey("7");
+      const frame = await setup.waitForFrame((value) => value.includes("DIFF tk-142"), { maxPasses: 40 });
+      expect(frame).toContain("src/uploader/retry.ts");
+      // Canonical web scenario: both line comments are open threads (kyle's
+      // has the agent reply), no resolved state exists to render.
+      expect(frame).toContain("does doFetch propagate 429s");
+      expect(frame).toContain("yes — RetryError(status)");
+      expect(frame).toContain("0/2 resolved");
+    } finally {
+      setup.renderer.destroy();
+      await store.close();
+    }
+  });
+
+  test("detail shows attachments with image blobs rendered", async () => {
+    const root = workspace();
+    const store = await openTuiStore(root);
+    const created = await store.surface.create({ title: "with blobs", priority: 1 });
+    if (!created.ok) throw created.error;
+    const issueId = created.value.id;
+    const png = join(root, "dot.png");
+    await Bun.write(png, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const attached = await store.surface.store.transact(async (uow) => attachEvidenceUow(uow, { root: store.surface.store.root, tasksDir: store.surface.store.tasksDir }, issueId, [png]));
+    if (!attached.ok) throw attached.error;
+    const pathAttached = await store.surface.attach(issueId, "docs/log.txt");
+    if (!pathAttached.ok) throw pathAttached.error;
+    const blobId = attached.value.attachments.find((attachment) => "kind" in attachment)?.id;
+    if (blobId === undefined) throw new Error("evidence attachment missing");
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 48 });
+    try {
+      await setup.waitForFrame((value) => value.includes("with blobs"), { maxPasses: 40 });
+      await setup.mockInput.pressKey("\r");
+      // Canonical web detail has a single attachments row (app.html attrow):
+      // path chips + inline image blobs. No separate "evidences" heading.
+      const frame = await setup.waitForFrame((value) => value.includes("attachments"), { maxPasses: 40 });
+      expect(frame).toContain("docs/log.txt");
+      expect(frame).toContain(`dot.png`);
+      expect(frame).toContain(blobId);
     } finally {
       setup.renderer.destroy();
       await store.close();

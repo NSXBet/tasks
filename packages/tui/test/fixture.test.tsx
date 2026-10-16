@@ -76,7 +76,10 @@ describe("task→review mock (fixture store)", () => {
       await setup.waitForFrame((value) => value.includes("tk-142"), { maxPasses: 40 });
       await press(setup, "5");
       await setup.waitForFrame((value) => value.includes("tk/tk-142"), { maxPasses: 40 });
-      await press(setup, "s");
+      // Canonical web actions: create session / design discussion / open diff /
+      // edit (+ comment). No start-work action exists in the scenario, so the
+      // WIP toast is asserted through the comment action instead.
+      await press(setup, "c");
       const frame = await setup.waitForFrame((value) => value.includes("WIP"), { maxPasses: 40 });
       expect(frame).toContain("WIP");
     } finally {
