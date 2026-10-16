@@ -1,8 +1,8 @@
 import { writeSync } from "node:fs";
 import { exit } from "node:process";
-import type { Agent, Issue, Run } from "@tasks/domain";
+import type { Agent, Issue, IssueAttachment, IssuePathAttachment, Run } from "@tasks/domain";
 import { isBlobAttachment } from "@tasks/domain";
-import type { ActivityRow, InboxEntry, RuntimeRow } from "@tasks/surface";
+import type { ActivityRow, BlobContent, InboxEntry, RuntimeRow } from "@tasks/surface";
 import type { IssueTree, TreeNode } from "./tree.js";
 
 const iso = (value: Date | null): string | null => value?.toISOString() ?? null;
@@ -154,6 +154,42 @@ function formatSection(title: string, body: string): string {
   return `${bold(title)}\n${indent(body)}`;
 }
 
+const kB = (bytes: number): string => `${(bytes / 1024).toFixed(1)} kB`;
+
+/** ATTACHMENTS lists path refs; EVIDENCES lists ingested blobs (evidence kind first), images inlined when bytes were provided. */
+export function formatAttachments(attachments: readonly IssueAttachment[], images: ReadonlyMap<string, BlobContent> = new Map()): string {
+  const paths = attachments.filter((attachment): attachment is IssuePathAttachment => !isBlobAttachment(attachment));
+  const blobs = attachments.filter(isBlobAttachment);
+  const evidences = blobs.filter((blob) => blob.kind === "evidence");
+  const inline = blobs.filter((blob) => blob.kind !== "evidence");
+  const lines: string[] = [];
+  lines.push(`${bold("ATTACHMENTS:")} ${paths.length === 0 ? dim("(none)") : paths.map((attachment) => cyan(attachment.path)).join(", ")}`);
+  const blobLine = (blob: (typeof blobs)[number]): string => `${blob.kind === "evidence" ? "" : `${dim("inline")} `}${cyan(`${blob.name} (${blob.id}, ${kB(blob.size)})`)}`;
+  const evidenceLines: string[] = [];
+  for (const blob of evidences) {
+    evidenceLines.push(blobLine(blob));
+    const content = images.get(blob.id);
+    if (content !== undefined && content.meta.mime.startsWith("image/")) {
+      const escape = terminalImageEscape(content);
+      if (escape === null) evidenceLines.push(dim(`  (${content.meta.mime}; terminal lacks inline-image support)`));
+      else evidenceLines.push(escape);
+    }
+  }
+  lines.push(`${bold(`EVIDENCES (${evidences.length})`)}\n${indent(evidenceLines.length === 0 ? dim("(none)") : evidenceLines.join("\n"))}`);
+  if (inline.length > 0) lines.push(`${bold(`INLINE (${inline.length})`)}\n${indent(inline.map(blobLine).join("\n"))}`);
+  return lines.join("\n");
+}
+
+/** Base64 image escape for terminals with inline-image support; null when unsupported. Kitty graphics for kitty/ghostty, OSC 1337 for iTerm2/WezTerm et al. */
+export const terminalImageEscape = (content: BlobContent): string | null => {
+  if (!process.stdout.isTTY) return null;
+  const kind = process.env["KITTY_WINDOW_ID"] !== undefined || process.env["GHOSTTY_RESOURCES_DIR"] !== undefined ? "kitty" : ["iTerm.app", "WezTerm", "vscode", "mintty"].includes(process.env["TERM_PROGRAM"] ?? "") ? "osc1337" : null;
+  if (kind === null) return null;
+  const base64 = Buffer.from(content.bytes).toString("base64");
+  if (kind === "kitty") return `\x1b_Gf=100,t=f,q=1;${base64}\x1b\\`;
+  return `\x1b]1337;File=name=${Buffer.from(content.meta.name).toString("base64")};size=${content.bytes.length};inline=1;preserveAspectRatio=1:${base64}\x1b\\`;
+};
+
 /**
  * Phase-0 mock surface: the free-form metadata bag (`metadata.review`) carries
  * the review-scenario data (base/worktree, agent sessions, changed-file
@@ -169,7 +205,7 @@ export const reviewMeta = (issue: Issue): ReviewMeta => {
   return review !== null && typeof review === "object" && !Array.isArray(review) ? review as ReviewMeta : {};
 };
 
-export function formatShow(issue: Issue): string {
+export function formatShow(issue: Issue, images: ReadonlyMap<string, BlobContent> = new Map()): string {
   const head = `${statusColored(issue.status)} ${cyan(issue.id)} · ${bold(issue.title)}   [${priorityBadge(issue.priority)} · ${statusLabel(issue.status)}]`;
   const meta = [issue.owner === null ? null : `Owner: ${issue.owner}`, issue.assignee === null ? null : `Assignee: ${issue.assignee}`, `Type: ${issue.type}`, issue.estimate === null ? null : `Estimate: ${issue.estimate}m`].filter(Boolean).join(" · ");
   const dates = [field("Created:", date(issue.createdAt)), issue.startedAt === null ? null : field("Started:", date(issue.startedAt)), field("Updated:", date(issue.updatedAt)), issue.closedAt === null ? null : field("Closed:", date(issue.closedAt)), issue.dueAt === null ? null : field("Due:", date(issue.dueAt)), issue.deferUntil === null ? null : field("Deferred:", date(issue.deferUntil))].filter(Boolean).join("  ");
@@ -184,7 +220,7 @@ export function formatShow(issue: Issue): string {
   if (issue.branch !== null) sections.push([`${bold("BRANCH:")} ${cyan(issue.branch)}`, review.base === undefined ? null : `${field("base:", review.base)}`, review.worktree === undefined ? null : `${field("worktree:", review.worktree)}`].filter(Boolean).join("\n"));
   if (review.artifacts !== undefined && review.artifacts.length > 0) sections.push(formatSection(`ARTIFACTS (${review.artifacts.length})`, review.artifacts.map((artifact) => `${cyan(artifact.path)}  ${green(`+${artifact.added}`)}${red(`−${artifact.removed}`)}  ${dim(`${artifact.comments} comment(s)`)}`).join("\n")));
   if (review.sessions !== undefined && review.sessions.length > 0) sections.push(formatSection(`SESSIONS (${review.sessions.length})`, review.sessions.map((session) => `${session.status === "running" ? green("▸") : dim("·")} ${cyan(session.id)}  ${session.agent}  ${session.status}  ${dim(`${session.topic} · ${session.duration}`)}`).join("\n")));
-  if (issue.attachments.length > 0) sections.push(`${bold("ATTACHMENTS:")} ${issue.attachments.map((attachment) => cyan(isBlobAttachment(attachment) ? `${attachment.name} (${attachment.id}, ${(attachment.size / 1024).toFixed(1)} kB)` : attachment.path)).join(", ")}`);
+  if (issue.attachments.length > 0) sections.push(formatAttachments(issue.attachments, images));
   if (issue.dependencies.length > 0) sections.push(formatSection("DEPENDENCIES", issue.dependencies.map((edge) => `→ ${cyan(edge.target)} (${edge.type})`).join("\n")));
   if (issue.parentId !== null) sections.push(`${bold("PARENT:")} ${cyan(issue.parentId)}`);
   if (issue.comments.length > 0) sections.push(formatSection(`COMMENTS (${issue.comments.length})`, issue.comments.map((comment) => `${dim(datetime(comment.createdAt))} ${green(comment.author)}${agentAuthors[comment.author] === true ? cyan("  [agent]") : ""}\n${indent(comment.text.trimEnd())}`).join("\n\n")));
@@ -300,10 +336,12 @@ function relAge(iso: string): string {
   return `${Math.floor(seconds / 86_400)}d`;
 }
 
-/** Human view of `tk runtime list`: one line per registered watcher. */
+/** Human view of `tk runtime list`: one line per registered watcher or web server. */
 export function formatRuntimeList(rows: readonly RuntimeRow[]): string {
   if (rows.length === 0) return dim("No live runtimes.");
-  const line = (row: RuntimeRow): string => `  ${green("●")} ${cyan(row.id)}  ${row.kind}  ${row.label === null || row.label === "" ? dim("(no label)") : bold(row.label)}  ${dim(`pid ${row.pid} · up ${relAge(row.startedAt)} · heartbeat ${relAge(row.heartbeatAt)} · ${row.subscriptions.length === 0 ? "all" : row.subscriptions.join(", ")}`)}`;
+  const line = (row: RuntimeRow): string => row.kind === "web"
+    ? `  ${green("●")} ${cyan(row.id)}  web  ${bold(row.workspace)}  ${dim(`pid ${row.pid} · up ${relAge(row.startedAt)} · ${row.url}`)}`
+    : `  ${green("●")} ${cyan(row.id)}  watch  ${row.label === null || row.label === "" ? dim("(no label)") : bold(row.label)}  ${dim(`pid ${row.pid} · up ${relAge(row.startedAt)} · heartbeat ${relAge(row.heartbeatAt)} · ${row.subscriptions.length === 0 ? "all" : row.subscriptions.join(", ")}`)}`;
   return [bold("Runtimes:"), ...rows.map(line)].join("\n");
 }
 

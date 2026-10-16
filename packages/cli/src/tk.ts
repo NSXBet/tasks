@@ -17,7 +17,7 @@ import {
   formatWork, formatReview, reviewMeta,
   HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
-import { attachEvidenceUow, attachPathUow, detachBlobUow, inboxEntries, markInboxArchived, markInboxRead, readActivity, readInboxMarkers, readRuntimeRegistry, type ActivityRow, type InboxEntry, type RuntimeRow } from "@tasks/surface";
+import { attachEvidenceUow, attachPathUow, detachBlobUow, evidenceReadUow, inboxEntries, markInboxArchived, markInboxRead, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow } from "@tasks/surface";
 import { bunRunner } from "./git.js";
 import { formatHunkComment, hunkCommentMetaKey, parseHunkComments, pendingHunkComments, planHunk, scratchDirectory, writeAgentContext } from "./hunk.js";
 import { buildTree, type TreeOptions } from "./tree.js";
@@ -125,6 +125,10 @@ const switchBackendTarget = (args: ParsedArgs): StorageConfig => {
 };
 /** Only `.tasks/` is a tasks workspace; a `.beads/` directory is a migration source, not a root. */
 async function rootFrom(from: string): Promise<string | null> {
+  // A missing start directory can't be a workspace, and a git spawn with it as
+  // cwd fails posix_spawn ENOENT before git can report anything. `tk init`
+  // creates the directory below; every other command gets the workspace hint.
+  try { await stat(from); } catch { return null; }
   for (const path of await searchPath(from)) { try { await access(join(path, ".tasks")); return path; } catch { /* keep searching */ } }
   // The upward walk stops at the first enclosing `.git`, which is exactly
   // where a linked worktree's own tree ends — it has no `.tasks/` of its
@@ -261,6 +265,20 @@ class CommandService {
     });
   }
   async show(args: ParsedArgs): Promise<Issue> { return transaction(this.database, (uow) => this.selected(args).then((id) => get(uow, id))); }
+  /** `tk show` data plus image-blob bytes for terminals that render them inline; same read-only transaction. */
+  async showWithImages(args: ParsedArgs): Promise<readonly [Issue, ReadonlyMap<string, BlobContent>]> {
+    const images = new Map<string, BlobContent>();
+    const issue = await transaction(this.database, async (uow) => {
+      const loaded = await get(uow, await this.selected(args));
+      for (const attachment of loaded.attachments) {
+        if (!isBlobAttachment(attachment) || !attachment.mime.startsWith("image/")) continue;
+        const content = await evidenceReadUow(uow, { root: this.root, tasksDir: join(this.root, ".tasks") }, loaded.id, attachment.id);
+        if (content !== null) images.set(attachment.id, content);
+      }
+      return loaded;
+    });
+    return [issue, images];
+  }
   async all(): Promise<readonly Issue[]> { return transaction(this.database, async (uow) => unwrap(await uow.list({ limit: 100_000 })).items); }
   async history(args: ParsedArgs): Promise<readonly Record<string, unknown>[]> { return transaction(this.database, async (uow) => { const id = issueId(await this.selected(args)); await get(uow, id); return (unwrap(await uow.history(id))).map((entry) => ({ id: entry.id, issue_id: entry.issueId, action: entry.action, at: entry.at.toISOString(), actor: entry.actor, data: entry.data })); }); }
   /** Import is migration of an already-materialised stream: same decoder, same ordering, same atomicity. */
@@ -641,7 +659,11 @@ WORKING WITH ISSUES
   hunk <id> sync          Import live Hunk review comments into the issue (deduped)
 
   tui [workspace]         Launch the terminal UI (board, kanban, graph, insights)
-  web [workspace] [-d] [--open] [--port N]  Web UI over the workspace (-d: dev mode; --open/-d opens browser; press w to open; port: --port or TK_WEB_PORT)
+  web [workspace|stop|port] [-d] [--open] [--port N] [--random-port]
+                          Web UI over the workspace (-d: daemon; --dev dev mode; --open/-d
+                          open browser; press w to open, d to daemonize; port: --port, TK_WEB_PORT,
+                          or config webPort (default 21579);
+                          stop: shut the live instance; port: print its URL; --random-port: parallel instance)
   watch [--kinds k1,k2] [--ids id1,id2] [--label l] [--interval ms]
                           Watch for changes (NDJSON events on stdout)
   runtime list            Live watcher registry (id, pid, heartbeat age)
@@ -720,7 +742,7 @@ EXAMPLES
 
 ENVIRONMENT
   NO_COLOR                Disable colored output
-  TK_WEB_PORT             Default port for tk web when --port is absent
+  TK_WEB_PORT             Port for tk web when --port is absent (beats config webPort; default 21579)
 `;
 /** Fuller usage for commands whose one-line HELP entry omits real flags (`tk <cmd> -h`). */
 const CREATE_USAGE = `  create <title> [opts]   Create issue
@@ -786,20 +808,56 @@ async function runTui(args: ParsedArgs, root: string | null, start: string): Pro
 }
 
 /**
- * `tk web [workspace] [-d|--dev] [--open] [--port N]` — serve the web UI over
- * the resolved workspace. Spawned as a child process so the server lifetime is
- * the CLI lifetime (Ctrl-C stops it). Dev mode and `--open` launch the browser
- * at startup; with a TTY, pressing `w` opens it. `TK_WEB_PORT` overrides the
- * default port when `--port` is absent.
+ * `tk web [workspace|stop|port] [-d|--daemon] [--dev] [--open] [--port N] [--random-port]` —
+ * serve the web UI over the resolved workspace. Spawned as a child process so
+ * the server lifetime is the CLI lifetime (Ctrl-C stops it); `-d/--daemon`
+ * spawns the child detached (survives the terminal) and reports once it
+ * registers its runtime row. `stop` shuts the live instance down over HTTP and
+ * prunes a stale registry row; `port` prints the live instance URL. Dev mode
+ * and `--open` launch the browser at startup; with a TTY the child accepts
+ * `d` (daemonize) and `w` (open). The port is `--port`, else `TK_WEB_PORT`,
+ * else the workspace config's `webPort`, else the shared default (21579).
  */
 async function runWeb(args: ParsedArgs, root: string | null, start: string): Promise<void> {
-  const workspace = args.positionals[1] ?? root;
+  const sub = args.positionals[1];
+  if (sub === "stop" || sub === "port") {
+    if (root === null) fail(await beadsHint(start));
+    const tasksDir = join(root!, ".tasks");
+    const row = (await readRuntimeRegistry(tasksDir)).find((entry) => entry.kind === "web") ?? null;
+    const webConfig = await readWorkspaceConfig(tasksDir).catch((error: unknown) => {
+      process.stderr.write(`tk web: ignoring invalid config.json (${error instanceof Error ? error.message.split("\n")[0]! : "unreadable"})\n`);
+      return null;
+    });
+    const { port: requested } = resolveWebPort(stringFlag(args, "port"), process.env["TK_WEB_PORT"], webConfig?.webPort);
+    // The registry names the instance if it recorded one; the port is the
+    // fallback probe — either way a live HTTP answer is the only proof.
+    const status = row !== null && row.kind === "web" ? await probeWebServer(row.url) : await probeWebServer(`http://localhost:${requested}`);
+    if (status === null) {
+      if (row !== null) await unregisterRuntime(tasksDir, row.id);
+      process.stdout.write(`tk web: no server running for ${root}\n`);
+      exit(sub === "stop" ? 0 : 1);
+    }
+    if (status!.workspace !== root) {
+      // Whatever answers the port belongs to another workspace; it is not ours
+      // to stop or claim. The row that pointed here is stale either way.
+      if (row !== null) await unregisterRuntime(tasksDir, row.id);
+      fail(`tk web: ${status!.url} is serving ${status!.workspace} — no server running for ${root}`);
+    }
+    if (sub === "port") { process.stdout.write(`${status!.url}\n`); exit(0); }
+    const stopped = await fetch(`${status!.url}/api/stop`, { method: "POST" }).catch(() => null);
+    if (stopped === null || !stopped.ok) fail(`tk web: could not stop ${status!.url} (pid ${status!.pid})`);
+    process.stdout.write(`${green("✓")} stopped ${status!.url} (pid ${status!.pid})\n`);
+    exit(0);
+  }
+  const workspace = sub ?? root;
   if (workspace === null) fail(await beadsHint(start));
   const entry = join(import.meta.dir, "..", "..", "web", "src", "main.ts");
   const dev = booleanFlag(args, "dev");
   const open = booleanFlag(args, "open");
+  const daemon = booleanFlag(args, "daemon");
+  const randomPort = booleanFlag(args, "random-port");
   const port = stringFlag(args, "port");
-  const child = Bun.spawn(["bun", entry, workspace!, ...(dev ? ["--dev"] : []), ...(open ? ["--open"] : []), ...(port !== undefined ? ["--port", port] : [])], { cwd: workspace!, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+  const child = Bun.spawn(["bun", entry, workspace!, ...(dev ? ["--dev"] : []), ...(open ? ["--open"] : []), ...(port !== undefined ? ["--port", port] : []), ...(randomPort ? ["--random-port"] : []), ...(daemon ? ["--daemon"] : [])], { cwd: workspace!, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
   exit(await child.exited);
 }
 async function runWatch(args: ParsedArgs, start: string): Promise<void> {
@@ -867,8 +925,8 @@ async function runHooks(args: ParsedArgs, start: string, json: boolean): Promise
   fail("usage: tk hooks install [--tasks|--shared] | uninstall | list | run <hook> [args]");
 }
 
-async function main(): Promise<void> { const rawTokens = process.argv.slice(2); // `tk web -d` reclaims the global -d (description) alias as dev mode
-  const args = parseArgs(rawTokens[0] === "web" ? rawTokens.map((token) => token === "-d" ? "--dev" : token) : rawTokens); const command = args.positionals[0] ?? "help"; const json = booleanFlag(args, "json"); const markdown = !json && (booleanFlag(args, "markdown") || booleanFlag(args, "md")); const start = directory(args, cwd()); let root = await rootFrom(start);
+async function main(): Promise<void> { const rawTokens = process.argv.slice(2); // `-d` after the `web` token is daemon mode, not the global description alias (covers `tk web -d` and `tk -C ws web -d`)
+  const webIdx = rawTokens.indexOf("web"); const args = parseArgs(webIdx === -1 ? rawTokens : rawTokens.map((token, index) => index > webIdx && token === "-d" && rawTokens[index - 1] !== "-d" && rawTokens[index - 1] !== "--description" ? "--daemon" : token)); const command = args.positionals[0] ?? "help"; const json = booleanFlag(args, "json"); const markdown = !json && (booleanFlag(args, "markdown") || booleanFlag(args, "md")); const start = directory(args, cwd()); let root = await rootFrom(start);
   if (command === "init" && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(INIT_HELP); return; }
   if (command === "help" && args.positionals[1] === "init") { process.stdout.write(INIT_HELP); return; }
   if (command === "switch-backend" && (booleanFlag(args, "help") || booleanFlag(args, "h"))) { process.stdout.write(SWITCH_BACKEND_HELP); return; }
@@ -969,7 +1027,7 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
     else if (command === "attach") { const issue = await service.attach(args); value = issueWire(issue); human = () => confirmation("Attached file to", issue); }
     else if (command === "detach") { const issue = await service.detach(args); value = issueWire(issue); human = () => confirmation("Detached file from", issue); }
     else if (command === "q") { const id = await service.quick(args); value = { id }; human = () => id; }
-    else if (command === "show") { const issue = await service.show(args); value = [issueWire(issue)]; human = () => formatShow(issue); }
+    else if (command === "show") { const [issue, images] = await service.showWithImages(args); value = [issueWire(issue)]; human = () => formatShow(issue, images); }
     else if (command === "work") { const issue = await service.show(args); value = [issueWire(issue), { review: reviewMeta(issue), action: "WIP" }]; human = () => formatWork(issue); }
     else if (command === "review") { const issue = await service.show(args); value = [issueWire(issue), { review: reviewMeta(issue), action: "WIP" }]; human = () => formatReview(issue); }
     else if (command === "list" || command === "ready") { const issues = await service.list(args, command === "ready"); value = issues.map(issueWire); human = () => (command === "ready" ? formatReady(issues) : formatList(issues)); }
@@ -1061,7 +1119,7 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
     else if (command === "unarchive") { const issue = await service.unarchive(args); value = issueWire(issue); human = () => confirmation("Unarchived", issue); }
     else if (command === "runtime") {
       const sub = args.positionals[1] ?? fail("runtime requires operation (list, activity)");
-      if (sub === "list") { const rows = await readRuntimeRegistry(tasksDir); value = rows.map((row) => ({ schema_version: 1, _type: "runtime_row", id: row.id, kind: row.kind, label: row.label, pid: row.pid, started_at: row.startedAt, heartbeat_at: row.heartbeatAt, subscriptions: row.subscriptions })); human = () => formatRuntimeList(rows); }
+      if (sub === "list") { const rows = await readRuntimeRegistry(tasksDir); value = rows.map((row) => ({ schema_version: 1, _type: "runtime_row", id: row.id, kind: row.kind, label: row.kind === "web" ? null : row.label, pid: row.pid, started_at: row.startedAt, heartbeat_at: row.kind === "web" ? null : row.heartbeatAt, subscriptions: row.kind === "web" ? [] : row.subscriptions, url: row.kind === "web" ? row.url : undefined })); human = () => formatRuntimeList(rows); }
       else if (sub === "activity") { const rawLimit = stringFlag(args, "limit"); const limit = rawLimit === undefined ? undefined : Number(rawLimit); if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) fail("invalid --limit: expected positive integer"); const rows = await readActivity(tasksDir, limit); value = rows.map((row) => ({ schema_version: 1, _type: "activity_row", at: row.at, runtime_id: row.runtimeId, kind: row.kind, detail: row.detail })); human = () => formatRuntimeActivity(rows); }
       else fail(`unknown runtime subcommand: ${sub} (expected list, activity)`);
     }
