@@ -10,6 +10,12 @@ matching section as its release notes — add a section for every new version
 
 ### Added
 
+- `tk show` splits attachments into two sections: `ATTACHMENTS` (path refs)
+  and `EVIDENCES` (ingested blobs, inline ones marked), with image blobs
+  inlined when the terminal supports it (kitty graphics protocol, OSC 1337) —
+  other terminals get a mime note instead. JSON output is unchanged for
+  agents. The TUI detail pane shows the same attachments/evidences sections,
+  rendering image blobs inline.
 - `tk web` picks its port from `--port N` or the `TK_WEB_PORT` env var — flag
   wins; an unparsable value warns and falls back to the default instead of
   silently misconfiguring.
@@ -35,6 +41,14 @@ matching section as its release notes — add a section for every new version
   rail (selection drives the center detail), and the filter chips bar only
   shows on views where the filter applies (list, board, insights) instead of
   every view.
+- `tk web` daemon handoff survives terminal close: pressing `d` (or `-d` from
+  a non-TTY) now spawns the daemon in its own session (`detached: true`), so
+  closing the terminal or tearing down the PTY no longer SIGHUPs the detached
+  server into dying moments after the handoff reports success.
+- `tk web stop` no longer crosses workspaces: when the current workspace has
+  no runtime row and the probed server belongs to a different workspace, it
+  refuses with the foreign server's identity instead of POSTing `/api/stop`
+  and killing it.
 
 ### Removed
 

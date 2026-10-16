@@ -142,6 +142,7 @@
         "@tasks/application": "workspace:*",
         "@tasks/domain": "workspace:*",
         "@tasks/surface": "workspace:*",
+        "@tasks/workspace": "workspace:*",
       },
     },
     "packages/workspace": {
