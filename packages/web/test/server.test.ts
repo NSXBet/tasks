@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { startWebServer } from "../src/server";
+import { PortBusyError, startWebServer } from "../src/server";
 
 const workspaces: string[] = [];
 function workspace(): string {
@@ -21,7 +21,7 @@ describe("tk web server", () => {
   it("serves the shell and board API over a fresh workspace", async () => {
     const root = workspace();
     await init(root);
-    const server = await startWebServer({ root });
+    const server = await startWebServer({ root, randomPort: true });
     try {
       const shell = await fetch(`${server.url}/`);
       expect(shell.status).toBe(200);
@@ -42,7 +42,7 @@ describe("tk web server", () => {
   it("serves the phase-0 review mock views in the shell", async () => {
     const root = workspace();
     await init(root);
-    const server = await startWebServer({ root });
+    const server = await startWebServer({ root, randomPort: true });
     try {
       const shell = await fetch(`${server.url}/`);
       expect(shell.status).toBe(200);
@@ -61,7 +61,7 @@ describe("tk web server", () => {
   it("creates an issue through the API and reads it back on the board", async () => {
     const root = workspace();
     await init(root);
-    const server = await startWebServer({ root });
+    const server = await startWebServer({ root, randomPort: true });
     try {
       const created = await fetch(`${server.url}/api/issue`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "web-created", priority: 1 }) });
       expect(created.status).toBe(200);
@@ -80,7 +80,7 @@ describe("tk web server", () => {
   it("updates status and title on an existing issue through the mutation route", async () => {
     const root = workspace();
     await init(root);
-    const server = await startWebServer({ root });
+    const server = await startWebServer({ root, randomPort: true });
     try {
       const created = await fetch(`${server.url}/api/issue`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "mutable" }) });
       const { id } = (await created.json()) as { readonly id: string };
@@ -101,7 +101,7 @@ describe("tk web server", () => {
   it("answers 404 JSON for unknown routes", async () => {
     const root = workspace();
     await init(root);
-    const server = await startWebServer({ root });
+    const server = await startWebServer({ root, randomPort: true });
     try {
       const missing = await fetch(`${server.url}/api/nope`);
       expect(missing.status).toBe(404);
@@ -109,6 +109,29 @@ describe("tk web server", () => {
       expect(error.error.kind).toBe("not_found");
     } finally {
       await server.close();
+    }
+  });
+
+  it("refuses the port another tk web server already serves", async () => {
+    const root = workspace();
+    await init(root);
+    const first = await startWebServer({ root, randomPort: true });
+    try {
+      const busyPort = Number(new URL(first.url).port);
+      await expect(startWebServer({ root, port: busyPort })).rejects.toThrow(PortBusyError);
+    } finally {
+      await first.close();
+    }
+  });
+
+  it("refuses a port squatted by a foreign process instead of binding invisibly", async () => {
+    const root = workspace();
+    await init(root);
+    const squatter = Bun.serve({ port: 0, fetch: () => new Response("not tk") });
+    try {
+      await expect(startWebServer({ root, port: squatter.port })).rejects.toThrow(PortBusyError);
+    } finally {
+      squatter.stop(true);
     }
   });
 });
