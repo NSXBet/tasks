@@ -610,6 +610,27 @@ describe("tk executable", () => {
     const shown = run(directory, ["show", created.id]);
     expect(shown.stdout).toContain("ATTACHMENTS:");
   });
+  it("shows separate attachments and evidences sections in the human output", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    writeFileSync(join(directory, "log.txt"), "hello\n");
+    writeFileSync(join(directory, "dot.png"), Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const created = json<{ id: string }>(directory, ["create", "with evidence"]);
+    json(directory, ["attach", created.id, "log.txt"]);
+    const attached = json<{ attachments: ReadonlyArray<{ kind?: string; id?: string; name?: string }> }>(directory, ["attach", created.id, "--evidence", "dot.png"]);
+    const blobId = attached.attachments.find((attachment) => attachment.kind === "evidence")?.id;
+    expect(blobId).toMatch(/^ev-[a-z0-9]{6}$/);
+    const shown = run(directory, ["show", created.id]);
+    expect(shown.stdout).toContain("ATTACHMENTS:");
+    expect(shown.stdout).toContain("log.txt");
+    expect(shown.stdout).toContain("EVIDENCES (1)");
+    expect(shown.stdout).toContain(`dot.png (${blobId}, 0.0 kB)`);
+    expect(shown.stdout).toContain("terminal lacks inline-image support");
+    // JSON output stays agent-stable: no human sections, no escape bytes.
+    const [jsonShown] = json<{ attachments: ReadonlyArray<{ kind?: string; id?: string; name?: string }> }>(directory, ["show", created.id]);
+    expect(jsonShown.attachments.find((attachment) => attachment.kind === "evidence")).toMatchObject({ id: blobId, name: "dot.png" });
+    expect(run(directory, ["show", created.id, "--json"]).stdout).not.toContain("\x1b");
+  });
   it("sets the plan via the attachment system and replaces it on update", () => {
     const directory = workspace();
     json(directory, ["init"]);
