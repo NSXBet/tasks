@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentSchema, IssueSchema, agentId, issueId, runId, type Agent, type Issue, type Run } from "@tasks/domain";
 import type { IssueUnitOfWork } from "@tasks/application";
-import { appendActivity, heartbeatRuntime, inboxEntries, markInboxArchived, markInboxRead, readActivity, readInboxMarkers, readRuntimeRegistry, registerRuntime, unregisterRuntime, type RuntimeRow } from "../src/runtime.js";
+import { appendActivity, heartbeatRuntime, inboxEntries, markInboxArchived, markInboxRead, readActivity, readInboxMarkers, readRuntimeRegistry, registerRuntime, resolveWebPort, unregisterRuntime, WEB_DEFAULT_PORT, type RuntimeRow } from "../src/runtime.js";
 import { processWakeups, type WakeupState } from "../src/watch/wakeups.js";
 
 const workspaces: string[] = [];
@@ -141,5 +141,23 @@ describe("inbox markers and entries", () => {
       ["tk-aaa-run-1", false, false],
       ["tk-bbb-run-1", true, true],
     ]);
+  });
+});
+
+describe("resolveWebPort", () => {
+  it("prefers flag over env over config over the TK default", () => {
+    expect(resolveWebPort("8000", "8001", 8002).port).toBe(8000);
+    expect(resolveWebPort(undefined, "8001", 8002).port).toBe(8001);
+    expect(resolveWebPort(undefined, undefined, 8002).port).toBe(8002);
+    expect(resolveWebPort(undefined, undefined, undefined).port).toBe(WEB_DEFAULT_PORT);
+    expect(WEB_DEFAULT_PORT).toBe(21579);
+  });
+
+  it("skips unparsable and out-of-range sources, reporting each once", () => {
+    expect(resolveWebPort("0", "abc", 8002)).toEqual({ port: 8002, ignored: ["0", "abc"] });
+    expect(resolveWebPort("abc", "0", 8002)).toEqual({ port: 8002, ignored: ["abc", "0"] });
+    expect(resolveWebPort("70000", undefined, 8002)).toEqual({ port: 8002, ignored: ["70000"] });
+    expect(resolveWebPort("8000", "junk", 8002)).toEqual({ port: 8000, ignored: [] });
+    expect(resolveWebPort(undefined, undefined, undefined)).toEqual({ port: 21579, ignored: [] });
   });
 });
