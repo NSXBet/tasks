@@ -1,74 +1,68 @@
 ---
 name: tasks
-description: Use when this session should create, update, or track project tasks via the tasks tools (tasks, tasks_ready, tasks_watch_*), or when the user asks to find ready work, claim or close tasks, file follow-ups, inspect blockers, or get notified about task changes. Covers the full tk CLI flag surface including file attachments and plan files. Tasks is the durable source of truth for project work; local plans and scratch notes are not.
+description: Use when working in a repository that uses tk or Tasks for durable project task tracking, issue dependencies, blocker management, evidence, or review handoff. Trigger when the user asks to find ready work, claim or close tasks, create follow-up work, attach proof of work, hand work over for review, inspect blockers, recover project context, or choose between local planning and persistent project tracking.
 ---
 
 # Tasks
 
-Tasks is the shared project tracker. Everything durable goes through it; local plans and memories do not count as tracking.
+Tasks is the project's durable tracker: one record per deliverable, every handoff on the record. Local plans, chat, and memory do not count as tracking.
 
-## Tools over shell
+## Reaching the tracker
 
-Prefer the `tasks` tool over shelling out to `tk`. The tool returns structured JSON and never needs the CLI on PATH.
+Every verb below is one action. Shell forms are shown because they work in any editor. If your environment exposes Tasks as first-class actions instead of shell, take those — the verbs match by name and return structured results. Don't ask which form is right; act.
 
-- `tasks` — one tool for the full surface. Pass `op` plus parameters.
-- `tasks_ready` — the unblocked backlog. Call it when you are about to run out of work.
-- `tasks_watch_start` — spawn a watcher that notifies this session when issues change. `tasks_watch_stop` / `tasks_watch_status` manage watchers.
+## The loop — task → review
 
-## Core workflow
+Work runs as one loop over the issue's status. Each action emits an event (`task.created`, `task.status`, `task.commit`, `task.evidence`, `task.comment`, `task.report`) that watchers pick up — nobody waits on chat, nobody polls.
 
-1. Find work: `tasks_ready` (or `tasks { "op": "ready", "claim": false }`).
-2. Claim: `tasks { "op": "claim", "id": "tk-x" }` — sets assignee and status atomically.
-3. Work. Log meaningful progress: `tasks { "op": "comment", "id": "tk-x", "body": "..." }`.
-4. Finish: `tasks { "op": "close", "id": "tk-x", "reason": "..." }` — closed issues carry a reason note.
+| status | who moves it | how |
+|---|---|---|
+| open | creator | `tk create "Change bg to blue"` — the title seeds the branch name |
+| in-progress | agent | `tk update <id> --claim` — assigns you and starts the clock atomically |
+| ready-to-review | agent | status + owner + comment: hand over to the reviewer |
+| approved → closed | reviewer | `tk close <id> --reason "<report>"` |
+| rejected | reviewer | comments land on the record; the loop restarts at claim |
 
-## Ops
+1. **Find or receive work.** `tk ready --json` lists unblocked claimable work. When the user hands you a change, create the task first — the title seeds the branch name. Clarify only if ambiguity is material: one round, asked in a comment so the question stays on the record, then commit to a reading.
+2. **Claim, then isolate.** `tk update <id> --claim`. Work on a branch — a worktree keeps the main checkout clean (`git worktree add`, or `tk worktree create <name>`, which shares the `.tasks/` workspace). `tk note <id> "…"` posts progress while you work.
+3. **Prove the before state.** Capture current behavior — screenshot, log, output — and attach it: `tk attach <id> --evidence shot.png`. The record carries the proof, not your memory.
+4. **Implement.** Commits are the evidence of the work. Attach after-shots of the new state as you go (`task.evidence`).
+5. **Hand over.** Set the issue ready for review, return it to the user, and say so in a comment:
+   `tk update <id> --status ready-to-review --owner <user> && tk comment <id> "ready for you to review"`.
+   Handover is a state change on the record, not a chat message. You're back at step 1 — `tk ready`.
+6. **Review rides the record.** Reviewer comments and verdicts land on the task: `tk comments <id>` reads them; `tk hunk <id>` opens a branch review of the issue's work, `tk hunk <id> sync` imports review comments into the issue (deduped). TUI and web show the same record.
+7. **Report on close.** Approved → `tk close <id> --reason "<what changed, where, evidence ids>"`. Rejected → read the comments, claim again, fix, re-hand over. "Done" is a report on the record, not a chat message.
 
-| op | parameters → result |
-|---|---|
-| `create` | `title` (required), `description?`, `type?` (task\|bug\|feature\|epic\|chore), `priority?` (0-4, default 2), `parent?`, `labels?[]`, `deps?[]`, `assignee?`, `owner?`, `dueAt?` (ISO), `estimate?`, `acceptanceCriteria?`, `design?`, `specId?`, `externalRef?`, `branch?`, `notes?`, `plan?` (path), `attachments?[]` → issue |
-| `quick` | `title` → `{ id }` |
-| `show` | `id` → issue |
-| `list` | `status?`, `parent?`, `assignee?`, `label?`, `limit?` → issues |
-| `ready` | `limit?`, `claim?` → unblocked issues |
-| `blocked` | — → issues with unclosed blockers |
-| `update` | `id`, any create field, `status?`, `reason?` (close), `plan?`, `attachments?[]` → issue |
-| `close` / `reopen` | `id`, `reason?` (close — appended to notes) → issue |
-| `defer` / `undefer` | `id`, `until?` (ISO or blank = +24h) → issue |
-| `claim` | `id` → issue (assignee + in_progress, CAS) |
-| `assign` / `priority` | `id`, `user` / `priority` (0-4) → issue |
-| `label-add` / `label-rm` | `id`, `label` → issue |
-| `note` / `comment` / `comments` | `id`, `body` → issue |
-| `dep-add` / `dep-rm` / `dep-list` | `id`, `target`, `depType?` (blocks\|relates-to) → issue/rows |
-| `link` | `id`, `target` — shorthand: target blocks id |
-| `rename` | `id`, `newId` → `{ from, to }` (retargets deps/parents) |
-| `delete` | `ids[]` → `{ deleted }` |
-| `duplicate` | `id`, `canonical` → issue |
-| `supersede` | `id`, `replacement` → issue |
-| `todo` / `todo-done` | `title` / `ids[]` — task-type shortcuts |
-| `search` | `text` → issues |
-| `query` | `expression` (`status=open`, `title~bug`) → issues |
-| `history` | `id` → audit entries |
-| `counts` / `stats` | — → board counters |
-| `tree` | `all?`, `depth?` → epics + dependency fan-out |
-| `graph` | — → nodes + edges |
-| `duplicates` / `lint` | `ids?` → findings |
-| `children` / `epic` | `id` → child list / `{ epic, children, done, eligible }` |
-| `attach` | `id`, `path` (required), `attachmentMetadata?` → issue. Blob-backed evidence: CLI only, `tk attach <id> --evidence <path>...` |
-| `detach` | `id`, `path` (required) → issue. Blob entries (name/id): CLI only, `tk detach <id> <name-or-id>` |
+## Verbs
 
-## File attachments and plans
+| verb | shell form | notes |
+|---|---|---|
+| ready | `tk ready [--json] [--claim]` | unblocked, claimable |
+| blocked | `tk blocked` | open issues with unclosed blockers |
+| create / q | `tk create "title" [-t type] [-p 0-4] [--parent --labels --assignee]` / `tk q "title"` | `q` prints only the new id |
+| show | `tk show <id>` | full record |
+| list | `tk list --status s` | shorthands: `--open --closed --all --ready-to-review --approved --rejected` |
+| update / claim | `tk update <id> [--status --branch --title --priority --assignee --owner]` / `--claim` | `--claim` = assignee + in-progress, atomic |
+| comment | `tk comment <id> "body"` | `--stdin` for pipes |
+| note | `tk note <id> "text"` | appends to the issue notes |
+| attach / detach | `tk attach <id> <path>` / `tk detach <id> <path\|name\|id>` | see below |
+| close / reopen | `tk close <id> [--reason text]` | reason is appended to the record |
+| defer | `tk defer <id> [until]` | default +24h; `undefer` restores |
+| structure | `tk dep <id> add\|rm <t>` · `tk link <a> <b>` · `tk label add\|rm <id> <l>` · `tk assign <id> <u>` · `tk priority <id> <0-4>` · `tk tag <id> <l>` | blocks, labels, ownership |
+| lifecycle | `tk rename <old> <new>` · `tk duplicate <id> --of <c>` · `tk supersede <id> --with <n>` · `tk delete <id>...` | retargets deps/parents |
+| read | `tk query "status=open"` · `tk search text` · `tk history <id>` · `tk tree` · `tk graph [id]` · `tk epic <id>` · `tk children <id>` · `tk stale` · `tk orphans` · `tk duplicates` | query surface |
+
+## Attachments, plans, evidence
 
 Attachments are **references, not copies** — they store a path plus optional metadata. Path resolution: a bare name (`foo.yaml`) means the repo root's `foo.yaml`; relative paths resolve against the current working directory and are stored workspace-relative; absolute paths are stored as-is. Reference files that already exist.
 
-- One-off file: `tasks { "op": "attach", "id": "tk-x", "path": "docs/spec.md", "attachmentMetadata": { "kind": "spec" } }`.
-- **Plan files**: when the user says "plan", "plan file", or hands you a markdown plan, use `plan` on create/update instead of `attach`:
-  `tasks { "op": "create", "title": "auth rework", "plan": ".agents/plans/auth.md" }`.
-  This attaches the file with `kind: "plan"` metadata; setting a new plan **replaces the prior plan attachment** and leaves other attachments untouched. One plan per issue.
-- Full-list replace: `attachments: [{ path, metadata? }]` on create/update replaces the entire list (empty array clears). Prefer `plan`/`attach` for single files.
-- Remove: `tasks { "op": "detach", "id": "tk-x", "path": "docs/spec.md" }` (path refs only; evidence blobs need the CLI detach).
+- One-off file: `tk attach <id> docs/spec.md --attach-metadata kind=spec`.
+- **Plan files**: when the user says "plan", "plan file", or hands you a markdown plan, use `--plan`:
+  `tk create "auth rework" --plan .agents/plans/auth.md`.
+  This attaches the file with `kind: plan` metadata; setting a new plan **replaces the prior plan attachment** and leaves other attachments untouched. One plan per issue.
+- Repeatable: `tk create "t" --attach foo.yaml --attach 'docs/plan.md={"kind":"plan"}'` (inline JSON = metadata).
 
-## Evidence blobs (CLI)
+## Evidence blobs
 
 `tk attach <id> --evidence <path>...` **copies bytes into the workspace** (`.tasks/attachments/`), replacing path references: entries become `{kind, id (ev-…), name, mime, size, sha256}`. Use it for proof of work — screenshots, logs, outputs — that must survive the file moving.
 
@@ -76,24 +70,10 @@ Attachments are **references, not copies** — they store a path plus optional m
 - Re-attach with the same file name replaces the prior evidence entry in place (same id, new bytes).
 - Reference evidence from comments as `evidence:<id>` (e.g. `see evidence:ev-a1b2c3`); `tk detach <id> <name-or-id>` removes the entry and its stored bytes.
 
-## CLI equivalents
+## Rules
 
-`tk` remains available for humans and scripts; both drive the same workspace.
-
-```bash
-tk attach <id> <path>                       # attach (--attach-metadata k=v,k2=v2 applies to this path)
-tk attach <id> --evidence shot.png log.txt  # ingest copies: blob entry {id, name, mime, size, sha256}
-tk detach <id> <path|name|id>               # remove attachment (evidence bytes deleted with it)
-tk create "title" --plan docs/plan.md       # plan via attachment system
-tk create "title" --attach foo.yaml --attach 'docs/plan.md={"kind":"plan"}'  # repeatable; inline JSON = metadata
-tk update <id> --plan new-plan.md           # replaces prior plan, keeps other attachments
-tk update <id> --attach <path>              # add; re-attach replaces metadata
-tk update <id> --detach <path>              # remove
-```
-
-## Conventions
-
-- One issue per deliverable; use `parent` for subtasks of an epic and `dep-add` for blockers.
+- One issue per deliverable; `parent` for subtasks of an epic, `dep` for blockers.
 - Never close an issue whose acceptance criteria are not visibly met — say what you did in the close reason.
+- Don't gate the loop on chat: status changes and comments are the handoff; the record is the memory.
 - Prefer `--json` when parsing `tk` output programmatically; `--markdown` renders `## id — title` sections.
 - `tk skill path` prints this skill's installed location; `tk skill install` symlinks the skill directory into `.agents/skills` (project default) or `~/.agents/skills` (`--global`); `--force` replaces an existing install. Symlinks track upgrades — re-install only when the link breaks.
