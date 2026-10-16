@@ -69,27 +69,167 @@ export const fixtureWorktree = "../platform-api-tk-142";
 export interface FixtureSession {
   readonly id: string;
   readonly agent: string;
-  readonly status: "done" | "running";
+  readonly status: "done" | "running" | "idle";
+  readonly kind: "Research" | "Design" | "Structure";
   readonly topic: string;
   readonly duration: string;
 }
 
 export const fixtureSessions: readonly FixtureSession[] = [
-  { id: "sess-7f3k", agent: "omp", status: "done", topic: "research patterns", duration: "10m" },
-  { id: "sess-k2q9", agent: "omp", status: "running", topic: "design discussion", duration: "2m" },
+  { id: "sess-7f3k", agent: "omp", status: "done", kind: "Research", topic: "research patterns", duration: "10m" },
+  { id: "sess-k2q9", agent: "omp", status: "running", kind: "Design", topic: "design discussion", duration: "2m" },
+  { id: "sess-q5x1", agent: "omp", status: "idle", kind: "Structure", topic: "structure outline", duration: "—" },
 ];
 
 export interface FixtureArtifact {
   readonly path: string;
+  readonly kind: "doc" | "code";
   readonly added: number;
   readonly removed: number;
   readonly comments: number;
+  /** Doc artifact: SUMMARY tab — one line per document section. */
+  readonly summary?: readonly string[];
+  /** Doc artifact: AUTO tab — the rendered markdown body. */
+  readonly body?: readonly string[];
 }
 
 export const fixtureArtifacts: readonly FixtureArtifact[] = [
-  { path: "src/uploader/retry.ts", added: 38, removed: 12, comments: 5 },
-  { path: "src/uploader/refresh-mutex.ts", added: 24, removed: 0, comments: 2 },
-  { path: "bench/retry-bench.txt", added: 9, removed: 2, comments: 1 },
+  { path: "src/uploader/retry.ts", kind: "code", added: 38, removed: 12, comments: 5 },
+  { path: "src/uploader/refresh-mutex.ts", kind: "code", added: 24, removed: 0, comments: 2 },
+  {
+    path: "docs/plans/sidebar-consolidation.md",
+    kind: "doc",
+    added: 4,
+    removed: 0,
+    comments: 1,
+    summary: ["Problem — three sidebars, three layouts", "Decision — one Sidebar host, per-view slots", "Migration — collapse over two releases"],
+    body: [
+      "# Sidebar consolidation",
+      "",
+      "## Problem",
+      "List, board, and graph views each ship their own sidebar; state drifts between them.",
+      "",
+      "## Decision",
+      "One Sidebar host component with per-view slots; selection and filter state hoist to AppContext.",
+      "",
+      "## Migration",
+      "Collapse the board sidebar first, then list, then graph — two releases.",
+    ],
+  },
+  { path: "bench/retry-bench.txt", kind: "code", added: 9, removed: 2, comments: 1 },
+];
+
+/** Artifact review thread beside the selected artifact in the artifact view. */
+export interface FixtureArtifactComment {
+  readonly author: string;
+  readonly agent: boolean;
+  readonly text: string;
+  readonly resolved: boolean;
+  /** Shown for resolved comments; e.g. `✓ resolved by reply`. */
+  readonly resolvedBy?: string;
+}
+
+export const fixtureArtifactComments: readonly FixtureArtifactComment[] = [
+  {
+    author: "kyle",
+    agent: false,
+    text: "will the mutex deadlock if REFRESH_URL itself refreshes?",
+    resolved: true,
+    resolvedBy: "resolved by reply",
+  },
+  {
+    author: "agent",
+    agent: true,
+    text: "bounded at MAX=5; the timeout surfaces as RetryError, so the caller can retry without us.",
+    resolved: true,
+    resolvedBy: "agent",
+  },
+  {
+    author: "sarah",
+    agent: false,
+    text: "throw before returning the parsed body? good catch by the test.",
+    resolved: false,
+  },
+];
+
+/** Code artifact content for the artifact view: file lines with diff kinds. */
+export interface FixtureCodeLine {
+  readonly kind: "ctx" | "del" | "add";
+  readonly no: number;
+  readonly text: string;
+}
+
+export const fixtureCodeContent: Readonly<Record<string, readonly FixtureCodeLine[]>> = {
+  "src/uploader/retry.ts": [
+    { kind: "ctx", no: 41, text: "export async function withRetry<T>(token: string): Promise<T> {" },
+    { kind: "ctx", no: 42, text: "  const session = await getSession(token)" },
+    { kind: "del", no: 43, text: "  const res = await fetch(REFRESH_URL, { token })" },
+    { kind: "del", no: 44, text: "  if (res.status === 401) return retry(token)" },
+    { kind: "add", no: 43, text: "  const res = await refreshMutex.run(token, async () => {" },
+    { kind: "add", no: 44, text: "    return fetch(REFRESH_URL, { token })" },
+    { kind: "add", no: 45, text: "  })" },
+    { kind: "ctx", no: 46, text: "  if (!res.ok) throw new RetryError(res.status)" },
+    { kind: "ctx", no: 47, text: "  return res.json() as Promise<T>" },
+    { kind: "ctx", no: 48, text: "}" },
+  ],
+  "src/uploader/refresh-mutex.ts": [
+    { kind: "add", no: 1, text: "export class RefreshMutex {" },
+    { kind: "add", no: 2, text: "  private chain: Promise<unknown> = Promise.resolve();" },
+    { kind: "add", no: 3, text: "" },
+    { kind: "add", no: 4, text: "  run<T>(token: string, task: () => Promise<T>): Promise<T> {" },
+    { kind: "add", no: 5, text: "    const next = this.chain.then(() => task());" },
+    { kind: "add", no: 6, text: "    this.chain = next.finally(() => this.release(token));" },
+    { kind: "add", no: 7, text: "    return next;" },
+    { kind: "add", no: 8, text: "  }" },
+  ],
+  "bench/retry-bench.txt": [
+    { kind: "ctx", no: 1, text: "p50  12ms   →  11ms" },
+    { kind: "add", no: 2, text: "p99  480ms  →  144ms   (−70%)" },
+    { kind: "del", no: 2, text: "p99  480ms  →  501ms" },
+    { kind: "ctx", no: 3, text: "runs 200 · seed fixture-7" },
+  ],
+};
+
+/** Agent rationale rendered between hunks in the diff view. */
+export const fixtureAgentNote =
+  "Retry now wraps every refresh in RefreshMutex: concurrent callers queue instead of racing the cache, and jitter keeps the thundering herd off the token endpoint.";
+
+/** Fake review thread anchored to a diff line. */
+export interface FixtureLineComment {
+  readonly author: string;
+  readonly agent: boolean;
+  readonly line: number;
+  readonly text: string;
+  readonly resolved: boolean;
+  /** Shown for resolved comments, e.g. `✓ resolved by reply`. */
+  readonly resolvedBy?: string;
+  readonly reply?: {
+    readonly author: string;
+    readonly agent: boolean;
+    readonly text: string;
+  };
+}
+
+export const fixtureLineComments: readonly FixtureLineComment[] = [
+  {
+    author: "kyle",
+    agent: false,
+    line: 14,
+    text: "does doFetch propagate 429s back to the retry loop?",
+    resolved: false,
+    reply: {
+      author: "agent",
+      agent: true,
+      text: "yes — RetryError(status) rethrows and the loop caps at six attempts.",
+    },
+  },
+  {
+    author: "sarah",
+    agent: false,
+    line: 50,
+    text: "is Math.random seeded? the bench needs determinism.",
+    resolved: false,
+  },
 ];
 
 /**
