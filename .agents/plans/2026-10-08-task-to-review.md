@@ -50,8 +50,8 @@ the registry, not a patch. The name of this work is **task → review**: it
 delivers the pull-request experience, but the PR experience is not what
 defines it — the task→review flow is.
 
-Around the record, three views — reverse-engineered from HumanLayer, built in
-both the TUI and the web:
+Around the record, three views — reverse-engineered from the reference app,
+built in both the TUI and the web:
 
 ### 1. Task view — description front and center
 
@@ -72,6 +72,10 @@ actions, and the session table — agent sessions recorded on the task with
 lifecycle status. Right rail: artifacts — attached files (`tk attach`) plus
 the changed files derived from the branch — each with its comment count.
 
+The header is a breadcrumb (`TK-142 › fix flaky retry`), and the views teach
+their keys inline — `c` comment, `q` close — visible hints in the chrome, the
+same convention the diff pane already follows (`[c] comment [q] quit`).
+
 ### 2. Artifact view — every file, commentable
 
 ```
@@ -83,6 +87,12 @@ the changed files derived from the branch — each with its comment count.
 
 The artifact sits front and center; comments sit beside it. Humans and agents
 comment on the same object, and the thread lands on the task record.
+
+Artifacts are **typed**: docs render as markdown documents (the reference's
+SUMMARY/AUTO tabs), code as file content. Every comment carries **resolve
+state** — ✓ per comment, "All resolved" in the header — review is complete
+when nothing is open. Resolve state is stored, not gestured: it rides the
+same task-store record (step 8).
 
 ### 3. Diff view — copied from hunk
 
@@ -186,7 +196,8 @@ Three behaviors define the component — the reason we copy rather than spawn:
   surface; the edit writes back to the worktree file and the diff re-renders
   around it.
 - **Commentable** — line and file comments persist straight to the task store
-  (replacing hunk's own comment storage, as below).
+  (replacing hunk's own comment storage, as below) — with resolve state, ✓
+  per comment and "All resolved" in the thread header.
 
 Hunk (https://github.com/modem-dev/hunk/) is copied into the repo as the
 starting point and reimplemented as tk's own diff component,
@@ -311,9 +322,9 @@ filled in behind the shells.
 
 | # | Build | Delivers | Verified by |
 |---|---|---|---|
-| 1 | mock TUI — the three views (task, artifact, diff) + the diff view as full page and modal, hard-coded data, navigation and clicks only | the interaction, testable on day one | walk every view; every action displays `WIP` |
-| 2 | mock web — same three views on `@pierre/diffs` shells, hard-coded data | the same interaction in the browser | walk every view; every action displays `WIP` |
-| 3 | mock CLI — `tk show`, `tk work`, `tk review` output shapes against fake records | the record's exact shape, reviewable as text | `tk show TK-142` renders the PR-shaped record from fixture data |
+| 1 | mock TUI — the three views (task, artifact, diff) + the diff view as full page and modal, hard-coded data, navigation and clicks only — breadcrumb, artifact tabs, resolve state included | the interaction, testable on day one | walk every view; every action displays `WIP` |
+| 2 | mock web — same three views on `@pierre/diffs` shells, hard-coded data — breadcrumb, rail tabs, resolve state included | the same interaction in the browser | walk every view; every action displays `WIP` |
+| 3 | mock CLI — `tk show`, `tk work`, `tk review` output shapes against fake records — comments row shows resolve counts | the record's exact shape, reviewable as text | `tk show TK-142` renders the PR-shaped record from fixture data |
 
 **Phase 1 — make it real (real code behind the approved shells)**
 
@@ -323,9 +334,9 @@ filled in behind the shells.
 | 5 | changeset derivation — **lazy**: every read derives live via the adapter (`git log`/`git diff` vs pinned base), nothing cached per read; terminal snapshot written only at close+prune | the PR record: commits + diff, no file lists | two commits → `tk show` lists them fresh after every change; close+prune → frozen snapshot still renders |
 | 6 | `tk finish <id> --session` — session id, → `ready-to-review` only, cannot close | the completion contract | finish → status + counts; `close`/`done` refused |
 | 7 | vendor hunk slice → `packages/review` (changeset, review types, watch controller; @pierre/diffs dep; strip broker + comment store); `hunk-vcs` + `hunk-git` fold into `packages/git` — one adapter, no second one | the diff component, tk-owned | headless smoke: opens a diff of any repo from node |
-| 8 | storage swap — component comments/edits persist to the task store | review state lives on the task | line comment in component → task record, `tk show` |
-| 9 | real TUI — the three views wired to the live component; `tk review <id>` | HumanLayer layout in the terminal | full loop: comment, live re-render, in-view edit |
-| 10 | real web — same layouts wired to `@pierre/diffs` `./react` + `./edit`; `/tasks/:id`, SSE live, write endpoint | HumanLayer layout on the web | web comment → task store → TUI; web edit → TUI diff |
+| 8 | storage swap — component comments/edits persist to the task store, **with resolve state** | review state lives on the task | line comment → task record, `tk show`; resolve a thread → "All resolved" in the views |
+| 9 | real TUI — the three views wired to the live component; `tk review <id>` | reference layout in the terminal | full loop: comment, live re-render, in-view edit |
+| 10 | real web — same layouts wired to `@pierre/diffs` `./react` + `./edit`; `/tasks/:id`, SSE live, write endpoint | reference layout on the web | web comment → task store → TUI; web edit → TUI diff |
 | 11 | worktree lifecycle — gw copied (TS port): `gitIsMergedToBase` safety, auto-prune in `tk close` with terminal changeset snapshot, `tk worktree clean`, lifecycle hooks, pm setup on start | gw's full worktree functionality in tk, task-aware — tk replaces gw | close a merged+clean task → worktree gone, snapshot frozen; unmerged → prune refused, close still succeeds; `worktree.post_start` ran on create |
 | 12 | injection — `ONBOARD` snippet, `prime`, `SKILL.md`, root AGENTS.md | the harness learns the workflow | fresh clone → onboard → rules present |
 
@@ -357,7 +368,9 @@ End-to-end smoke, per step, in a scratch repo:
 3. `tk review <id>` opens the vendored review TUI over the tk-derived diff
    without a manual branch link; a line comment lands directly in the task
    store and shows in `tk show`; a commit from a second terminal re-renders
-   the diff live; an in-TUI edit persists to the worktree file and re-renders.
+   the diff live; an in-TUI edit persists to the worktree file and re-renders;
+   resolving a comment flips it to ✓ and an all-resolved thread shows
+   "All resolved".
 4. Web: record, derived diff, and the TUI's comment all render; the web view
    updates through `/events` when the worktree changes; a web edit writes the
    worktree file and appears in the TUI's diff.
@@ -374,6 +387,13 @@ End-to-end smoke, per step, in a scratch repo:
 
 - What happens after review: accept/merge/close automation, rejection flow.
 - Interactive keybindings inside `tk show`.
+- Everything else the reference app does that is not the review experience —
+  the full inventory, nine groups, lives on the plan page (§8) and is tracked
+  as `tier-b` issues on tk (tasks-34rm, tasks-k5kp, tasks-lx7a, tasks-d0rq,
+  tasks-zshv, tasks-nzg0, tasks-xcov, tasks-6zif, tasks-gt6y), not in this
+  plan.
 - Rewriting hunk's rendering stack — none needed: tk's TUI (`packages/tui`)
   already runs @opentui/react, the same stack hunk uses; the copied component
   drops in with only inputs, outputs, and storage changing.
+- The loop's event fabric ("the wire") and the `tk next` oracle — designed on
+  the plan page (§10); the wire is its own project, not this plan.
