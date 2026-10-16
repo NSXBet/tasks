@@ -41,7 +41,7 @@
   <div class="max-w-[1180px] mx-auto px-5 h-12 flex items-center gap-5 text-[11px] tracking-wide">
     <span class="text-[#3ddc97] font-bold">tk</span><span class="text-[#7c8b99]">/</span><span>task → review</span>
     <nav class="ml-auto flex gap-4 text-[#7c8b99]">
-      <a href="#record">record</a><a href="#views">views</a><a href="#diff">diff</a><a href="#reuse">reuse</a><a href="#how">how</a><a href="#build">build</a><a href="#verify">verify</a><a href="#requests">requests</a>
+      <a href="#record">record</a><a href="#views">views</a><a href="#diff">diff</a><a href="#reuse">reuse</a><a href="#how">how</a><a href="#build">build</a><a href="#verify">verify</a><a href="#inventory">inventory</a><a href="#requests">requests</a><a href="#loop">loop</a>
     </nav>
   </div>
 </header>
@@ -94,6 +94,7 @@
   diff       <span class="text-[#3fb950]">+38</span> <span class="text-[#f85149]">−12</span>   <span class="text-[#9fb0bf]">3 files</span>         computed from the branch
   agent      <span class="text-[#a78bfa]">omp</span> · session <span class="text-[#a78bfa]">a1b2c3d4</span>     finished 14:32
   harness    <span class="text-[#3ddc97]">omp</span> <span class="text-[#7c8b99]">(first)</span> · codex · cursor   <span class="text-[#41505f]">one registry, data not code</span>
+  comments   <span class="text-[#9fb0bf]">5</span> <span class="text-[#41505f]">·</span> <span class="text-[#d29922]">1 open</span> <span class="text-[#3fb950]">4 ✓</span>       on artifacts, lines, sessions
   <span class="text-[#41505f]">─────────────────────────────────────────────────────────────</span>
   review  ▸ <span class="text-[#3ddc97]">TUI</span>  tk review TK-142            <span class="text-[#9fb0bf]">diff TUI, full page</span>
           ▸ <span class="text-[#58a6ff]">web</span>  <span class="text-[#58a6ff]">https://…/tasks/TK-142</span>    <span class="text-[#9fb0bf]">open in browser</span></div>
@@ -110,7 +111,7 @@
   <!-- ================= VIEWS ================= -->
   <section id="views" class="mb-6">
     <div class="section-num">§2 · THE THREE VIEWS — TUI + WEB, ADDITIVE</div>
-    <h2 class="mt-2 text-xl font-bold">Reverse-engineered from HumanLayer, built twice</h2>
+    <h2 class="mt-2 text-xl font-bold">Reverse-engineered from the reference app, built twice</h2>
     <p class="mt-2 text-[12px] leading-6 text-[#7c8b99] max-w-[760px]">
       Around the record: three views, each rendered below as it lands in the web and the TUI.
       Left: the working tasks. Middle: the task, front and center — comments and artifacts as the default view.
@@ -127,6 +128,7 @@
         <span class="text-[#3ddc97] font-bold">tk</span>
         <span class="text-[#41505f]">/</span><span>TK-142</span>
         <span class="pill pill-open ml-2">● ready-to-review</span>
+        <span class="pill">c comment · q quit</span>
         <span class="pill ml-auto">TUI ⇄ WEB</span>
       </div>
       <div class="grid grid-cols-[210px_1fr_230px] min-h-[340px]">
@@ -193,8 +195,9 @@
     <div class="panel rounded-xl overflow-hidden">
       <div class="flex items-center gap-3 px-4 h-10 border-b border-[#1d2833] text-[11px]">
         <span class="text-[#41505f]">TK-142</span><span class="text-[#41505f]">/</span><span class="text-[#d7e1ea] font-bold">retry.ts</span>
-        <span class="pill pill-open ml-2">5 OPEN</span>
-        <span class="pill ml-auto">comments · artifacts default view</span>
+        <span class="pill pill-open ml-2">1 OPEN</span>
+        <span class="pill">2 ✓</span>
+        <span class="pill pill-open ml-auto">SUMMARY</span><span class="pill">AUTO</span>
       </div>
       <div class="grid grid-cols-[1fr_300px] min-h-[360px]">
         <!-- artifact pane -->
@@ -216,20 +219,21 @@
         </div>
         <!-- comments panel -->
         <div class="border-l border-[#1d2833] py-4 px-4 text-[11px] flex flex-col">
-          <div class="text-[10px] tracking-widest text-[#7c8b99] pb-2 border-b border-[#1d2833]">COMMENTS · 5 OPEN</div>
+          <div class="text-[10px] tracking-widest text-[#7c8b99] pb-2 border-b border-[#1d2833]">COMMENTS · 1 OPEN · 2 ✓</div>
           <div class="mt-3 space-y-4 overflow-y-auto">
             <div class="panel rounded-lg p-2.5 border-[#273445]">
               <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#a78bfa]">K</span><span class="text-[#d7e1ea]">kyle</span><span>2m</span><span class="ml-auto pill pill-open">lines 43–45</span></div>
               <p class="mt-1.5 leading-5 text-[#c3d0dc]">will the mutex deadlock if <code>REFRESH_URL</code> itself refreshes?</p>
-              <div class="mt-1.5 flex gap-2 text-[9px] text-[#58a6ff]"><span>REPLY</span><span class="text-[#41505f]">·</span><span class="text-[#9fb0bf]">resolve</span></div>
+              <div class="mt-1.5 flex gap-2 text-[9px] text-[#58a6ff]"><span>REPLY</span><span class="text-[#41505f]">·</span><span class="text-[#3ddc97]">✓ resolved by reply</span></div>
             </div>
             <div class="panel rounded-lg p-2.5 border-[#273445]">
-              <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#3ddc97]">A</span><span class="text-[#d7e1ea]">assistant</span><span>1m</span><span class="ml-auto pill">retry.ts (file)</span></div>
+              <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#3ddc97]">A</span><span class="text-[#d7e1ea]">assistant</span><span>1m</span><span class="ml-auto pill">retry.ts (file)</span><span class="text-[#3ddc97]">✓</span></div>
               <p class="mt-1.5 leading-5 text-[#c3d0dc]">bounded at MAX=5; the timeout surfaces as <code>RetryError</code>, so the caller can retry without us.</p>
             </div>
             <div class="panel rounded-lg p-2.5 border-[#273445]">
               <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#58a6ff]">S</span><span class="text-[#d7e1ea]">sarah</span><span>just now</span><span class="ml-auto pill pill-open">line 46</span></div>
               <p class="mt-1.5 leading-5 text-[#c3d0dc]">throw before returning the parsed body? good catch by the test.</p>
+              <div class="mt-1.5 flex gap-2 text-[9px] text-[#58a6ff]"><span>REPLY</span><span class="text-[#41505f]">·</span><span class="text-[#9fb0bf]">resolve</span></div>
             </div>
           </div>
           <!-- composer -->
@@ -247,7 +251,7 @@
     <figcaption class="mb-3 text-[11px] tracking-widest text-[#7c8b99]">VIEW 3 · SESSION VIEW — the agent's rationale above the change · message box below <span class="text-[#41505f]">R30 R31 R32</span></figcaption>
     <div class="panel rounded-xl overflow-hidden">
       <div class="flex items-center gap-3 px-4 h-10 border-b border-[#1d2833] text-[11px]">
-        <span class="text-[#41505f]">TK-142</span><span class="text-[#41505f]">/</span><span>session</span><span class="text-[#a78bfa]">a1b2c3d4</span>
+        <span class="text-[#58a6ff]">← task</span><span class="text-[#41505f]">/</span><span class="text-[#41505f]">TK-142</span><span class="text-[#41505f]">/</span><span>session</span><span class="text-[#a78bfa]">a1b2c3d4</span>
         <span class="pill pill-run ml-2">RUNNING</span>
         <span class="pill ml-auto">comments feed the agent</span>
       </div>
@@ -468,9 +472,21 @@
     <ol id="verify-list" class="mt-4 space-y-2 text-[11.5px] leading-6 list-decimal list-inside text-[#c3d0dc]"></ol>
   </section>
 
+  <!-- ================= INVENTORY ================= -->
+  <section id="inventory" class="mb-16">
+    <div class="section-num">§8 · THE FULL INVENTORY</div>
+    <h2 class="mt-2 text-xl font-bold">The whole reference surface, grouped as tk's backlog</h2>
+    <p class="mt-2 text-[12px] leading-6 text-[#7c8b99] max-w-[780px]">
+      The plan above builds the review experience. Everything else the reference app does —
+      inventoried capability by capability — sits below: nine groups, each group one
+      <span class="text-[#d7e1ea]">tier-b</span> issue on the tracker. Not built by this plan; not forgotten either.
+    </p>
+    <div id="inventory-grid" class="mt-4 grid md:grid-cols-2 lg:grid-cols-3 gap-3 items-start"></div>
+  </section>
+
   <!-- ================= REQUESTS ================= -->
   <section id="requests">
-    <div class="section-num">§8 · THE REQUEST LEDGER</div>
+    <div class="section-num">§9 · THE REQUEST LEDGER</div>
     <h2 class="mt-2 text-xl font-bold">Every request, atomic</h2>
     <p class="mt-2 text-[12px] leading-6 text-[#7c8b99] max-w-[780px]">
       All requirements gathered so far, each one its own request — so nothing gets lost.
@@ -479,8 +495,64 @@
     <ul id="request-list" class="mt-4 space-y-1"></ul>
   </section>
 
+  <!-- ================= LOOP ================= -->
+  <section id="loop" class="mb-16">
+    <div class="section-num">§10 · THE LOOP</div>
+    <h2 class="mt-2 text-xl font-bold">The script and the wire</h2>
+    <p class="mt-2 text-[12px] leading-6 text-[#7c8b99] max-w-[780px]" id="loop-intro"></p>
+
+    <div id="loop-script" class="mt-5"></div>
+
+    <table class="mt-4 w-full text-[11px] panel rounded-xl overflow-hidden">
+      <thead><tr class="text-left text-[9.5px] tracking-widest text-[#7c8b99] border-b border-[#1d2833]"><th class="p-2.5">CALL</th><th class="p-2.5">EMITS</th><th class="p-2.5">WHAT IT IS</th></tr></thead>
+      <tbody id="loop-tools"></tbody>
+    </table>
+    <p class="mt-2 text-[10px] leading-5 text-[#7c8b99]" id="loop-tools-note"></p>
+
+    <div class="mt-5 panel rounded-xl p-4 border-[#1d2833]">
+      <div class="text-[9.5px] tracking-[.2em] text-[#7c8b99] mb-2">THE WIRE — VERDICT</div>
+      <p class="text-[11.5px] leading-5 text-[#c3d0dc]" id="wire-verdict"></p>
+      <div class="term mt-3 rounded-lg"><div class="px-4 py-2.5 text-[10px] leading-5"><span class="text-[#7c8b99]">event</span> <span class="text-[#d7e1ea]" id="wire-envelope"></span></div></div>
+      <div id="wire-types" class="mt-3 flex flex-wrap gap-1"></div>
+      <p class="mt-3 text-[10.5px] leading-5 text-[#9fb0bf]" id="wire-cursors"></p>
+    </div>
+
+    <table class="mt-4 w-full text-[11px] panel rounded-xl overflow-hidden">
+      <thead><tr class="text-left text-[9.5px] tracking-widest text-[#7c8b99] border-b border-[#1d2833]"><th class="p-2.5">MODE</th><th class="p-2.5">CALL</th><th class="p-2.5">WHAT IT BUYS</th></tr></thead>
+      <tbody id="wire-modes"></tbody>
+    </table>
+
+    <div id="wire-consumers" class="mt-4 grid md:grid-cols-2 lg:grid-cols-4 gap-3 items-start"></div>
+
+    <div class="panel rounded-xl p-4 border-[#1d2833] mt-4">
+      <div class="flex items-center gap-2">
+        <h3 class="text-[12.5px] font-bold text-[#c3d0dc]">The oracle — <span id="oracle-name" class="text-[#3ddc97]"></span></h3>
+        <span class="ml-auto pill pill-amber text-[9px]">name open</span>
+      </div>
+      <p class="mt-2 text-[11.5px] leading-5 text-[#9fb0bf]" id="oracle-pitch"></p>
+      <ul id="oracle-answers" class="mt-3 grid sm:grid-cols-2 gap-x-6 gap-y-1.5"></ul>
+      <div class="mt-3 text-[10px] text-[#7c8b99]"><span class="tracking-[.2em]">SKINS</span> · <span id="oracle-skins"></span></div>
+    </div>
+
+    <table class="mt-4 w-full text-[11px] panel rounded-xl overflow-hidden">
+      <thead><tr class="text-left text-[9.5px] tracking-widest text-[#7c8b99] border-b border-[#1d2833]"><th class="p-2.5">WAVE</th><th class="p-2.5">THEME</th><th class="p-2.5">SHIPS</th><th class="p-2.5">VERIFIED BY</th></tr></thead>
+      <tbody id="loop-waves"></tbody>
+    </table>
+
+    <div class="mt-4 grid lg:grid-cols-2 gap-4 items-start">
+      <div>
+        <div class="text-[9.5px] tracking-[.2em] text-[#3ddc97] mb-2">DECIDED</div>
+        <ul id="loop-decisions" class="space-y-1.5"></ul>
+      </div>
+      <div>
+        <div class="text-[9.5px] tracking-[.2em] text-[#d29922] mb-2">OPEN — THE DISCUSSION LIVES HERE</div>
+        <ul id="loop-open" class="space-y-1.5"></ul>
+      </div>
+    </div>
+  </section>
+
   <footer class="mt-20 pt-6 border-t border-[#1d2833] text-[10px] text-[#41505f] flex gap-4">
-    <span>generated 2026-10-08 · docs/html/task-to-review.html</span>
+    <span>generated 2026-10-16 · docs/html/task-to-review.html</span>
     <span class="ml-auto">source: .agents/plans/2026-10-08-task-to-review.md</span>
   </footer>
 </main>
@@ -548,6 +620,115 @@
       <span class="pill pill-open mt-0.5 shrink-0">${r.id}</span>
       <span class="text-[#c3d0dc] leading-5">${esc(r.text)}</span>
     </li>`).join("");
+
+  // inventory — the reference app's full surface, one group = one tier-b issue
+  document.getElementById("inventory-grid").innerHTML = D.inventory.map(g => `
+    <div class="panel rounded-xl p-4 border-[#1d2833]">
+      <div class="flex items-center gap-2">
+        <h3 class="text-[12.5px] font-bold text-[#c3d0dc]">${esc(g.group)}</h3>
+        <span class="ml-auto pill pill-idle text-[9px]">${esc(g.issue)}</span>
+      </div>
+      <ul class="mt-2.5 space-y-1.5">
+        ${g.items.map(i => {
+          const inPlan = typeof i === "object";
+          return `<li class="flex gap-2 text-[10.5px] leading-4 text-[#9fb0bf]"><span class="text-[#3ddc97] shrink-0">▸</span><span>${esc(inPlan ? i.t : i)}${inPlan ? ` <span class="pill pill-open text-[8.5px]">in this plan</span>` : ""}</span></li>`;
+        }).join("")}
+      </ul>
+    </div>`).join("");
+
+  // loop — script, wire, consumers, oracle, waves, decisions + open
+  document.getElementById("loop-intro").textContent = D.loop.intro;
+  // §10 script — SVG swimlane: USER lane | AGENT lane | event rail
+  const AMBER = "#d29922", GREEN = "#3ddc97", INKC = "#c3d0dc", MUT = "#7c8b99",
+        HAIR = "#1d2833", BOXB = "#273445", MINT = "#9fe8cd";
+  const swimlane = steps => {
+    const U = { x: 24, w: 258 }, A = { x: 410, w: 390 }, RAIL = 880, LH = 15, GAP = 14;
+    let y = 46;
+    const rows = steps.map(s => {
+      const pills = s.events ? s.events.length * 19 + 8 : 0;
+      const h = Math.max(34, s.lines.length * LH + 20, pills);
+      const r = { ...s, box: s.who === "user" ? U : A, y, h };
+      y += h + GAP;
+      return r;
+    });
+    const H = y + 14;
+    const cy = r => r.y + r.h / 2;
+    const pill = (ev, c) => {
+      const w = ev.length * 5.1 + 12;
+      return `<rect x="${RAIL - w / 2}" y="${c - 8}" width="${w}" height="16" rx="8" fill="#0d1117" stroke="${BOXB}"/><text x="${RAIL}" y="${c + 3}" text-anchor="middle" font-size="8.5" fill="${MINT}">${esc(ev)}</text>`;
+    };
+    const o = [];
+    o.push(`<svg viewBox="0 0 960 ${H}" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11">`);
+    o.push(`<defs><marker id="mA" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L8 4L0 8z" fill="${AMBER}"/></marker><marker id="mG" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L8 4L0 8z" fill="${GREEN}"/></marker><marker id="mB" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L8 4L0 8z" fill="${BOXB}"/></marker></defs>`);
+    o.push(`<text x="${U.x + U.w / 2}" y="26" text-anchor="middle" font-size="9.5" letter-spacing="3" fill="${AMBER}">USER</text>`);
+    o.push(`<text x="${A.x + A.w / 2}" y="26" text-anchor="middle" font-size="9.5" letter-spacing="3" fill="${GREEN}">AGENT</text>`);
+    o.push(`<text x="${RAIL}" y="26" text-anchor="middle" font-size="9.5" letter-spacing="3" fill="${MUT}">EVENT LOG</text>`);
+    const firstEv = rows.find(r => r.events), lastEv = [...rows].reverse().find(r => r.events);
+    o.push(`<line x1="${RAIL}" y1="${cy(firstEv)}" x2="${RAIL}" y2="${cy(lastEv)}" stroke="${HAIR}"/>`);
+    for (const r of rows) {
+      o.push(`<rect x="${r.box.x}" y="${r.y}" width="${r.box.w}" height="${r.h}" rx="8" fill="#0d1117" stroke="${BOXB}"/>`);
+      r.lines.forEach((ln, i) => o.push(`<text x="${r.box.x + 16}" y="${r.y + 21 + i * LH}" fill="${INKC}">${esc(ln)}</text>`));
+      o.push(`<circle cx="${r.box.x}" cy="${cy(r)}" r="11" fill="#0d1117" stroke="${BOXB}"/>`);
+      o.push(`<text x="${r.box.x}" y="${cy(r) + 3.5}" text-anchor="middle" font-size="10" font-weight="bold" fill="${r.who === "user" ? AMBER : GREEN}">${r.n}</text>`);
+      if (r.events) {
+        const ys = r.events.length > 1 ? r.events.map((_, i) => cy(r) + (i - (r.events.length - 1) / 2) * 19) : [cy(r)];
+        r.events.forEach((ev, i) => {
+          const w = ev.length * 5.1 + 12;
+          o.push(`<path d="M ${r.box.x + r.box.w} ${ys[i]} H ${RAIL - w / 2 - 4}" fill="none" stroke="${BOXB}" stroke-dasharray="3 3" marker-end="url(#mB)"/>`);
+          o.push(pill(ev, ys[i]));
+        });
+      }
+    }
+    // handoff 9→10 — agent passes ownership to the user lane
+    o.push(`<path d="M ${A.x} ${cy(rows[8])} H 346 V ${cy(rows[9])} H ${U.x + U.w + 16}" fill="none" stroke="${AMBER}" marker-end="url(#mA)"/>`);
+    // loop-back 10→11 — the user's comment wakes the agent
+    o.push(`<path d="M ${U.x + U.w - 20} ${rows[9].y + rows[9].h} V ${rows[9].y + rows[9].h + 6} H 346 V ${cy(rows[10])} H ${A.x - 14}" fill="none" stroke="${GREEN}" marker-end="url(#mG)"/>`);
+    o.push(`<text x="346" y="${cy(rows[10]) - 8}" text-anchor="middle" font-size="9" fill="${GREEN}">${esc(rows[9].back)}</text>`);
+    o.push(`<text x="${RAIL}" y="${H - 4}" text-anchor="middle" font-size="9" letter-spacing="2" fill="${MUT}">LOOP ENDS</text>`);
+    o.push("</svg>");
+    return o.join("");
+  };
+  document.getElementById("loop-script").innerHTML = swimlane(D.loop.script);
+
+  // §10 tools — the loop's verbs
+  document.getElementById("loop-tools").innerHTML = D.loop.tools.map(t => `
+    <tr class="border-t border-[#1d2833] align-top">
+      <td class="p-2.5"><code class="text-[10.5px] text-[#9fe8cd]">${esc(t.call)}</code></td>
+      <td class="p-2.5">${t.emits === "—" ? `<span class="text-[10px] text-[#7c8b99]">—</span>` : t.emits.split(" · ").map(e => `<span class="pill pill-idle text-[9px] mr-1 mb-0.5 inline-block">${esc(e)}</span>`).join("")}</td>
+      <td class="p-2.5 text-[#9fb0bf] leading-5">${esc(t.note)}</td>
+    </tr>`).join("");
+  document.getElementById("loop-tools-note").textContent = D.loop.toolsNote;
+  document.getElementById("wire-verdict").textContent = D.loop.wire.verdict;
+  document.getElementById("wire-envelope").textContent = D.loop.wire.envelope;
+  document.getElementById("wire-types").innerHTML = D.loop.wire.types.map(t => `<span class="pill pill-idle text-[9px]">${esc(t)}</span>`).join("");
+  document.getElementById("wire-cursors").textContent = D.loop.wire.cursors;
+  document.getElementById("wire-modes").innerHTML = D.loop.wire.modes.map(m => `
+    <tr class="border-t border-[#1d2833] align-top">
+      <td class="p-2.5 text-[#3ddc97] font-bold whitespace-nowrap">${esc(m.name)}</td>
+      <td class="p-2.5"><code class="text-[10.5px] text-[#9fe8cd]">${esc(m.sig)}</code></td>
+      <td class="p-2.5 text-[#9fb0bf] leading-5">${esc(m.note)}</td>
+    </tr>`).join("");
+  document.getElementById("wire-consumers").innerHTML = D.loop.consumers.map(c => `
+    <div class="panel rounded-xl p-4 border-[#1d2833]">
+      <h3 class="text-[12.5px] font-bold text-[#c3d0dc]">${esc(c.who)}</h3>
+      <ul class="mt-2 space-y-1.5">${c.gets.map(g => `<li class="flex gap-2 text-[10.5px] leading-4 text-[#9fb0bf]"><span class="text-[#3ddc97] shrink-0">▸</span><span>${esc(g)}</span></li>`).join("")}</ul>
+    </div>`).join("");
+  document.getElementById("oracle-name").textContent = D.loop.oracle.name;
+  document.getElementById("oracle-pitch").textContent = D.loop.oracle.pitch;
+  document.getElementById("oracle-answers").innerHTML = D.loop.oracle.answers.map(a => `
+    <li class="flex gap-2 text-[11px] leading-5 text-[#9fb0bf]"><span class="text-[#3ddc97] shrink-0">▸</span><span>${esc(a)}</span></li>`).join("");
+  document.getElementById("oracle-skins").textContent = D.loop.oracle.skins;
+  document.getElementById("loop-waves").innerHTML = D.loop.waves.map(w => `
+    <tr class="border-t border-[#1d2833] align-top">
+      <td class="p-2.5 text-[#3ddc97] font-bold">${esc(w.n)}</td>
+      <td class="p-2.5 text-[#c3d0dc] leading-5">${esc(w.name)}</td>
+      <td class="p-2.5"><ul class="space-y-1">${w.items.map(i => `<li class="flex gap-2 text-[10.5px] leading-4 text-[#9fb0bf]"><span class="text-[#3ddc97] shrink-0">▸</span><span>${esc(i)}</span></li>`).join("")}</ul></td>
+      <td class="p-2.5 text-[#7c8b99] leading-5">${esc(w.verified)}</td>
+    </tr>`).join("");
+  document.getElementById("loop-decisions").innerHTML = D.loop.decisions.map(d => `
+    <li class="flex gap-2 text-[11px] leading-5 text-[#c3d0dc]"><span class="text-[#3ddc97] shrink-0">▸</span><span>${esc(d)}</span></li>`).join("");
+  document.getElementById("loop-open").innerHTML = D.loop.open.map(o => `
+    <li class="flex gap-2 text-[11px] leading-5 text-[#9fb0bf]"><span class="text-[#d29922] shrink-0">▸</span><span>${esc(o)}</span></li>`).join("");
 </script>
 </body>
 </html>
