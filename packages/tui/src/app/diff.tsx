@@ -1,13 +1,17 @@
 import { useKeyboard } from "@opentui/react";
 import { useState } from "react";
+import { ComposerRow } from "./composer.js";
 import { useApp } from "./context.js";
 import { colors } from "../theme.js";
 import { padStart, truncate } from "../format.js";
 import {
+  fixtureAgentNote,
   fixtureBase,
+  fixtureBranch,
   fixtureDiffFiles,
   fixtureDiffStats,
   fixtureIssueId,
+  fixtureLineComments,
   type DiffFile,
   type DiffLine,
 } from "../fixture.js";
@@ -104,6 +108,51 @@ const DiffBody = ({ sel, onSelect, opts }: { sel: number; onSelect: (i: number) 
               : splitRows(h.lines).map((row, ri) => <SplitRow key={ri} row={row} numbers={opts.numbers} />)}
           </box>
         ))}
+        {fi === 0 ? (
+          <box style={{ flexDirection: "column", paddingTop: 1 }}>
+            <text>
+              <span fg={colors.accent}>a</span>
+              <span fg={colors.dim}> · agent notes</span>
+            </text>
+            <text fg={colors.dim} content={fixtureAgentNote} />
+          </box>
+        ) : null}
+        {fi === 0 && fixtureLineComments.length > 0 ? (
+          <box style={{ flexDirection: "row", paddingTop: 1 }}>
+            <text fg={colors.dim} content="COMMENTS" />
+            {fixtureLineComments.every((c) => c.resolved) ? (
+              <text fg={colors.green} content=" · all resolved ✓" />
+            ) : (
+              <text fg={colors.dim} content={` · ${fixtureLineComments.filter((c) => c.resolved).length}/${fixtureLineComments.length} resolved`} />
+            )}
+          </box>
+        ) : null}
+        {fi === 0
+          ? fixtureLineComments.map((c) => (
+              <box key={c.author + c.line} style={{ flexDirection: "column", paddingTop: 1 }}>
+                <text>
+                  <span fg={c.agent ? colors.cyan : colors.text}>{c.author}</span>
+                  <span fg={colors.dim}>{` on line ${c.line}`}</span>
+                  {c.resolved ? (
+                    <span fg={colors.green}>{` ✓ ${c.resolvedBy ?? "resolved"}`}</span>
+                  ) : (
+                    <span fg={colors.dim}> · open</span>
+                  )}
+                </text>
+                <text fg={colors.text} content={c.text} />
+                <text fg={colors.dim} content="E edit · R reply" />
+                {c.reply === undefined ? null : (
+                  <box style={{ flexDirection: "column", paddingLeft: 2 }}>
+                    <text>
+                      <span fg={c.reply.agent ? colors.cyan : colors.text}>{c.reply.author}</span>
+                      <span fg={colors.dim}> replied</span>
+                    </text>
+                    <text fg={colors.text} content={c.reply.text} />
+                  </box>
+                )}
+              </box>
+            ))
+          : null}
       </box>
     ))}
   </box>
@@ -130,11 +179,14 @@ const FilesPane = ({ sel, onSelect }: { sel: number; onSelect: (i: number) => vo
       </box>
     ))}
     <box style={{ flexGrow: 1 }} />
+    {/* One line even in the 30% pane: a wrap paints over the patch footer rows. */}
+    <text fg={colors.dim} content={truncate("watching worktree — re-derives as commits land ●", 34)} />
   </box>
 );
 
 /** Option toggles shared by the page and modal surfaces. */
 const useDiffOptions = () => {
+  const { actions } = useApp();
   const [layout, setLayout] = useState<"unified" | "split">("unified");
   const [files, setFiles] = useState(true);
   const [numbers, setNumbers] = useState(true);
@@ -142,6 +194,7 @@ const useDiffOptions = () => {
   const [sel, setSel] = useState(0);
   useKeyboard((key) => {
     switch (key.sequence) {
+      case "c": actions.notify("WIP"); break;
       case "u": setLayout("unified"); break;
       case "p": setLayout("split"); break;
       case "s": setFiles((v) => !v); break;
@@ -155,7 +208,7 @@ const useDiffOptions = () => {
   return { layout, files, numbers, headers, sel, setSel };
 };
 
-const keysLine = "u unified · p split · s files · l numbers · m hunk headers · ] [ file · esc back";
+const keysLine = "c note · u unified · p split · s files · l numbers · m hunk headers · ] [ file · esc back";
 
 /** Phase 0 mock: the diff rendered as a full page view. */
 export const DiffView = () => {
@@ -164,14 +217,17 @@ export const DiffView = () => {
     <box style={{ flexGrow: 1, flexDirection: "column", padding: 1 }} border>
       <box style={{ flexDirection: "row", backgroundColor: colors.band, paddingLeft: 1, paddingRight: 1, height: 1 }}>
         <text fg={colors.bandFg} content={` DIFF ${fixtureIssueId} `} />
+        <text fg={colors.bandFg} content={` ${fixtureBranch} → ${fixtureBase} `} />
         <box style={{ flexGrow: 1 }} />
-        <text fg={colors.bandFg} content={`${fixtureBase} · ${fixtureDiffStats.files} files · +${fixtureDiffStats.added} −${fixtureDiffStats.removed} `} />
+        <text fg={colors.bandFg} content={`${fixtureDiffStats.files} files · +${fixtureDiffStats.added} −${fixtureDiffStats.removed} `} />
       </box>
       <box style={{ flexDirection: "row", flexGrow: 1 }}>
         {opts.files ? <FilesPane sel={opts.sel} onSelect={opts.setSel} /> : null}
         <box style={{ flexGrow: 1, flexDirection: "column" }}>
-          <DiffBody sel={opts.sel} onSelect={opts.setSel} opts={opts} />
-          <box style={{ flexGrow: 1 }} />
+          <scrollbox style={{ flexGrow: 1 }} stickyScroll={false}>
+            <DiffBody sel={opts.sel} onSelect={opts.setSel} opts={opts} />
+          </scrollbox>
+          <ComposerRow placeholder="Reply or comment…" />
           <text fg={colors.dim} content={`${opts.layout} · numbers:${opts.numbers ? "on" : "off"} · headers:${opts.headers ? "on" : "off"}`} />
           <text fg={colors.dim} content={keysLine} />
         </box>
@@ -192,6 +248,7 @@ export const DiffModal = () => {
       <box style={{ flexDirection: "column", width: "78%", padding: 1, backgroundColor: colors.panel }} border>
         <box style={{ flexDirection: "row", height: 1 }}>
           <text fg={colors.bandFg} content={` DIFF ${fixtureIssueId} (modal) `} />
+          <text fg={colors.bandFg} content={` ${fixtureBranch} → ${fixtureBase} `} />
           <box style={{ flexGrow: 1 }} />
           <box onMouseDown={() => actions.closeDiffModal()} style={{ flexDirection: "row" }}>
             <text fg={colors.accent} content="✕" />
@@ -200,8 +257,10 @@ export const DiffModal = () => {
         <box style={{ flexDirection: "row", flexGrow: 1 }}>
           {opts.files ? <FilesPane sel={opts.sel} onSelect={opts.setSel} /> : null}
           <box style={{ flexGrow: 1, flexDirection: "column" }}>
-            <DiffBody sel={opts.sel} onSelect={opts.setSel} opts={opts} />
-            <box style={{ flexGrow: 1 }} />
+            <scrollbox style={{ flexGrow: 1 }} stickyScroll={false}>
+              <DiffBody sel={opts.sel} onSelect={opts.setSel} opts={opts} />
+            </scrollbox>
+            <ComposerRow placeholder="Reply or comment…" />
             <text fg={colors.dim} content={`${opts.layout} · numbers:${opts.numbers ? "on" : "off"} · headers:${opts.headers ? "on" : "off"}`} />
           </box>
         </box>

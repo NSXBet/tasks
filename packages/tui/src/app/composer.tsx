@@ -175,3 +175,22 @@ export const Composer = () => {
     </box>
   );
 };
+
+/**
+ * Static composer row for mock views — the message input as the web mock
+ * paints it: bordered input placeholder plus Comment chip. Non-editable;
+ * the chip reports WIP exactly like the web mock's `data-wip` buttons.
+ */
+export const ComposerRow = ({ placeholder }: { placeholder: string }) => {
+  const { actions } = useApp();
+  return (
+    <box style={{ flexDirection: "row", height: 3 }}>
+      <box style={{ flexGrow: 1, paddingLeft: 1 }} borderStyle="rounded" borderColor={colors.border}>
+        <text fg={colors.dim} content={placeholder} />
+      </box>
+      <box style={{ paddingLeft: 1, paddingTop: 1 }} onMouseDown={() => actions.notify("WIP")}>
+        <text fg={colors.accent} content="[ Comment ]" />
+      </box>
+    </box>
+  );
+};

@@ -3,6 +3,7 @@ import { useApp } from "./context.js";
 import { colors, priorityColor, priorityLabel, statusColor } from "../theme.js";
 import { relativeAge, truncate } from "../format.js";
 import { dependencyTree } from "../store.js";
+import { isBlobAttachment } from "@tasks/domain";
 import type { BlobContent } from "@tasks/surface";
 
 type MdLine = { readonly kind: "h" | "li" | "code" | "quote" | "img" | "text" | "blank"; readonly text: string };
@@ -98,6 +99,28 @@ export const IssueDetail = () => {
           </box>
         ) : null}
         {issue.notes !== null && issue.notes !== "" ? <text fg={colors.dim} content={`notes: ${issue.notes}`} style={{ marginBottom: 1 }} /> : null}
+        {issue.attachments.length > 0 ? (
+          <box style={{ flexDirection: "column", marginBottom: 1 }}>
+            <text fg={colors.band} content="attachments" />
+            {issue.attachments.map((attachment) =>
+              isBlobAttachment(attachment) ? (
+                <box key={attachment.id} style={{ flexDirection: "column" }}>
+                  <text>
+                    <span fg={colors.dim}>▎</span>
+                    <span fg={colors.cyan}>{` ${attachment.name}`}</span>
+                    <span fg={colors.dim}>{` ${attachment.id} · ${attachment.kind} · ${(attachment.size / 1024).toFixed(1)} kB`}</span>
+                  </text>
+                  {attachment.mime.startsWith("image/") ? <BlobImage issueId={issue.id} refId={attachment.id} /> : null}
+                </box>
+              ) : (
+                <text key={attachment.path}>
+                  <span fg={colors.dim}>▎</span>
+                  <span fg={colors.cyan}>{` ${attachment.path}`}</span>
+                </text>
+              ),
+            )}
+          </box>
+        ) : null}
         {tree.length > 1 ? (
           <box style={{ flexDirection: "column", marginBottom: 1 }}>
             <text fg={colors.band} content="blocked by" />
