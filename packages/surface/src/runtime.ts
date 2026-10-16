@@ -11,8 +11,31 @@ import type { WatchSubscription } from './watch/protocol.js';
  * malformed files: runtime state must never take a watcher or CLI command down.
  */
 
+/**
+ * tk web's default port: 0x544B — ASCII "TK". Unassigned in the IANA registry
+ * and below the OS ephemeral range, so it stays free and stable.
+ */
+export const WEB_DEFAULT_PORT = 21579;
+
+/**
+ * tk web port precedence: the `--port` flag beats `TK_WEB_PORT`, which beats
+ * the workspace config's `webPort`, which beats the default. Unparsable values
+ * are skipped — the first valid source wins — and reported via `ignored` so the
+ * caller can warn without bricking the command over a typo.
+ */
+export const resolveWebPort = (flag: string | undefined, env: string | undefined, configured: number | undefined): { readonly port: number; readonly ignored: readonly string[] } => {
+  const ignored: string[] = [];
+  for (const raw of [flag, env]) {
+    if (raw === undefined) continue;
+    const value = /^\d+$/.test(raw) ? Number(raw) : NaN;
+    if (Number.isInteger(value) && value >= 1 && value <= 65535) return { port: value, ignored };
+    ignored.push(raw);
+  }
+  return { port: configured ?? WEB_DEFAULT_PORT, ignored };
+};
+
 /** One live watcher row in `<tasksDir>/runtime.json`. */
-export interface RuntimeRow {
+export interface WatchRuntimeRow {
   readonly id: string;
   readonly kind: 'watch';
   readonly label: string | null;
@@ -21,6 +44,25 @@ export interface RuntimeRow {
   readonly heartbeatAt: string;
   readonly subscriptions: readonly string[];
 }
+
+/**
+ * One live web-server row: fixed id `web`, replaced on every register, so the
+ * registry never holds more than one web row per workspace.
+ */
+export interface WebRuntimeRow {
+  readonly id: 'web';
+  readonly kind: 'web';
+  readonly pid: number;
+  readonly port: number;
+  readonly url: string;
+  readonly workspace: string;
+  readonly startedAt: string;
+}
+
+export type RuntimeRow = WatchRuntimeRow | WebRuntimeRow;
+
+/** Fixed registry id of the workspace's web-server row. */
+export const WEB_RUNTIME_ID = 'web';
 
 /** Append-only event row in `<tasksDir>/activity.ndjson`. */
 export interface ActivityRow {
@@ -83,15 +125,46 @@ export const registerRuntime = async (tasksDir: string, row: RuntimeRow): Promis
   await writeRuntimeRegistry(tasksDir, [...rows, row]);
 };
 
-/** Refreshes the heartbeat stamp; a no-op when the row was already removed. */
+/** Refreshes the heartbeat stamp; a no-op when the row was already removed. Only watch rows heartbeat. */
 export const heartbeatRuntime = async (tasksDir: string, runtimeId: string, at: Date): Promise<void> => {
   const rows = await readRuntimeRegistry(tasksDir);
-  if (!rows.some((row) => row.id === runtimeId)) return;
-  await writeRuntimeRegistry(tasksDir, rows.map((row) => (row.id === runtimeId ? { ...row, heartbeatAt: at.toISOString() } : row)));
+  if (!rows.some((row) => row.kind === 'watch' && row.id === runtimeId)) return;
+  await writeRuntimeRegistry(tasksDir, rows.map((row) => (row.kind === 'watch' && row.id === runtimeId ? { ...row, heartbeatAt: at.toISOString() } : row)));
 };
 
 export const unregisterRuntime = async (tasksDir: string, runtimeId: string): Promise<void> => {
   await writeRuntimeRegistry(tasksDir, (await readRuntimeRegistry(tasksDir)).filter((row) => row.id !== runtimeId));
+};
+
+/** Identity the server reports on `GET /api/status`; port is the ground truth for instance identity. */
+export interface WebServerStatus {
+  /** Wire marker distinguishing tk web servers from any other HTTP service on the port. */
+  readonly tk: 'web';
+  readonly workspace: string;
+  readonly pid: number;
+  readonly port: number;
+  readonly url: string;
+  readonly startedAt: string;
+  readonly dev: boolean;
+}
+
+/** True when the pid belongs to a live process; EPERM means the process exists but is not ours to signal. */
+export const pidAlive = (pid: number): boolean => {
+  try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
+};
+
+/** Asks a candidate endpoint for `/api/status`; null unless it identifies as tk web. Never trusts registry rows — the port is probed. */
+export const probeWebServer = async (url: string, timeoutMs = 800): Promise<WebServerStatus | null> => {
+  try {
+    const response = await fetch(new URL('/api/status', url), { signal: AbortSignal.timeout(timeoutMs) });
+    if (!response.ok) return null;
+    const body: unknown = await response.json();
+    if (typeof body !== 'object' || body === null) return null;
+    const record = body as Record<string, unknown>;
+    const { tk, pid, port, workspace, startedAt, dev } = record;
+    if (tk !== 'web' || typeof pid !== 'number' || typeof port !== 'number' || typeof workspace !== 'string' || typeof startedAt !== 'string') return null;
+    return { tk: 'web', workspace, pid, port, startedAt, url: typeof record['url'] === 'string' ? record['url'] : url, dev: dev === true };
+  } catch { return null; }
 };
 
 export const appendActivity = async (tasksDir: string, row: ActivityRow): Promise<void> => {
