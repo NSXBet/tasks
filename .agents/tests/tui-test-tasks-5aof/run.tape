@@ -5,7 +5,7 @@ Set Height 880
 Set FontSize 16
 Set Padding 0
 Set TypingSpeed 40ms
-Type "cd /Users/yuri/Workdir/Nsx/tasks && OPENTUI_IMAGE_PROTOCOL=kitty bun packages/tui/src/main.tsx"
+Type "cd /Users/yuri/Workdir/Nsx/tasks && bun packages/tui/src/main.tsx"
 Enter
 Sleep 4500ms
 Type "j"
