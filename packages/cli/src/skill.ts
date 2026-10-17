@@ -5,12 +5,16 @@
  * shipped SKILL.md documents the command surface, attachment/plan/evidence
  * semantics, and common remedies. `tk skill path` returns a stable filesystem
  * location (agents resolve it again after upgrades); `tk skill install`
- * symlinks the skill directory into the standard skills root —
- * `.agents/skills` at the workspace root (default) or `~/.agents/skills`
- * (`--global`), the same convention skills.sh-style agents use. Existing
- * installs prompt before replacement; non-interactive runs require `--force`.
+ * copies the skill directory into a standard skills root — pick the agent
+ * with `--tool` (default `agents`; also `claude`, `omp`, `pi`, `codex`) and
+ * the scope with `--local`/`--global`. Each tool keeps its own root layout:
+ * project `<repo>/<tool>/skills`, global `~/<tool>/skills` — except omp
+ * (`<repo>/.omp/skills`, `~/.omp/agent/skills`) and pi
+ * (`~/.pi/agent/skills`). Copies are real files and do not track `tk`
+ * upgrades, so re-run the install after upgrading. Existing installs prompt
+ * before replacement; non-interactive runs require `--force`.
  */
-import { mkdir, rm, symlink } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
@@ -19,11 +23,26 @@ import { booleanFlag, stringFlag, type ParsedArgs } from "./args.js";
 import { dim, green } from "./presentation.js";
 
 const SKILL_FILENAME = "SKILL.md";
-/** Slug under the skills root; the symlink target. */
+/** Slug under the skills root; the install target. */
 const SKILL_SLUG = "tasks";
-/** skills.sh-style skills roots: project-local (relative to workspace root) and global. */
-const LOCAL_SKILLS_ROOT = join(".agents", "skills");
-const GLOBAL_SKILLS_ROOT = () => join(homedir(), ".agents", "skills");
+/** Per-agent skills roots: project-local (relative to workspace root) and global (off HOME). */
+const SKILL_TOOLS = {
+  agents: { project: join(".agents", "skills"), global: join(".agents", "skills") },
+  claude: { project: join(".claude", "skills"), global: join(".claude", "skills") },
+  omp: { project: join(".omp", "skills"), global: join(".omp", "agent", "skills") },
+  pi: { project: join(".pi", "skills"), global: join(".pi", "agent", "skills") },
+  codex: { project: join(".codex", "skills"), global: join(".codex", "skills") },
+} as const;
+type SkillTool = keyof typeof SKILL_TOOLS;
+const SKILL_TOOL_NAMES = Object.keys(SKILL_TOOLS) as readonly SkillTool[];
+
+/** Explicit `--tool <name>` selects the agent whose root receives the copy; default agents. */
+const chooseTool = (args: ParsedArgs): SkillTool => {
+  const requested = stringFlag(args, "tool") ?? "agents";
+  const tool = SKILL_TOOL_NAMES.find((name) => name === requested);
+  if (tool === undefined) throw new Error(`unknown --tool '${requested}' (choose: ${SKILL_TOOL_NAMES.join(", ")})`);
+  return tool;
+};
 
 /** Source tree: packages/cli/src → packages/cli/skills/tasks/SKILL.md. */
 const skillCandidates = (moduleDir: string): readonly string[] => [
@@ -45,9 +64,9 @@ export interface SkillResult {
   readonly skill: string;
   /** Human-mode default printout: content, unless `path`/`install` subcommand. */
   readonly text: string;
-  /** Install only: where the skill symlink was written. */
+  /** Install only: where the skill was installed. */
   readonly target?: string;
-  /** Install only: which skills root received the symlink. */
+  /** Install only: which skills root received the copy. */
   readonly scope?: "local" | "global" | undefined;
 }
 
@@ -64,37 +83,38 @@ const ask = async (question: string): Promise<string> => {
  * non-interactive runs default to the existing project dir, then the existing
  * global dir, else the project dir.
  */
-const chooseScope = async (args: ParsedArgs, root: string): Promise<"local" | "global"> => {
+const chooseScope = async (args: ParsedArgs, root: string, tool: SkillTool): Promise<"local" | "global"> => {
   const wantsGlobal = booleanFlag(args, "global");
   const wantsLocal = booleanFlag(args, "local");
   if (wantsGlobal && wantsLocal) throw new Error("skill install accepts either --global or --local, not both");
   if (wantsGlobal) return "global";
   if (wantsLocal) return "local";
   if (process.stdin.isTTY === true) {
-    const answer = await ask(`Install the tasks skill to:\n  1. project (${join(root, LOCAL_SKILLS_ROOT)})\n  2. global (${join(homedir(), LOCAL_SKILLS_ROOT)})\nChoice [1]: `);
+    const answer = await ask(`Install the tasks skill to:\n  1. project (${join(root, SKILL_TOOLS[tool].project)})\n  2. global (${join(homedir(), SKILL_TOOLS[tool].global)})\nChoice [1]: `);
     if (answer === "" || answer === "1") return "local";
     if (answer === "2") return "global";
     throw new Error(`unrecognized choice: ${answer} (pick 1 or 2)`);
   }
-  if (existsSync(join(root, LOCAL_SKILLS_ROOT))) return "local";
-  if (existsSync(join(homedir(), LOCAL_SKILLS_ROOT))) return "global";
+  if (existsSync(join(root, SKILL_TOOLS[tool].project))) return "local";
+  if (existsSync(join(homedir(), SKILL_TOOLS[tool].global))) return "global";
   return "local";
 };
 
 const installSkill = async (args: ParsedArgs, skillFile: string, root: string): Promise<SkillResult> => {
-  // Escape hatch: `--install <dir>` links into an arbitrary skills directory
+  // Escape hatch: `--install <dir>` installs into an arbitrary skills directory
   // (e.g. ~/.pi/agent/skills); the `install` subcommand uses the standard
   // skills.sh roots.
   const explicit = stringFlag(args, "install");
-  const scope = explicit === undefined ? await chooseScope(args, root) : undefined;
-  const base = explicit !== undefined ? resolve(explicit) : scope === "global" ? GLOBAL_SKILLS_ROOT() : join(root, LOCAL_SKILLS_ROOT);
+  const tool = chooseTool(args);
+  const scope = explicit === undefined ? await chooseScope(args, root, tool) : undefined;
+  const base = explicit !== undefined ? resolve(explicit) : scope === "global" ? join(homedir(), SKILL_TOOLS[tool].global) : join(root, SKILL_TOOLS[tool].project);
   const target = join(base, SKILL_SLUG);
   const skillDir = resolve(skillFile, "..");
   const other = scope === undefined ? undefined : scope === "local" ? "global" : "local";
   const hint = other === undefined ? "" : ` (or --${other} for the other scope)`;
   if (existsSync(target)) {
     if (booleanFlag(args, "force")) {
-      // Replace below; --force also covers non-symlink installs (e.g. a vendored copy).
+      // Replace below; --force also skips the prompt on an existing install.
     } else if (process.stdin.isTTY === true) {
       const answer = await ask(`tasks already exists at ${target}\nOverwrite? [y/N] `);
       if (answer !== "y" && answer !== "yes") {
@@ -106,13 +126,13 @@ const installSkill = async (args: ParsedArgs, skillFile: string, root: string): 
   }
   await mkdir(base, { recursive: true });
   await rm(target, { force: true, recursive: true });
-  await symlink(skillDir, target);
+  await cp(skillDir, target, { recursive: true });
   return {
     path: skillFile,
     skill: "",
     target,
     scope,
-    text: `${green("✓ Linked")} ${skillDir} → ${target} ${dim(`(${scope ?? "custom dir"}; symlink tracks upgrades)`)}`,
+    text: `${green("✓ Installed")} ${skillDir} → ${target} ${dim(`(${tool === "agents" ? "" : `${tool} `}${scope ?? "custom dir"}; re-run the install after upgrading tk)`)}`,
   };
 };
 

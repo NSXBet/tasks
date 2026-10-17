@@ -185,8 +185,18 @@ export const terminalImageEscape = (content: BlobContent): string | null => {
   if (!process.stdout.isTTY) return null;
   const kind = process.env["KITTY_WINDOW_ID"] !== undefined || process.env["GHOSTTY_RESOURCES_DIR"] !== undefined ? "kitty" : ["iTerm.app", "WezTerm", "vscode", "mintty"].includes(process.env["TERM_PROGRAM"] ?? "") ? "osc1337" : null;
   if (kind === null) return null;
+  if (kind === "kitty" && content.meta.mime !== "image/png") return null;
   const base64 = Buffer.from(content.bytes).toString("base64");
-  if (kind === "kitty") return `\x1b_Gf=100,t=f,q=1;${base64}\x1b\\`;
+  if (kind === "kitty") {
+    // Kitty graphics protocol: t=d = payload is direct image data (t=f would mean a file PATH); payload streams in ≤4096-base64-byte m=1 chunks with only the m flag after the first.
+    const chunks: string[] = [];
+    for (let index = 0; index < base64.length; index += 4096) {
+      const more = index + 4096 < base64.length;
+      const header = index === 0 ? "f=100,t=d,q=1," : "";
+      chunks.push(`\x1b_G${header}${more ? "m=1" : "m=0"};${base64.slice(index, index + 4096)}\x1b\\`);
+    }
+    return chunks.length === 0 ? `\x1b_Gf=100,t=d,q=1,m=0;\x1b\\` : chunks.join("");
+  }
   return `\x1b]1337;File=name=${Buffer.from(content.meta.name).toString("base64")};size=${content.bytes.length};inline=1;preserveAspectRatio=1:${base64}\x1b\\`;
 };
 

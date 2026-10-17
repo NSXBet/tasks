@@ -709,7 +709,7 @@ SETUP
   update                  Self-update the binary (--latest for nightlies; tk update <id> updates an issue)
   quickstart              Quick start guide
   prime                   AI-optimized workflow context
-  skill [path|install]    Print the tasks agent skill (LLM-facing docs: ops table, attachments/evidence/plans); path = location only, install links it into .agents/skills (default) or ~/.agents/skills (--global; --force replaces an existing install)
+  skill [path|install]    Print the tasks agent skill (LLM-facing docs: ops table, attachments/evidence/plans); path = location only, install copies it into a skills root — .agents/skills by default, --tool claude|omp|pi|codex picks that agent's root, --global for the user-wide copy; --force replaces an existing install; re-run after upgrading
   onboard                 Snippet for your agent instructions file
   human                   Focused help menu for human users
 
