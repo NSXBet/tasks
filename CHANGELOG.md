@@ -8,6 +8,16 @@ matching section as its release notes — add a section for every new version
 
 ## [Unreleased]
 
+### Fixed
+
+- `tk show` image evidences paint in Ghostty and other kitty-graphics
+  terminals: emission uses the chunked transmit-and-display form (`a=T`)
+  instead of virtual placements Ghostty 1.3.x never paints, alongside OSC
+  1337 for iTerm2-family terminals. Detection and emission live in one
+  shared `@tasks/terminal-image` package; TUI evidence images keep
+  half-block rendering, now pinned at the render site instead of a
+  process-wide `OPENTUI_IMAGE_PROTOCOL` default.
+
 ## [0.6.0] - 2026-10-17
 
 ### Added
@@ -169,3 +179,5 @@ matching section as its release notes — add a section for every new version
 - Initial release: local-first issue tracker with dependency chains, pluggable
   storage backends (file, SQLite, PostgreSQL), beads migration, Dolt-based
   git sync, Hunk review integration, and the `tk` CLI.
+
+

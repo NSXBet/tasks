@@ -46,7 +46,11 @@ const BlobImage = ({ issueId, refId }: { readonly issueId: string; readonly refI
   if (content === "loading") return <text fg={colors.dim} content={`   ▣ ${refId} …`} />;
   if (content === null) return <text fg={colors.red} content={`   ▣ ${refId} (missing bytes)`} />;
   if (!content.meta.mime.startsWith("image/")) return <text fg={colors.dim} content={`   ▣ ${content.meta.name} (${content.meta.mime})`} />;
-  return <image source={content.bytes} fit="fit" protocol="auto" style={{ width: 44, height: 18, marginLeft: 2 }} />;
+  // OpenTUI's kitty/sixel paths transmit virtual placements that Ghostty 1.3.x
+  // never paints (empty box — pixel-proven in .agents/tests/tui-test-tasks-5aof).
+  // Half-block SGR renders in every terminal and capture path (VHS, herdr), so
+  // the TUI pins it; stream escapes from @tasks/terminal-image serve the CLI only.
+  return <image source={content.bytes} fit="fit" protocol="blocks" style={{ width: 44, height: 18, marginLeft: 2 }} />;
 };
 
 /** Right pane: full issue detail. Owns its scroll; closes with Escape. */
