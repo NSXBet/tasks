@@ -41,7 +41,7 @@
   <div class="max-w-[1180px] mx-auto px-5 h-12 flex items-center gap-5 text-[11px] tracking-wide">
     <span class="text-[#3ddc97] font-bold">tk</span><span class="text-[#7c8b99]">/</span><span>task → review</span>
     <nav class="ml-auto flex gap-4 text-[#7c8b99]">
-      <a href="#record">record</a><a href="#views">views</a><a href="#diff">diff</a><a href="#reuse">reuse</a><a href="#how">how</a><a href="#build">build</a><a href="#verify">verify</a><a href="#inventory">inventory</a><a href="#requests">requests</a><a href="#loop">loop</a>
+      <a href="#record">record</a><a href="#views">views</a><a href="#diff">diff</a><a href="#reuse">reuse</a><a href="#how">how</a><a href="#build">build</a><a href="#verify">verify</a><a href="#inventory">inventory</a><a href="#requests">requests</a><a href="#loop">loop</a><a href="#worktree">worktree</a><a href="#changes">changes</a><a href="#prs">prs</a>
     </nav>
   </div>
 </header>
@@ -551,6 +551,146 @@
     </div>
   </section>
 
+  <!-- ================= WORKTREE ================= -->
+  <section id="worktree" class="mb-16">
+    <div class="section-num">§11 · THE WORKTREE</div>
+    <h2 class="mt-2 text-xl font-bold">The task owns its worktree</h2>
+    <p class="mt-2 text-[12px] leading-6 text-[#7c8b99] max-w-[780px]" id="wt-intro"></p>
+
+    <div class="mt-5 grid lg:grid-cols-2 gap-4 items-start">
+      <div>
+        <div class="text-[9.5px] tracking-[.2em] text-[#7c8b99] mb-2">DEFAULTS — .TASKS/CONFIG.JSON, COMMITTED</div>
+        <div class="term rounded-lg"><div class="px-4 py-3 text-[10.5px] leading-5 whitespace-pre-wrap" id="wt-config"></div></div>
+        <table class="mt-3 w-full text-[11px] panel rounded-xl overflow-hidden">
+          <thead><tr class="text-left text-[9.5px] tracking-widest text-[#7c8b99] border-b border-[#1d2833]"><th class="p-2.5">KEY</th><th class="p-2.5">DEFAULT</th><th class="p-2.5">WHAT IT DOES</th></tr></thead>
+          <tbody id="wt-keys"></tbody>
+        </table>
+      </div>
+      <div>
+        <div class="text-[9.5px] tracking-[.2em] text-[#7c8b99] mb-2">OVERRIDE — ON THE TASK RECORD</div>
+        <div class="term rounded-lg"><div class="px-4 py-3 text-[10.5px] leading-5 whitespace-pre-wrap" id="wt-override"></div></div>
+        <p class="mt-2 text-[10.5px] leading-5 text-[#9fb0bf]" id="wt-resolve"></p>
+        <div class="text-[9.5px] tracking-[.2em] text-[#7c8b99] mb-2 mt-4">PROVISION — WHAT THE VERB DOES, IN ORDER</div>
+        <ol id="wt-provision" class="space-y-1.5"></ol>
+      </div>
+    </div>
+
+    <table class="mt-4 w-full text-[11px] panel rounded-xl overflow-hidden">
+      <thead><tr class="text-left text-[9.5px] tracking-widest text-[#7c8b99] border-b border-[#1d2833]"><th class="p-2.5">FROM GW</th><th class="p-2.5">VERDICT</th><th class="p-2.5">WHY</th></tr></thead>
+      <tbody id="wt-audit"></tbody>
+    </table>
+
+    <div class="mt-4 grid lg:grid-cols-2 gap-4 items-start">
+      <div>
+        <div class="text-[9.5px] tracking-[.2em] text-[#3ddc97] mb-2">DECIDED</div>
+        <ul id="wt-decisions" class="space-y-1.5"></ul>
+      </div>
+      <div>
+        <div class="text-[9.5px] tracking-[.2em] text-[#d29922] mb-2">OPEN</div>
+        <ul id="wt-open" class="space-y-1.5"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CHANGES ================= -->
+  <section id="changes" class="mb-16">
+    <div class="section-num">§12 · CHANGES</div>
+    <h2 class="mt-2 text-xl font-bold">Changes live on the task, not in the chat</h2>
+    <p class="mt-2 text-[12px] leading-6 text-[#7c8b99] max-w-[780px]" id="ch-intro"></p>
+
+    <div class="mt-6 grid lg:grid-cols-2 gap-4 items-start">
+      <div class="panel rounded-lg p-4">
+        <div class="text-[10px] tracking-[.15em] text-[#7c8b99] mb-3">THE SOURCE — WORKTREE TRUTH, LOG CACHE</div>
+        <p class="text-[11.5px] leading-5 text-[#9fb0bf]" id="ch-verdict"></p>
+        <pre class="mt-3 rounded-md bg-[#0d1117] border border-[#1d2833] p-3 text-[10.5px] leading-5 font-mono text-[#c3d0dc] overflow-x-auto" id="ch-cmd"></pre>
+        <p class="mt-3 text-[11px] leading-5 text-[#d29922]" id="ch-fallback"></p>
+        <ul id="ch-fresh" class="mt-3 space-y-1.5"></ul>
+      </div>
+      <div class="panel rounded-lg p-4">
+        <div class="text-[10px] tracking-[.15em] text-[#7c8b99] mb-3">WHAT CHAT CARRIES — CARDS, NOT DIFFS</div>
+        <p class="text-[11.5px] leading-5 text-[#9fb0bf]" id="ch-card-intro"></p>
+        <pre class="mt-3 rounded-md bg-[#0d1117] border border-[#1d2833] p-3 text-[10.5px] leading-5 font-mono text-[#c3d0dc] overflow-x-auto" id="ch-stat"></pre>
+        <pre class="mt-2 rounded-md bg-[#0d1117] border border-[#1d2833] p-3 text-[10.5px] leading-5 font-mono text-[#c3d0dc] overflow-x-auto" id="ch-comment"></pre>
+        <p class="mt-3 text-[10.5px] leading-5 text-[#7c8b99]" id="ch-note"></p>
+      </div>
+    </div>
+
+    <div class="mt-4 panel rounded-lg p-4">
+      <div class="text-[10px] tracking-[.15em] text-[#7c8b99] mb-3">COMMENT DELIVERY — OPEN → SENT → RESOLVED / DISMISSED</div>
+      <p class="text-[11.5px] leading-5 text-[#9fb0bf] max-w-[860px]" id="ch-cm-intro"></p>
+      <div class="mt-3 grid lg:grid-cols-2 gap-4">
+        <div>
+          <table class="w-full text-left text-[11px]">
+            <thead><tr class="text-[10px] tracking-[.1em] text-[#7c8b99] border-b border-[#1d2833]">
+              <th class="p-2.5">STATUS</th><th class="p-2.5">MEANING</th>
+            </tr></thead>
+            <tbody id="ch-status"></tbody>
+          </table>
+          <p class="mt-2 text-[10.5px] leading-5 text-[#7c8b99]" id="ch-verbs"></p>
+        </div>
+        <div class="flex flex-col gap-3">
+          <p class="text-[11px] leading-5 text-[#9fb0bf]" id="ch-when"></p>
+          <div class="rounded-md bg-[#0d1117] border border-[#1d2833] p-3">
+            <div class="text-[9.5px] tracking-[.2em] text-[#3ddc97] mb-2">ARTIFACTS = EVIDENCE</div>
+            <p class="text-[11px] leading-5 text-[#c3d0dc]" id="ch-artifacts"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4 grid lg:grid-cols-2 gap-4 items-start">
+      <div class="panel rounded-lg p-4">
+        <div class="text-[9.5px] tracking-[.2em] text-[#3ddc97] mb-2">DECIDED</div>
+        <ul id="ch-decisions" class="space-y-1.5"></ul>
+      </div>
+      <div class="panel rounded-lg p-4">
+        <div class="text-[9.5px] tracking-[.2em] text-[#d29922] mb-2">OPEN</div>
+        <ul id="ch-open" class="space-y-1.5"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PULL REQUESTS ================= -->
+  <section id="prs" class="mb-16">
+    <div class="section-num">§13 · PULL REQUESTS</div>
+    <h2 class="mt-2 text-xl font-bold">One PR per task — 1-to-1 on the record</h2>
+    <p class="mt-2 text-[12px] leading-6 text-[#7c8b99] max-w-[780px]" id="pr-intro"></p>
+
+    <div class="mt-6 grid lg:grid-cols-2 gap-4 items-start">
+      <div class="panel rounded-lg p-4">
+        <div class="text-[10px] tracking-[.15em] text-[#7c8b99] mb-3">ON THE RECORD</div>
+        <pre class="rounded-md bg-[#0d1117] border border-[#1d2833] p-3 text-[10.5px] leading-5 font-mono text-[#c3d0dc] overflow-x-auto" id="pr-record"></pre>
+        <div class="mt-3 text-[11px] leading-5 text-[#9fb0bf]">New wire event</div>
+        <p class="mt-1 text-[11px] leading-5 text-[#c3d0dc]" id="pr-wire"></p>
+      </div>
+      <div class="panel rounded-lg p-4">
+        <div class="text-[10px] tracking-[.15em] text-[#7c8b99] mb-3">THE CRUD — FOUR VERBS, NO DAEMON</div>
+        <table class="w-full text-left text-[11px]">
+          <thead><tr class="text-[10px] tracking-[.1em] text-[#7c8b99] border-b border-[#1d2833]">
+            <th class="p-2.5">VERB</th><th class="p-2.5">CMD</th><th class="p-2.5">WHAT IT DOES</th>
+          </tr></thead>
+          <tbody id="pr-crud"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mt-4 panel rounded-lg p-4">
+      <div class="text-[10px] tracking-[.15em] text-[#7c8b99] mb-2">IN THE LOOP</div>
+      <p class="text-[11.5px] leading-5 text-[#9fb0bf] max-w-[860px]" id="pr-loop"></p>
+    </div>
+
+    <div class="mt-4 grid lg:grid-cols-2 gap-4 items-start">
+      <div class="panel rounded-lg p-4">
+        <div class="text-[9.5px] tracking-[.2em] text-[#3ddc97] mb-2">DECIDED</div>
+        <ul id="pr-decisions" class="space-y-1.5"></ul>
+      </div>
+      <div class="panel rounded-lg p-4">
+        <div class="text-[9.5px] tracking-[.2em] text-[#d29922] mb-2">OPEN</div>
+        <ul id="pr-open" class="space-y-1.5"></ul>
+      </div>
+    </div>
+  </section>
+
   <footer class="mt-20 pt-6 border-t border-[#1d2833] text-[10px] text-[#41505f] flex gap-4">
     <span>generated 2026-10-16 · docs/html/task-to-review.html</span>
     <span class="ml-auto">source: .agents/plans/2026-10-08-task-to-review.md</span>
@@ -728,6 +868,79 @@
   document.getElementById("loop-decisions").innerHTML = D.loop.decisions.map(d => `
     <li class="flex gap-2 text-[11px] leading-5 text-[#c3d0dc]"><span class="text-[#3ddc97] shrink-0">▸</span><span>${esc(d)}</span></li>`).join("");
   document.getElementById("loop-open").innerHTML = D.loop.open.map(o => `
+    <li class="flex gap-2 text-[11px] leading-5 text-[#9fb0bf]"><span class="text-[#d29922] shrink-0">▸</span><span>${esc(o)}</span></li>`).join("");
+
+  // §11 — the worktree
+  document.getElementById("wt-intro").textContent = D.worktrees.intro;
+  document.getElementById("wt-config").textContent = D.worktrees.config;
+  document.getElementById("wt-keys").innerHTML = D.worktrees.keys.map(k => `
+    <tr class="border-b border-[#1d2833] align-top">
+      <td class="p-2.5 font-mono text-[#3ddc97] whitespace-nowrap">${esc(k.key)}</td>
+      <td class="p-2.5 font-mono text-[#c3d0dc] whitespace-nowrap">${esc(k.def)}</td>
+      <td class="p-2.5 leading-5 text-[#9fb0bf]">${esc(k.what)}</td>
+    </tr>`).join("");
+  document.getElementById("wt-override").textContent = "$ " + D.worktrees.overrideCmd + "\n\n" + D.worktrees.overrideRecord;
+  document.getElementById("wt-resolve").textContent = D.worktrees.resolve;
+  document.getElementById("wt-provision").innerHTML = D.worktrees.provision.map((p, i) => `
+    <li class="flex gap-2 text-[11px] leading-5 text-[#c3d0dc]">
+      <span class="w-5 h-5 shrink-0 rounded-md bg-[#0d1117] border border-[#273445] flex items-center justify-center text-[10px] font-bold text-[#3ddc97]">${i + 1}</span>
+      <span>${esc(p)}</span>
+    </li>`).join("");
+  const WTVERDICT = { copy: "pill-done", adapt: "pill-amber", skip: "pill-idle" };
+  document.getElementById("wt-audit").innerHTML = D.worktrees.audit.map(a => `
+    <tr class="border-b border-[#1d2833] align-top">
+      <td class="p-2.5 leading-5 text-[#c3d0dc]">${esc(a.from)}</td>
+      <td class="p-2.5"><span class="pill ${WTVERDICT[a.verdict] || ""}">${esc(a.verdict)}</span></td>
+      <td class="p-2.5 leading-5 text-[#9fb0bf]">${esc(a.why)}</td>
+    </tr>`).join("");
+  document.getElementById("wt-decisions").innerHTML = D.worktrees.decisions.map(d => `
+    <li class="flex gap-2 text-[11px] leading-5 text-[#c3d0dc]"><span class="text-[#3ddc97] shrink-0">▸</span><span>${esc(d)}</span></li>`).join("");
+  document.getElementById("wt-open").innerHTML = D.worktrees.open.map(o => `
+    <li class="flex gap-2 text-[11px] leading-5 text-[#9fb0bf]"><span class="text-[#d29922] shrink-0">▸</span><span>${esc(o)}</span></li>`).join("");
+
+  // §12 — changes
+  document.getElementById("ch-intro").textContent = D.changes.intro;
+  document.getElementById("ch-verdict").textContent = D.changes.source.verdict;
+  document.getElementById("ch-cmd").textContent = D.changes.source.cmd;
+  document.getElementById("ch-fallback").textContent = D.changes.source.fallback;
+  document.getElementById("ch-fresh").innerHTML = D.changes.source.freshness.map(f => `
+    <li class="flex gap-2 text-[11px] leading-5 text-[#c3d0dc]">
+      <span class="shrink-0 font-mono text-[10px] px-1.5 rounded ${f.a === "yes" ? "text-[#3ddc97] bg-[rgba(63,220,151,.1)]" : "text-[#f85149] bg-[rgba(248,81,73,.1)]"}">${f.a === "yes" ? "yes" : "no"}</span>
+      <span class="font-mono text-[10.5px] text-[#7c8b99] shrink-0 pt-0.5">${esc(f.q)}</span>
+      <span class="text-[#9fb0bf]">— ${esc(f.why)}</span>
+    </li>`).join("");
+  document.getElementById("ch-card-intro").textContent = D.changes.card.intro;
+  document.getElementById("ch-stat").textContent = D.changes.card.stat;
+  document.getElementById("ch-comment").textContent = D.changes.card.comment;
+  document.getElementById("ch-note").textContent = D.changes.card.note;
+  document.getElementById("ch-cm-intro").textContent = D.changes.comments.intro;
+  document.getElementById("ch-status").innerHTML = D.changes.comments.status.map(s => `
+    <tr class="border-b border-[#1d2833] align-top">
+      <td class="p-2.5 font-mono whitespace-nowrap">${esc(s.s)}</td>
+      <td class="p-2.5 leading-5 text-[#9fb0bf]">${esc(s.what)}</td>
+    </tr>`).join("");
+  document.getElementById("ch-verbs").textContent = D.changes.comments.verbs;
+  document.getElementById("ch-when").textContent = D.changes.comments.when;
+  document.getElementById("ch-artifacts").textContent = D.changes.artifacts;
+  document.getElementById("ch-decisions").innerHTML = D.changes.decisions.map(d => `
+    <li class="flex gap-2 text-[11px] leading-5 text-[#c3d0dc]"><span class="text-[#3ddc97] shrink-0">▸</span><span>${esc(d)}</span></li>`).join("");
+  document.getElementById("ch-open").innerHTML = D.changes.open.map(o => `
+    <li class="flex gap-2 text-[11px] leading-5 text-[#9fb0bf]"><span class="text-[#d29922] shrink-0">▸</span><span>${esc(o)}</span></li>`).join("");
+
+  // §13 — pull requests
+  document.getElementById("pr-intro").textContent = D.prs.intro;
+  document.getElementById("pr-record").textContent = D.prs.record;
+  document.getElementById("pr-wire").textContent = D.prs.wire;
+  document.getElementById("pr-crud").innerHTML = D.prs.crud.map(c => `
+    <tr class="border-b border-[#1d2833] align-top">
+      <td class="p-2.5 font-mono text-[#3ddc97] whitespace-nowrap">${esc(c.verb)}</td>
+      <td class="p-2.5 font-mono text-[#c3d0dc] whitespace-nowrap">${esc(c.cmd)}</td>
+      <td class="p-2.5 leading-5 text-[#9fb0bf]">${esc(c.does)}</td>
+    </tr>`).join("");
+  document.getElementById("pr-loop").textContent = D.prs.loop;
+  document.getElementById("pr-decisions").innerHTML = D.prs.decisions.map(d => `
+    <li class="flex gap-2 text-[11px] leading-5 text-[#c3d0dc]"><span class="text-[#3ddc97] shrink-0">▸</span><span>${esc(d)}</span></li>`).join("");
+  document.getElementById("pr-open").innerHTML = D.prs.open.map(o => `
     <li class="flex gap-2 text-[11px] leading-5 text-[#9fb0bf]"><span class="text-[#d29922] shrink-0">▸</span><span>${esc(o)}</span></li>`).join("");
 </script>
 </body>
