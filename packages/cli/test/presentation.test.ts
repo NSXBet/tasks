@@ -48,12 +48,28 @@ describe("terminalImageEscape", () => {
     });
   });
 
-  it("emits a terminated kitty graphics escape on kitty-class terminals", () => {
+  it("emits a single terminated m=0 kitty graphics escape for small images", () => {
     process.env["KITTY_WINDOW_ID"] = "1";
     withTty(true, () => {
       const escape = terminalImageEscape(pngBlob());
-      expect(escape).toContain("\x1b_Gf=100,t=f,q=1;");
-      expect(escape?.endsWith("\x1b\\")).toBe(true);
+      expect(escape).toBe("\x1b_Gf=100,t=d,q=1,m=0;" + Buffer.from(pngBlob().bytes).toString("base64") + "\x1b\\");
+    });
+  });
+
+  it("chunks large kitty payloads at 4096 base64 bytes with m=1 until the final m=0", () => {
+    process.env["KITTY_WINDOW_ID"] = "1";
+    withTty(true, () => {
+      const bytes = Uint8Array.from({ length: 9216 }, (_, index) => index % 256);
+      const escape = terminalImageEscape({ ...pngBlob(), bytes });
+      expect(escape).not.toBeNull();
+      const parts = escape!.split("\x1b\\").filter((part) => part !== "");
+      expect(parts.length).toBe(3);
+      const payload = parts.map((part) => part.replace(/^.*;/, "")).join("");
+      expect(payload).toBe(Buffer.from(bytes).toString("base64"));
+      expect(parts[0]).toMatch(/^\x1b_Gf=100,t=d,q=1,m=1;/);
+      expect(parts[1]).toMatch(/^\x1b_Gm=1;/);
+      expect(parts[2]).toMatch(/^\x1b_Gm=0;/);
+      for (const part of parts) expect(part.replace(/^.*;/, "").length).toBeLessThanOrEqual(4096);
     });
   });
 

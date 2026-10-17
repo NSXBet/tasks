@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -656,15 +656,18 @@ describe("tk executable", () => {
     const printed = run(directory, ["skill"]);
     expect(printed.status).toBe(0);
     expect(printed.stdout).toContain("name: tasks");
-    expect(printed.stdout).toContain("## File attachments and plans");
+    expect(printed.stdout).toContain("## Attachments, plans, evidence");
     // path subcommand: location only.
     const path = run(directory, ["skill", "path"]);
     expect(path.stdout.trim()).toMatch(/SKILL\.md$/);
-    // --install symlinks the skill directory into the target directory.
+    // --install copies the skill directory into the target directory —
+    // real files, never a symlink.
     const installDir = join(directory, "skills");
     const installed = run(directory, ["skill", "--install", installDir]);
     expect(installed.status).toBe(0);
-    expect(readFileSync(join(installDir, "tasks", "SKILL.md"), "utf8")).toContain("name: tasks");
+    const installedFile = join(installDir, "tasks", "SKILL.md");
+    expect(lstatSync(installedFile).isSymbolicLink()).toBe(false);
+    expect(readFileSync(installedFile, "utf8")).toContain("name: tasks");
   });
 
   it("installs the skill skills.sh-style: project default, conflict guard, --force, --global", () => {
@@ -680,13 +683,33 @@ describe("tk executable", () => {
     expect(conflict.status).not.toBe(0);
     expect(conflict.stderr).toContain("--force");
     expect(readFileSync(join(directory, ".agents", "skills", "tasks", "SKILL.md"), "utf8")).toContain("name: tasks");
-    // --force replaces; --global targets ~/.agents/skills of the given HOME.
+    // --force replaces (still a real copy); --global targets ~/.agents/skills of the given HOME.
     const forced = run(directory, ["skill", "install", "--force"]);
     expect(forced.status).toBe(0);
+    expect(lstatSync(join(directory, ".agents", "skills", "tasks", "SKILL.md")).isSymbolicLink()).toBe(false);
     const home = join(directory, "home");
     const global = run(directory, ["skill", "install", "--global"], undefined, { HOME: home });
     expect(global.status).toBe(0);
     expect(readFileSync(join(home, ".agents", "skills", "tasks", "SKILL.md"), "utf8")).toContain("name: tasks");
+  });
+
+  it("installs the skill into per-agent roots via --tool", () => {
+    const directory = workspace();
+    json(directory, ["init"]);
+    const home = join(directory, "home");
+    // --tool claude targets .claude/skills; neither root exists, so project-local is the default.
+    const claude = run(directory, ["skill", "install", "--tool", "claude"], undefined, { HOME: home });
+    expect(claude.status).toBe(0);
+    expect(claude.stdout).toContain(".claude/skills/tasks");
+    expect(readFileSync(join(directory, ".claude", "skills", "tasks", "SKILL.md"), "utf8")).toContain("name: tasks");
+    // omp global root includes the agent segment: ~/.omp/agent/skills.
+    const ompGlobal = run(directory, ["skill", "install", "--tool", "omp", "--global"], undefined, { HOME: home });
+    expect(ompGlobal.status).toBe(0);
+    expect(readFileSync(join(home, ".omp", "agent", "skills", "tasks", "SKILL.md"), "utf8")).toContain("name: tasks");
+    // Unknown tool is refused with the valid choices.
+    const bad = run(directory, ["skill", "install", "--tool", "gemini"], undefined, { HOME: home });
+    expect(bad.status).not.toBe(0);
+    expect(bad.stderr).toContain("unknown --tool");
   });
 
   // Regression: `worktree` was implemented (runWorktree) and documented in
