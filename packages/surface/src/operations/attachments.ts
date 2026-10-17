@@ -79,10 +79,13 @@ export const attachEvidence = (store: SurfaceStore, id: string, paths: readonly 
 export const attachInline = (store: SurfaceStore, id: string, paths: readonly string[]) => store.transact(async (uow) => unwrapBlob(await attachBlobsCore(uow, { root: store.root, tasksDir: store.tasksDir }, id, paths, 'inline')));
 
 /** Remove a blob entry; no-op when absent. */
-export const detachBlob = (store: SurfaceStore, id: string, ref: string) => store.transact(async (uow) => unwrapBlob(await detachBlobCore(uow, { root: store.root, tasksDir: store.tasksDir }, id, ref)));
+export const detachBlob = (store: SurfaceStore, id: string, ref: string): BlobDetach => store.transact(async (uow) => unwrapBlob(await detachBlobCore(uow, { root: store.root, tasksDir: store.tasksDir }, id, ref)));
 
 /** Evidence read outcome: bytes + metadata, or null when the ref or stored bytes are unknown. */
 export type EvidenceRead = Promise<Result<BlobContent | null, SurfaceError>>;
+
+/** Blob detach outcome: the updated issue (attachment entry + bytes removed; comment text untouched), or a surface error. */
+export type BlobDetach = Promise<Result<Issue, SurfaceError>>;
 
 /** Read blob bytes + metadata for one attachment ref (`evidence:<id>`, bare id, or name) within an open transaction; null when the entry or bytes are unknown. */
 export const evidenceReadUow = async (uow: IssueUnitOfWork, ctx: BlobContext, id: string, ref: string): Promise<BlobContent | null> => {
