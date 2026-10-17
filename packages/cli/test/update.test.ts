@@ -55,17 +55,24 @@ describe("compareVersions", () => {
 });
 
 describe("isUpToDate", () => {
+  // Relative to the installed VERSION so the test survives release bumps
+  // instead of hardcoding the current version's neighbors.
+  const [major, minor, patch] = VERSION.split(".").map(Number);
+  const current = `v${major}.${minor}.${patch}`;
+  const older = patch > 0 ? `v${major}.${minor}.${patch - 1}` : `v${major}.${minor - 1}.0`;
+  const newer = `v${major}.${minor + 1}.0`;
+
   it("compares stable releases by semver", () => {
-    expect(isUpToDate("v0.5.0", "stable")).toBe(true);
-    expect(isUpToDate("v0.4.9", "stable")).toBe(true);
-    expect(isUpToDate("v0.6.0", "stable")).toBe(false);
+    expect(isUpToDate(current, "stable")).toBe(true);
+    expect(isUpToDate(older, "stable")).toBe(true);
+    expect(isUpToDate(newer, "stable")).toBe(false);
   });
 
   it("falls back to semver when no build ref is baked in", () => {
     // Source checkouts compile without TK_BUILD_REF; a nightly tag sharing
     // the semver core with VERSION is reported current rather than stale.
-    expect(isUpToDate("v0.5.0-nightly.20261005.abcdef", "nightly")).toBe(true);
-    expect(isUpToDate("v0.6.0-nightly.20261005.abcdef", "nightly")).toBe(false);
+    expect(isUpToDate(`${current}-nightly.20261005.abcdef`, "nightly")).toBe(true);
+    expect(isUpToDate(`${newer}-nightly.20261005.abcdef`, "nightly")).toBe(false);
   });
 });
 
