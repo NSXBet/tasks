@@ -76,4 +76,4 @@ Attachments are **references, not copies** — they store a path plus optional m
 - Never close an issue whose acceptance criteria are not visibly met — say what you did in the close reason.
 - Don't gate the loop on chat: status changes and comments are the handoff; the record is the memory.
 - Prefer `--json` when parsing `tk` output programmatically; `--markdown` renders `## id — title` sections.
-- `tk skill path` prints this skill's installed location; `tk skill install` symlinks the skill directory into `.agents/skills` (project default) or `~/.agents/skills` (`--global`); `--force` replaces an existing install. Symlinks track upgrades — re-install only when the link breaks.
+- `tk skill path` prints this skill's installed location; `tk skill install` copies the skill directory into `.agents/skills` (project default) or `~/.agents/skills` (`--global`); `--tool claude|omp|pi|codex` targets that agent's skills root instead (e.g. `.claude/skills`, `~/.omp/agent/skills`); `--force` replaces an existing install. Copies do not track upgrades — re-run the install after upgrading tk.
