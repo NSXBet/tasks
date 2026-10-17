@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "skills": {
+    "print": {
+      "source": "yurifrl/skills",
+      "sourceType": "github",
+      "skillPath": "skills/print/SKILL.md",
+      "computedHash": "461f22c65de2412ca837594981a97e62fa3427bb89b81443e01d40bbfbeb8d24"
+    },
+    "tui-testing": {
+      "source": "../../../DotFiles/skills/skills/tui-testing",
+      "sourceType": "local",
+      "computedHash": "493b36e0fef35c4a028b367b14fca08820305c7a5f10ca2f0038fcdc014972a1"
+    }
+  }
+}

@@ -46,6 +46,7 @@
         "@tasks/domain": "workspace:*",
         "@tasks/file": "workspace:*",
         "@tasks/surface": "workspace:*",
+        "@tasks/terminal-image": "workspace:*",
         "@tasks/workspace": "workspace:*",
       },
     },
@@ -115,6 +116,10 @@
       "devDependencies": {
         "@types/node": "^22.0.0",
       },
+    },
+    "packages/terminal-image": {
+      "name": "@tasks/terminal-image",
+      "version": "0.3.0",
     },
     "packages/tui": {
       "name": "@tasks/tui",
@@ -238,6 +243,8 @@
     "@tasks/sqlite": ["@tasks/sqlite@workspace:packages/sqlite"],
 
     "@tasks/surface": ["@tasks/surface@workspace:packages/surface"],
+
+    "@tasks/terminal-image": ["@tasks/terminal-image@workspace:packages/terminal-image"],
 
     "@tasks/tui": ["@tasks/tui@workspace:packages/tui"],
 
