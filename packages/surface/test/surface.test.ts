@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createSurface } from "../src/index.js";
+import { attachEvidenceUow, createSurface } from "../src/index.js";
 
 const workspaces: string[] = [];
 function workspace(): string { const value = mkdtempSync(join(tmpdir(), "tk-surface-")); workspaces.push(value); return value; }
@@ -64,6 +64,38 @@ describe("tasks surface", () => {
     expect(removed.ok && removed.value.attachments.map((attachment) => attachment.path)).toEqual(["notes/plan.md"]);
     const shown = await surface.show(created.value.id);
     expect(shown.ok && shown.value.attachments.map((attachment) => attachment.path)).toEqual(["notes/plan.md"]);
+    await surface.store.close();
+  });
+
+  it("detaches a blob attachment while comments keep the evidence reference", async () => {
+    const root = workspace();
+    const surface = await createSurface({ root });
+    const created = await surface.create({ title: "with evidence" });
+    if (!created.ok) throw created.error;
+    const png = join(root, "shot.png");
+    await Bun.write(png, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const attached = await surface.store.transact(async (uow) =>
+      attachEvidenceUow(uow, { root: surface.store.root, tasksDir: surface.store.tasksDir }, created.value.id, [png]));
+    if (!attached.ok) throw attached.error;
+    const att = attached.value.attachments[0]!;
+    expect(att).toHaveProperty("id");
+    expect(att).toHaveProperty("mime", "image/png");
+
+    await surface.comment(created.value.id, `see evidence:${att.id}`);
+
+    const detached = await surface.detachBlob(created.value.id, att.id);
+    expect(detached.ok).toBe(true);
+    if (!detached.ok) return;
+    expect(detached.value.attachments).toHaveLength(0);
+
+    const shown = await surface.show(created.value.id);
+    expect(shown.ok && shown.value !== null && shown.value.attachments).toHaveLength(0);
+    const comments = await surface.comments(created.value.id);
+    expect(comments.ok && comments.value !== null && comments.value.comments.map((comment) => comment.text))
+      .toEqual([`see evidence:${att.id}`]);
+
+    const read = await surface.evidenceRead(created.value.id, att.id);
+    expect(read.ok && read.value === null).toBe(true);
     await surface.store.close();
   });
 });
