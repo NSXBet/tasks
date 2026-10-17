@@ -262,9 +262,23 @@
   .atchip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--dim); text-decoration: none; }
   .atchip:hover { border-color: var(--accent); color: var(--accent); }
   .atchip img { width: 22px; height: 22px; object-fit: cover; border-radius: 5px; }
-  .lightbox { position: fixed; inset: 0; background: rgb(0 0 0 / 72%); display: none; align-items: center; justify-content: center; z-index: 90; cursor: zoom-out; }
-  .lightbox.show { display: flex; }
-  .lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 10px; box-shadow: 0 12px 48px rgb(0 0 0 / 55%); }
+  .viewer { position: fixed; inset: 0; background: rgb(0 0 0 / 78%); display: none; flex-direction: column; z-index: 100; }
+  .viewer.show { display: flex; }
+  .vtop { display: flex; align-items: center; gap: 10px; padding: 10px 14px; color: rgb(255 255 255 / 90%); font-size: 13px; }
+  .vtop .vname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34vw; font-weight: 600; }
+  .vhint { font-size: 11px; color: rgb(255 255 255 / 55%); white-space: nowrap; }
+  .vbtn { border: 1px solid rgb(255 255 255 / 25%); background: rgb(255 255 255 / 8%); color: rgb(255 255 255 / 90%); border-radius: 8px; padding: 4px 11px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .vbtn:hover { background: rgb(255 255 255 / 16%); border-color: rgb(255 255 255 / 45%); }
+  .vbtn.danger { border-color: rgb(255 110 110 / 45%); color: rgb(255 155 155 / 95%); }
+  .vbtn.danger:hover { background: rgb(255 90 90 / 18%); border-color: rgb(255 110 110 / 70%); }
+  .vzoom { font-size: 12px; color: rgb(255 255 255 / 70%); min-width: 46px; text-align: center; }
+  .vstage { flex: 1; overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: grab; touch-action: none; }
+  .vstage.dragging { cursor: grabbing; }
+  .vstage img { max-width: 94vw; max-height: 100%; border-radius: 6px; transform-origin: center center; user-select: none; -webkit-user-drag: none; box-shadow: 0 12px 48px rgb(0 0 0 / 55%); }
+  .vfoot { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid rgb(255 255 255 / 12%); }
+  .vfoot input { flex: 1; background: rgb(255 255 255 / 8%); border: 1px solid rgb(255 255 255 / 20%); color: rgb(255 255 255 / 92%); border-radius: 8px; padding: 7px 12px; font-size: 13px; outline: none; }
+  .vfoot input::placeholder { color: rgb(255 255 255 / 45%); }
+  .vfoot input:focus { border-color: rgb(255 255 255 / 45%); }
 
   /* ---------- review mock views (phase 0) ---------- */
   .rwrap { display: flex; gap: 14px; flex: 1; min-height: 0; padding: 14px 18px 18px; overflow: auto; align-items: flex-start; }
@@ -493,7 +507,24 @@
   </div>
 
   <div id="toast"></div>
-  <div class="lightbox" id="lightbox"><img id="lightboxImg" alt=""></div>
+  <div class="viewer" id="viewer">
+    <div class="vtop">
+      <span class="vname" id="vName"></span>
+      <span class="vhint" id="vMeta"></span>
+      <span style="flex:1"></span>
+      <button class="vbtn" id="vPrev" title="previous image (←)">‹</button>
+      <span class="vzoom" id="vZoom">100%</span>
+      <button class="vbtn" id="vNext" title="next image (→)">›</button>
+      <button class="vbtn" id="vFit" title="reset zoom and pan">fit</button>
+      <button class="vbtn danger" id="vDelete" title="remove attachment — comments keep the evidence reference">delete</button>
+      <button class="vbtn" id="vClose" title="esc">✕</button>
+    </div>
+    <div class="vstage" id="vStage"><img id="vImg" alt=""></div>
+    <div class="vfoot">
+      <input id="vComment" placeholder="Comment on this image — posts evidence:ev-… so the reference survives deletion">
+      <button class="vbtn" id="vCommentBtn">Comment</button>
+    </div>
+  </div>
 <script type="module">
   const $ = (id) => document.getElementById(id);
   const state = {
@@ -1068,11 +1099,118 @@
     const att = blobAtts(issue).find((a) => a.id === attId);
     if (!att) return `<code class="evref">${ref}</code>`;
     return isImage(att.mime)
-      ? `<img class="evimg" src="${blobUrl(issue, att)}" alt="${esc(att.name)}" loading="lazy">`
+      ? `<img class="evimg" src="${blobUrl(issue, att)}" alt="${esc(att.name)}" data-att="${att.id}" loading="lazy">`
       : `<a class="atchip" href="${blobUrl(issue, att)}" target="_blank" rel="noopener">📎 ${esc(att.name)}</a>`;
   });
-  const openLightbox = (src) => { $("lightboxImg").src = src; $("lightbox").classList.add("show"); };
-  $("lightbox").addEventListener("click", () => $("lightbox").classList.remove("show"));
+  /* ---------- image viewer ---------- */
+  const viewer = { issueId: null, ids: [], index: 0, zoom: 1, panX: 0, panY: 0 };
+  const viewerOpen = () => $("viewer").classList.contains("show");
+  const viewerIssue = () => state.issues.find((i) => i.id === viewer.issueId);
+  const viewerAtt = () => viewerIssue()?.attachments?.find((a) => a.id === viewer.ids[viewer.index]);
+  const resetViewerView = () => { viewer.zoom = 1; viewer.panX = 0; viewer.panY = 0; };
+  const applyViewer = () => {
+    const att = viewerAtt();
+    const img = $("vImg");
+    if (!att) { closeViewer(); return; }
+    const multi = viewer.ids.length > 1;
+    $("vName").textContent = att.name;
+    $("vMeta").textContent = `${att.mime} · ${fmtSize(att.size)} · ${viewer.index + 1}/${viewer.ids.length}`;
+    $("vZoom").textContent = `${Math.round(viewer.zoom * 100)}%`;
+    $("vPrev").style.visibility = multi ? "visible" : "hidden";
+    $("vNext").style.visibility = multi ? "visible" : "hidden";
+    img.style.transform = `translate(${viewer.panX}px, ${viewer.panY}px) scale(${viewer.zoom})`;
+  };
+  const loadViewerImage = () => {
+    const att = viewerAtt();
+    if (!att) { closeViewer(); return; }
+    $("vImg").src = blobUrl(viewerIssue(), att);
+    applyViewer();
+  };
+  const openViewer = (issue, attId) => {
+    const ids = blobAtts(issue).filter((a) => isImage(a.mime)).map((a) => a.id);
+    const index = ids.indexOf(attId);
+    if (index < 0) return;
+    viewer.issueId = issue.id; viewer.ids = ids; viewer.index = index;
+    resetViewerView();
+    $("viewer").classList.add("show");
+    loadViewerImage();
+    $("vImg").onload = applyViewer;
+  };
+  const closeViewer = () => { $("viewer").classList.remove("show"); viewer.issueId = null; viewer.ids = []; };
+  const stepViewer = (dir) => {
+    if (viewer.ids.length < 2) return;
+    viewer.index = (viewer.index + dir + viewer.ids.length) % viewer.ids.length;
+    resetViewerView();
+    loadViewerImage();
+  };
+  const zoomViewer = (factor) => {
+    viewer.zoom = Math.min(8, Math.max(0.25, viewer.zoom * factor));
+    applyViewer();
+  };
+  $("vClose").addEventListener("click", closeViewer);
+  $("vPrev").addEventListener("click", () => stepViewer(-1));
+  $("vNext").addEventListener("click", () => stepViewer(1));
+  $("vFit").addEventListener("click", () => { resetViewerView(); applyViewer(); });
+
+  /* wheel zoom keeps the cursor point stationary */
+  $("vStage").addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const dx = e.clientX - rect.left - rect.width / 2;
+    const dy = e.clientY - rect.top - rect.height / 2;
+    const next = Math.min(8, Math.max(0.25, viewer.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    const k = next / viewer.zoom;
+    viewer.panX = dx - (dx - viewer.panX) * k;
+    viewer.panY = dy - (dy - viewer.panY) * k;
+    viewer.zoom = next;
+    applyViewer();
+  }, { passive: false });
+  /* drag to pan */
+  let vDrag = null;
+  $("vStage").addEventListener("pointerdown", (e) => {
+    vDrag = { x: e.clientX, y: e.clientY, px: viewer.panX, py: viewer.panY };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.currentTarget.classList.add("dragging");
+  });
+  $("vStage").addEventListener("pointermove", (e) => {
+    if (!vDrag) return;
+    viewer.panX = vDrag.px + e.clientX - vDrag.x;
+    viewer.panY = vDrag.py + e.clientY - vDrag.y;
+    applyViewer();
+  });
+  $("vStage").addEventListener("pointerup", (e) => {
+    vDrag = null;
+    e.currentTarget.classList.remove("dragging");
+  });
+  $("vStage").addEventListener("dblclick", () => { resetViewerView(); applyViewer(); });
+
+  /* comment referencing the viewed image; the canonical ref renders inline everywhere */
+  $("vCommentBtn").addEventListener("click", async () => {
+    const input = $("vComment");
+    const att = viewerAtt();
+    if (!att) return;
+    const text = input.value.trim() ? `${input.value.trim()}\n\nevidence:${att.id}` : `evidence:${att.id}`;
+    await run(() => api(`/api/issue/${encodeURIComponent(viewer.issueId)}/comment`, { text }));
+    input.value = "";
+    toast(`commented on ${att.id}`);
+    await refresh();
+  });
+  $("vComment").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("vCommentBtn").click(); } });
+
+  /* delete the attachment; comment text is untouched, refs render as chips */
+  $("vDelete").addEventListener("click", async () => {
+    const att = viewerAtt();
+    if (!att) return;
+    if (!confirm(`Delete ${att.name}? Existing comments keep the evidence reference.`)) return;
+    const outcome = await run(() => api(`/api/issue/${encodeURIComponent(viewer.issueId)}/detach-blob`, { ref: att.id }));
+    if (outcome === null) return;
+    viewer.ids.splice(viewer.index, 1);
+    if (viewer.index >= viewer.ids.length) viewer.index = viewer.ids.length - 1;
+    toast(`deleted ${att.name} (comments preserved)`);
+    if (viewer.ids.length === 0 || viewerAtt() === undefined) { closeViewer(); }
+    else loadViewerImage();
+    await refresh();
+  });
 
   /* ---------- task modal ---------- */
   let modalIssue = null;
@@ -1110,7 +1248,7 @@
       ${openBlockers.length ? `<div class="fieldrow"><span class="fchip2 danger">⚠ blocked by ${openBlockers.map((b) => `<button class="fchip2 link" data-open="${esc(b.id)}" style="padding:1px 8px">${esc(b.id)}</button>`).join(" ")}</span></div>` : ""}
       <div class="descbox"><textarea id="mDesc" placeholder="Describe the work… (markdown-ish)">${esc(issue.description ?? "")}</textarea></div>
       ${blobAtts(issue).length ? `<div class="attrow">${blobAtts(issue).map((a) => isImage(a.mime)
-        ? `<a class="atchip" href="${blobUrl(issue, a)}" target="_blank" rel="noopener"><img src="${blobUrl(issue, a)}" alt=""> ${esc(a.name)}</a>`
+        ? `<button class="atchip" data-view="${a.id}" title="open in viewer"><img src="${blobUrl(issue, a)}" alt=""> ${esc(a.name)}</button>`
         : `<a class="atchip" href="${blobUrl(issue, a)}" target="_blank" rel="noopener">📎 ${esc(a.name)} · ${esc(a.mime)} · ${fmtSize(a.size)}</a>`).join("")}</div>` : ""}
       <div class="fieldrow">
         <span class="fchip2">labels <b>${esc(issue.labels.join(", ") || "none")}</b></span>
@@ -1154,7 +1292,9 @@
       await refresh();
     });
     $("taskModal").querySelectorAll(".evimg").forEach((img) =>
-      img.addEventListener("click", () => openLightbox(img.src)));
+      img.addEventListener("click", () => openViewer(issue, img.dataset.att)));
+    $("taskModal").querySelectorAll(".atchip[data-view]").forEach((chip) =>
+      chip.addEventListener("click", () => openViewer(issue, chip.dataset.view)));
   };
   const closeModal = () => { $("modalOverlay").classList.remove("show"); modalIssue = null; };
 
@@ -1269,7 +1409,18 @@
   /* ---------- keys ---------- */
   document.addEventListener("keydown", (e) => {
     const inField = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
-    if (e.key === "Escape") { closePalette(); closeNew(); closeModal(); closeDiffModal(); $("lightbox").classList.remove("show"); if (inField) document.activeElement.blur(); return; }
+    if (e.key === "Escape") {
+      if (viewerOpen()) { closeViewer(); return; }
+      closePalette(); closeNew(); closeModal(); closeDiffModal();
+      if (inField) document.activeElement.blur();
+      return;
+    }
+    if (viewerOpen() && !inField) {
+      if (e.key === "ArrowLeft") { e.preventDefault(); stepViewer(-1); return; }
+      if (e.key === "ArrowRight") { e.preventDefault(); stepViewer(1); return; }
+      if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomViewer(1.25); return; }
+      if (e.key === "-") { e.preventDefault(); zoomViewer(1 / 1.25); return; }
+    }
     if (inField) return;
     if (e.key === ":" || (e.key === "k" && (e.metaKey || e.ctrlKey))) { e.preventDefault(); openPalette(); }
     else if (e.key === "1") switchView("list");

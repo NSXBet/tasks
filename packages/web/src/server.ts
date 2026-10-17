@@ -163,7 +163,7 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
           return {};
         } catch { return {}; }
       };
-      const issueMatch = /^\/api\/issue\/([^/]+)(\/[a-z]+)?$/.exec(url.pathname);
+      const issueMatch = /^\/api\/issue\/([^/]+)(\/[a-z-]+)?$/.exec(url.pathname);
       if (request.method === "POST" && issueMatch !== null) {
         const id = decodeURIComponent(issueMatch[1]!);
         const action = issueMatch[2] ?? "";
@@ -171,6 +171,7 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         const text = (key: string): string | undefined => { const value = input[key]; return typeof value === "string" ? value : undefined; };
         const outcome: { ok: true; value: unknown } | { ok: false; error: SurfaceError } = await (async (): Promise<{ ok: true; value: unknown } | { ok: false; error: SurfaceError }> => {
           if (action === "/comment") return surface.comment(id, text("text") ?? "");
+          if (action === "/detach-blob") return surface.detachBlob(id, text("ref") ?? "");
           if (action === "/claim") return surface.claim(id);
           if (action === "/archive") return surface.archive(id);
           if (action === "/unarchive") return surface.unarchive(id);
