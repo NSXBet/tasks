@@ -8,6 +8,8 @@ matching section as its release notes — add a section for every new version
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-17
+
 ### Added
 
 - `tk show` splits attachments into two sections: `ATTACHMENTS` (path refs)
