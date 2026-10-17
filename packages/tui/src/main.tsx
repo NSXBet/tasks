@@ -17,6 +17,12 @@ if (discovered === null) {
   process.exit(2);
 }
 
+// OpenTUI auto-detects kitty graphics in Ghostty and transmits images with
+// virtual placements + Unicode placeholders, which Ghostty 1.3.x never paints
+// (empty box). Half-block SGR rendering works everywhere, so default to it;
+// an explicit OPENTUI_IMAGE_PROTOCOL still wins.
+process.env["OPENTUI_IMAGE_PROTOCOL"] ??= "blocks";
+
 const store = await openTuiStore(discovered);
 const renderer = await createCliRenderer({ exitOnCtrlC: false, screenMode: "alternate-screen", useMouse: true });
 const actor = process.env["USER"] ?? "unknown";
