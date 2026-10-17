@@ -296,7 +296,8 @@ drifts from the binary:
 tk skill                     # print the full SKILL.md
 tk skill --json              # { path, skill } for programmatic loading
 tk skill path                # installed skill file location only
-tk skill --install ~/.pi/agent/skills   # symlink into an agent skills dir
+tk skill --install ~/.pi/agent/skills   # copy the skill into an agent skills dir
+tk skill install --tool claude          # copy into .claude/skills (--global: ~/.claude/skills)
 ```
 
 ### Storage backend

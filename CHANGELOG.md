@@ -25,9 +25,31 @@ matching section as its release notes — add a section for every new version
 - Per-command help: `tk <cmd> -h`, `tk <cmd> --help`, and `tk help <cmd>` now
   print that command's own usage and flags instead of the full help; `tk help`
   and `tk -h` keep the full reference.
+- `tk web` opens evidence images in a full-screen viewer: zoom (wheel or
+  `+`/`-`), pan, `‹`/`›` navigation across all image attachments of an issue,
+  file name/mime/size/position in the toolbar, and a comment box that posts
+  the text together with the `evidence:` reference — so the reference survives
+  attachment deletion. Attachments can be deleted from the viewer with a
+  confirm; existing comments keep the reference and render it as a chip.
+
+### Changed
+
+- `tk skill install` (and `tk skill --install <dir>`) now copies the real
+  skill directory into the skills root instead of symlinking it — installed
+  skills survive the install tree being cleaned or rebuilt. Copies no longer
+  track `tk` upgrades: re-run the install after upgrading (`--force` on an
+  existing install). `--tool <agents|claude|omp|pi|codex>` picks the agent
+  whose skills root receives the copy (`.claude/skills`, `.omp/skills` /
+  `~/.omp/agent/skills`, `~/.pi/agent/skills`, `.codex/skills`), with
+  `agents` (`.agents/skills`) unchanged as the default.
 
 ### Fixed
 
+- The TUI renders evidence images with OpenTUI's half-block protocol by
+  default instead of kitty graphics: in Ghostty 1.3.x OpenTUI's kitty
+  transport (virtual placements + Unicode placeholders) transmits but paints
+  nothing, leaving an empty box. An explicit `OPENTUI_IMAGE_PROTOCOL` still
+  wins.
 - `tk worktree list|create|info|remove` dispatch again: `runWorktree` was
   implemented and documented in help, but `main()` never routed the `worktree`
   command, so every call failed with `unknown command: worktree`. Dispatch now
