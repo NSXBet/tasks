@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Changeset Derivation & Completion Contract
 status: executing
-stopped_at: Plan 02-01 executed (lazy changeset derivation); next: 02-02
-last_updated: "2026-10-18T20:20:00.000Z"
+stopped_at: Phase 02 executed (plans 02-01 + 02-02); ready for phase verification
+last_updated: "2026-10-18T20:35:00.000Z"
 last_activity: 2026-10-18
-last_activity_desc: Phase 02 plan 02-01 executed — tk show derives commits + changed files live
-state_head: 77f0964
+last_activity_desc: Phase 02 plan 02-02 executed — tk finish into ready-to-review (FIN-01) + close-time changeset freeze (CHG-02)
+state_head: 0ece72f
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
   percent: 25
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-18)
 ## Current Position
 
 Phase: 02 (Changeset Derivation & Completion Contract) — EXECUTING
-Plan: 1 of 2 done (02-01 executed; 02-02 next)
-Status: Executing Phase 02
-Last activity: 2026-10-18 — Plan 02-01 executed (lazy changeset derivation)
+Plan: 2 of 2 done (02-01 + 02-02 executed)
+Status: Phase 02 executed — ready for phase verification
+Last activity: 2026-10-18 — Plan 02-02 executed (finish contract + terminal freeze)
 
 Progress: [██▌░░░░░░░] 25%
 
@@ -69,6 +69,7 @@ Recent decisions affecting current work:
 - [Phase 1]: Worktree resolution precedence: default sibling dir < workspace `worktree.dir` < per-task metadata override (`{name}` expansion)
 - [Phase 1]: Every git call flows through `@tasks/git` enumerated commands — no scattered `git` subprocess calls
 - [Phase 2 / 02-01]: Changeset derivation is lazy and show-scoped (D-03): re-derived live on every `tk show`, never cached, never written to metadata; commits use two-dot `base..branch`, files/counts use three-dot merge-base diff (D-01/D-02)
+- [Phase 2 / 02-02]: Completion contract (FIN-01): `tk finish` is the only write path into `ready-to-review` — requires a work record (branch + pinned base) and `--session` (D-10), idempotent re-finish (D-11); terminal freeze (CHG-02): close freezes `{base, head, commits, files, counts}` into metadata exactly once and closed `tk show` renders it with zero git calls (D-05)
 
 ### Pending Todos
 
@@ -76,7 +77,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- Code review CR-01 (Phase 1, advisory, unfixed): `tk --readonly work <id>` bypasses the readonly gate — `work` missing from the writers set in `tk.ts`; fix when the finish/close contract work touches `tk.ts`.
+- Code review CR-01 (Phase 1, advisory): RESOLVED in 02-02 (commit 97d891a) — `work` and `finish` added to the writers set in `tk.ts`.
 - Known debt riding specific phases: `pi-extention` workspace-dep fix rides Phase 3; `tk hunk` spawn path deleted in Phase 3.
 - Mock shells (plan steps 1–3) are replaced by real implementations in Phases 4–5; mock-only plumbing is deleted at those steps.
 
@@ -90,6 +91,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-18T20:20:00.000Z
-Stopped at: Plan 02-01 executed (lazy changeset derivation); next: 02-02
-Resume file: .planning/phases/02-changeset-derivation-completion-contract/02-01-SUMMARY.md
+Last session: 2026-10-18T20:35:00.000Z
+Stopped at: Phase 02 executed (plans 02-01 + 02-02); ready for phase verification
+Resume file: .planning/phases/02-changeset-derivation-completion-contract/02-02-SUMMARY.md

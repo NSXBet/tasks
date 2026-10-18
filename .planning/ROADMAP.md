@@ -60,10 +60,10 @@ Plans:
 
 Plans:
 **Wave 1**
-- [ ] 02-01: [Lazy changeset derivation vs pinned base]
+- [x] 02-01: [Lazy changeset derivation vs pinned base]
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 02-02: [tk finish command + terminal snapshot freeze]
+- [x] 02-02: [tk finish command + terminal snapshot freeze]
 
 ### Phase 3: Review Component & Review Storage
 
