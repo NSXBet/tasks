@@ -47,3 +47,45 @@ status: all_fixed
 _Fixed: 2026-10-18T21:35:21Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
+
+---
+
+## Iteration 2 (remaining open findings IN-1..IN-4)
+
+**Fixed at:** 2026-10-18T22:17:34Z
+**Findings in scope:** 4 (IN-1, IN-2, IN-3, IN-4)
+**Fixed:** 4 · **Skipped:** 0
+**Commit:** 9bec987 `fix(02): address remaining code review findings (IN-1..IN-4)`
+
+### IN-1: Rename/copy status codes render as yellow (warning)
+
+**File:** `packages/cli/src/presentation.ts`
+**Fix:** Changed the review-file status ternary from `file.status === "R"` to `file.status.startsWith("R")`, so any rename code spelling (`R100`, `R093`, …) renders magenta instead of falling through to the yellow default. Copy codes (`C75`, …) still fall through to `yellow(file.status)` — the review only flagged R codes; C is left verbatim and visible.
+
+### IN-2: `tk finish` derives changeset even in JSON mode (info)
+
+**File:** `packages/cli/src/tk.ts`
+**Fix:** Gated the live changeset derivation on `!json`: `const derived = !json && csBase !== null && issue.branch !== null ? await deriveChangeset(...) : null;`. JSON/agent consumers (the primary audience) now skip the 3 git processes on the hot path; the human confirmation line still gets live counts. Derivation remains display-only (D-07 — finish stores nothing).
+
+### IN-3: `finishIssueUow` unused `ctx` parameter (info)
+
+**File:** `packages/surface/src/operations/finish.ts`
+**Fix:** Added `void ctx;` plus a two-line comment: ctx is unused because finish performs no git work (D-09 — no freeze on this path); the parameter is kept for uow-operation signature symmetry (callers pass `{ cwd }`). No signature change.
+
+### IN-4: C-quoted paths in numstat/name-status parsing (info)
+
+**File:** `packages/git/src/porcelain.ts`
+**Fix:** Documented the constraint on both parsers: without `-z`, git C-quotes paths with non-ASCII/special characters; tokens are kept verbatim (correct for display-only scope), and any Phase 3 consumer that joins or opens these paths must switch the producing command to `-z` first. `parseNameStatus` cross-references the note on `parseNumstat`. Comment-only — no behavior change, consistent with the plan's "nothing joins on it" constraint.
+
+## Verification
+
+- **Tier 1:** re-read all modified regions after each edit (edit readback).
+- **Tier 2:** `bun x tsc --noEmit -p packages/git && packages/surface && packages/cli` → all exit 0.
+- **Isolated suites:** `bun test packages/git` → 23 pass / 0 fail; `bun test packages/surface` → 40 pass / 0 fail; `bun test packages/cli` → 128 pass / 0 fail. No failures in files touched by this fix.
+- **Commit:** only the four named source files staged and committed (9bec987); no review/report files committed.
+
+_Fixed: 2026-10-18T22:17:34Z_
+_Fixer: Claude (gsd-code-fixer)_
+_Iteration: 2_
+
+[gsd-task-result] phase 2 plan 02 fixer completed
