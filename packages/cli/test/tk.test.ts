@@ -725,12 +725,13 @@ describe("tk executable", () => {
     const info = json<{ tasks: string; tasks_dir: string | null }>(repo, ["worktree", "info"]);
     expect(info.tasks).toBe("none");
     expect(info.tasks_dir).toBeNull();
-    // create registers the worktree and gitignores it under the main root
-    // (relative path even when cwd resolves through a symlink).
-    const created = json<{ name: string; created: boolean }>(repo, ["worktree", "create", "demo"]);
+    // create registers the worktree at the sibling default placement:
+    // `<parent-of-repo-root>/<name>` (repo is tmpdir-based, so the parent is
+    // writable). No .gitignore rewrite happens anymore.
+    const created = json<{ name: string; created: boolean; path: string }>(repo, ["worktree", "create", "demo"]);
     expect(created).toMatchObject({ name: "demo", created: true });
-    expect(existsSync(join(repo, "demo"))).toBe(true);
-    expect(readFileSync(join(repo, ".gitignore"), "utf8")).toContain("demo");
+    expect(existsSync(created.path)).toBe(true);
+    expect(existsSync(join(repo, ".gitignore"))).toBe(false);
     const listed = json<ReadonlyArray<{ name: string }>>(repo, ["worktree", "list"]);
     expect(listed.map((entry) => entry.name)).toContain("demo");
     // --readonly blocks worktree mutation like every other write.
@@ -739,6 +740,24 @@ describe("tk executable", () => {
     expect(blocked.stderr).toContain("readonly");
     const removed = json<{ removed: boolean }>(repo, ["worktree", "remove", "--force", "demo"]);
     expect(removed.removed).toBe(true);
+  });
+
+  it("places worktrees through worktree.dir config and surfaces git stderr on duplicates", () => {
+    const repo = workspace();
+    const git = (...args: readonly string[]) => { const result = Bun.spawnSync(["git", ...args], { cwd: repo, stdout: "pipe", stderr: "pipe" }); expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0); };
+    git("init", "-q");
+    git("-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init");
+    const grove = mkdtempSync(join(tmpdir(), "tk-grove-"));
+    workspaces.push(grove);
+    mkdirSync(join(repo, ".tasks"), { recursive: true });
+    writeFileSync(join(repo, ".tasks", "config.json"), JSON.stringify({ worktree: { dir: join(grove, "{name}") } }));
+    const created = json<{ path: string }>(repo, ["worktree", "create", "first"]);
+    expect(created.path).toBe(join(grove, "first"));
+    expect(existsSync(created.path)).toBe(true);
+    // Creating the same name again is git's error to give; tk forwards its stderr.
+    const duplicate = run(repo, ["worktree", "create", "first"]);
+    expect(duplicate.status).not.toBe(0);
+    expect(duplicate.stderr).toContain("first");
   });
 });
 

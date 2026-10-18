@@ -83,6 +83,12 @@ describe('@tasks/workspace config', () => {
     expect(await resolveStorageConfig(dir, {})).toEqual(DEFAULT_STORAGE);
   });
 
+  it('round-trips the worktree.dir placement key', async () => {
+    const dir = tasksDir();
+    await writeWorkspaceConfig(dir, { worktree: { dir: '/srv/worktrees' } });
+    expect(await readWorkspaceConfig(dir)).toEqual({ worktree: { dir: '/srv/worktrees' } });
+  });
+
   it('describes storage locations without opening a connection', () => {
     const dir = tasksDir();
     expect(describeStorage(dir, { backend: 'file' })).toEqual({ backend: 'file', location: dir });
