@@ -33,6 +33,11 @@ export interface NumstatEntry {
  * Parses `git diff --numstat` output; rows are `<additions>\t<deletions>\t<path>`.
  * A `-` column (binary files) parses as 0 for that column; the path column is
  * kept verbatim (including git's `a => b` rewrite spelling — nothing joins on it).
+ *
+ * PHASE 3 CONSTRAINT: without `-z`, git C-quotes paths containing non-ASCII or
+ * special characters (`"\"303\244.txt"` style, quotes included). Tokens are kept
+ * verbatim — display-only today; any Phase 3 consumer that joins or opens these
+ * paths must switch the producing command to `-z` first.
  */
 export function parseNumstat(text: string): readonly NumstatEntry[] {
   const entries: NumstatEntry[] = [];
@@ -62,7 +67,8 @@ export interface NameStatusEntry {
  * Parses `git diff --name-status` output; rows are `<code>\t<path>` or
  * `<code>\t<old>\t<new>` for R/C. `status` is the full code token verbatim
  * (`A`, `M`, `D`, `T`, `U`, `R100`, `C75`, …); `path` is the LAST token
- * (destination) for two-path forms.
+ * (destination) for two-path forms. Paths are kept verbatim — see the PHASE 3
+ * CONSTRAINT note on `parseNumstat` regarding git's C-quoted path spelling.
  */
 export function parseNameStatus(text: string): readonly NameStatusEntry[] {
   const entries: NameStatusEntry[] = [];

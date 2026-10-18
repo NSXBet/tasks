@@ -43,6 +43,8 @@ export const finishIssueUow = async (
   at: Date = now(),
 ): Promise<Issue> => {
   if (session.trim() === '') throw new MessageError('finish requires a non-empty session id');
+  // ctx is unused: finish performs no git work (D-09 — no freeze on this path).
+  // The parameter is kept for uow-operation signature symmetry (callers pass { cwd }).
   void ctx;
   const issue = await getOrThrow(uow, id);
   const meta = issue.metadata['changeset'];
