@@ -28,3 +28,46 @@ describe("formatAttachments", () => {
     expect(output).not.toContain("terminal lacks inline-image support");
   });
 });
+
+import { IssueSchema } from "@tasks/domain";
+import type { ChangesetPayload } from "@tasks/surface";
+import { formatShow } from "../src/presentation.js";
+
+const baseIssue = () => IssueSchema.parse({
+  id: "tk-chg001", title: "changeset render", description: "", status: "open", priority: 2, type: "task",
+  owner: null, assignee: null, createdBy: null, createdAt: new Date(), updatedAt: new Date(),
+  startedAt: null, closedAt: null, dueAt: null, deferUntil: null, parentId: null,
+  labels: [], notes: null, design: null, acceptanceCriteria: null, estimate: null,
+  specId: null, externalRef: null, metadata: {}, dependencies: [], dependencyCount: 0, dependentCount: 0, comments: [], commentCount: 0,
+});
+
+const payload = (): ChangesetPayload => ({
+  commits: [{ sha: "abc1234", subject: "add feature" }, { sha: "def5678", subject: "fix typo" }],
+  files: [{ path: "src/a.ts", status: "A" }, { path: "src/b.ts", status: "M" }, { path: "old.ts", status: "R" }],
+  counts: { additions: 12, deletions: 3 },
+});
+
+describe("formatShow changeset sections", () => {
+  it("renders COMMITS and FILES sections with status codes when derived", () => {
+    const issue = IssueSchema.parse({ ...baseIssue(), branch: "tk/tk-chg001", metadata: { changeset: { base: "a".repeat(40) } } });
+    const output = formatShow(issue, new Map(), payload());
+    expect(output).toContain("COMMITS (2)");
+    expect(output).toContain("add feature");
+    expect(output).toContain("FILES (3)");
+    expect(output).toContain("src/a.ts");
+  });
+
+  it("omits both sections when the payload is null (unpinned or decayed)", () => {
+    const issue = IssueSchema.parse({ ...baseIssue(), branch: "tk/tk-chg001" });
+    const output = formatShow(issue, new Map(), null);
+    expect(output).not.toContain("COMMITS");
+    expect(output).not.toContain("FILES (");
+  });
+
+  it("omits empty sections individually", () => {
+    const issue = IssueSchema.parse({ ...baseIssue(), branch: "tk/tk-chg001", metadata: { changeset: { base: "a".repeat(40) } } });
+    const output = formatShow(issue, new Map(), { commits: [], files: [], counts: { additions: 0, deletions: 0 } });
+    expect(output).not.toContain("COMMITS");
+    expect(output).not.toContain("FILES (");
+  });
+});

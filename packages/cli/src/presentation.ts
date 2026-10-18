@@ -704,18 +704,6 @@ export const PRIME = `# tk workflow context
 - Run ${cyan("tk help")} for the full command list; ${cyan("tk <cmd> -h")} for a single command's flags.
 `;
 
-export const ONBOARD = `## Task tracking
-
-This project uses tk for issue tracking. Run \`tk prime\` for workflow context before starting work.
-
-\`\`\`
-tk ready              # Find available work
-tk show <id>          # View issue details
-tk update <id> --status in_progress
-tk close <id>         # Complete work
-\`\`\`
-`;
-
 /** `bd human`: the ~15 commands people actually type, no agent noise. */
 export const HUMAN_HELP = `${bold("tk — essentials")}
 

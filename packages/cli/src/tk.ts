@@ -17,7 +17,7 @@ import {
   formatReview, reviewMeta,
   HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
-import { attachEvidenceUow, attachPathUow, detachBlobUow, evidenceReadUow, inboxEntries, markInboxArchived, markInboxRead, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow } from "@tasks/surface";
+import { attachEvidenceUow, attachPathUow, detachBlobUow, deriveChangeset, evidenceReadUow, inboxEntries, markInboxArchived, markInboxRead, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow } from "@tasks/surface";
 import { bunRunner } from "@tasks/git";
 import { formatHunkComment, hunkCommentMetaKey, parseHunkComments, pendingHunkComments, planHunk, scratchDirectory, writeAgentContext } from "./hunk.js";
 import { buildTree, type TreeOptions } from "./tree.js";
@@ -1081,7 +1081,16 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
     else if (command === "detach") { const issue = await service.detach(args); value = issueWire(issue); human = () => confirmation("Detached file from", issue); }
     else if (command === "q") { const id = await service.quick(args); value = { id }; human = () => id; }
     else if (command === "work") { const result = await service.work(args); value = result.value; human = result.human; }
-    else if (command === "show") { const [issue, images] = await service.showWithImages(args); value = [issueWire(issue)]; human = () => formatShow(issue, images); }
+    else if (command === "show") {
+      const [issue, images] = await service.showWithImages(args);
+      const wire = issueWire(issue);
+      const changesetMeta = issue.metadata["changeset"];
+      const recordedBase = changesetMeta !== null && typeof changesetMeta === "object" && !Array.isArray(changesetMeta) && typeof (changesetMeta as Record<string, unknown>)["base"] === "string" ? (changesetMeta as Record<string, unknown>)["base"] as string : null;
+      const derived = recordedBase !== null && issue.branch !== null ? await deriveChangeset({ cwd: workspace }, recordedBase, issue.branch) : null;
+      if (derived !== null) wire["changeset"] = { base: recordedBase, commits: derived.commits, files: derived.files, counts: derived.counts };
+      value = [wire];
+      human = () => formatShow(issue, images, derived);
+    }
     else if (command === "review") { const issue = await service.show(args); value = [issueWire(issue), { review: reviewMeta(issue), action: "WIP" }]; human = () => formatReview(issue); }
     else if (command === "list" || command === "ready") { const issues = await service.list(args, command === "ready"); value = issues.map(issueWire); human = () => (command === "ready" ? formatReady(issues) : formatList(issues)); }
     else if (command === "blocked") { const all = await service.all(); const blocked = all.filter((issue) => issue.dependencies.some((edge) => edge.type === "blocks" && all.some((other) => other.id === edge.target && other.status !== "closed"))); value = blocked.map(issueWire); human = () => formatBlocked(blocked, all); }
