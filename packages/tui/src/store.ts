@@ -64,6 +64,20 @@ export const parseImageSize = (value: string): ImageSize | null => {
 export const resolveImageSize = (flag: ImageSize | null, config: ImageSize | undefined): ImageSize =>
   flag ?? config ?? DEFAULT_IMAGE_SIZE;
 
+/**
+ * Largest aspect-correct cell box for a source image inside `box`, matching
+ * OpenTUI `ImageRenderable.getFittedSize` with cellAspectRatio 2 (cells are
+ * twice as tall as wide — the half-block pixel grid). Returns the cell size to
+ * render at so a pre-scaled source of `width × 2·height` pixels maps 1:1 onto
+ * the blocks protocol.
+ */
+export const fittedImageCells = (sourceWidth: number, sourceHeight: number, box: ImageSize): ImageSize => {
+  if (sourceWidth <= 0 || sourceHeight <= 0) return { width: 1, height: 1 };
+  const displayAspect = (sourceWidth / sourceHeight) * 2;
+  const scale = Math.min(box.width / displayAspect, box.height);
+  return { width: Math.max(1, Math.round(displayAspect * scale)), height: Math.max(1, Math.round(scale)) };
+};
+
 /** Archived issues stay loaded but out of every default view; only the icebox tab surfaces them. */
 const notArchived = (issue: Issue): boolean => issue.status !== "archived";
 
