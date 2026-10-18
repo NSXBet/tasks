@@ -50,7 +50,7 @@ const BlobImage = ({ issueId, refId }: { readonly issueId: string; readonly refI
   // never paints (empty box — pixel-proven in .agents/tests/tui-test-tasks-5aof).
   // Half-block SGR renders in every terminal and capture path (VHS, herdr), so
   // the TUI pins it; stream escapes from @tasks/terminal-image serve the CLI only.
-  return <image source={content.bytes} fit="fit" protocol="blocks" style={{ width: 44, height: 18, marginLeft: 2 }} />;
+  return <image source={content.bytes} fit="fit" protocol="blocks" style={{ width: state.imageSize.width, height: state.imageSize.height, marginLeft: 2 }} />;
 };
 
 /** Right pane: full issue detail. Owns its scroll; closes with Escape. */

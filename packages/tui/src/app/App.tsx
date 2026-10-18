@@ -15,7 +15,7 @@ import { DependencyGraph } from "./graph.js";
 import { Insights } from "./insights.js";
 import { TaskModal } from "./modal.js";
 import { CommandPalette } from "./palette.js";
-import { kanbanCardAt, kanbanGroups, visibleIssues, type Board, type FilterKind, type TuiStore } from "../store.js";
+import { kanbanCardAt, kanbanGroups, visibleIssues, DEFAULT_IMAGE_SIZE, type Board, type FilterKind, type ImageSize, type TuiStore } from "../store.js";
 import { StatusBar } from "./statusbar.js";
 
 interface AppProps {
@@ -24,6 +24,8 @@ interface AppProps {
   readonly onQuit: () => void;
   /** WIP limit for the In-Progress column warning; null disables. */
   readonly wipLimit?: number | null;
+  /** Attachment-image cell size; resolved by main.tsx (flag > config > default). */
+  readonly imageSize?: ImageSize;
 }
 
 const clampPriority = (value: number): number => Math.min(4, Math.max(0, value));
@@ -37,7 +39,7 @@ const emptyBoard: Board = { issues: [], activeSprintId: null, counts: { open: 0,
  * here — the detail pane when open, else the focused row/card — so the same
  * key never hits two panes.
  */
-export const App = ({ store, actor, onQuit, wipLimit = null }: AppProps) => {
+export const App = ({ store, actor, onQuit, wipLimit = null, imageSize = DEFAULT_IMAGE_SIZE }: AppProps) => {
   const [board, setBoard] = useState(emptyBoard);
   const [stale, setStale] = useState(true);
   const [view, setView] = useState<ViewKind>("list");
@@ -186,9 +188,9 @@ export const App = ({ store, actor, onQuit, wipLimit = null }: AppProps) => {
   }), [store, refresh, notify, reportError, onQuit]);
 
   const state: AppState = useMemo(() => ({
-    store, actor, board, stale, view, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer,
+    store, actor, imageSize, board, stale, view, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer,
     boardSel: { ...boardSel }, graphId, graphWalk, diffOpen, insightsSel: { ...insightsSel }, wipLimit, toast,
-  }), [store, actor, board, stale, view, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer, boardSel, graphId, graphWalk, diffOpen, insightsSel, wipLimit, toast]);
+  }), [store, actor, imageSize, board, stale, view, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer, boardSel, graphId, graphWalk, diffOpen, insightsSel, wipLimit, toast]);
 
   const value: AppContextValue = useMemo(() => ({ state, actions, lastEvent }), [state, actions, lastEvent]);
 

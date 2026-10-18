@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 import type { UpdatePatch } from "@tasks/surface";
-import type { Board, FilterKind, TuiStore } from "../store.js";
+import type { Board, FilterKind, ImageSize, TuiStore } from "../store.js";
 import type { WatchEvent } from "@tasks/surface";
 
 export type ViewKind = "list" | "board" | "graph" | "insights" | "task" | "artifact" | "diff";
@@ -41,6 +41,8 @@ export interface ComposerState {
 export interface AppState {
   readonly store: TuiStore;
   readonly actor: string;
+  /** Attachment-image cell size; resolved once at boot (flag > config > default). */
+  readonly imageSize: ImageSize;
   readonly board: Board;
   readonly stale: boolean;
   readonly view: ViewKind;
