@@ -5,11 +5,11 @@ titles: json
 findings:
   - id: WR-1
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Close-shaped saves bypass the exactly-once freeze — `markDuplicate`, `markSuperseded` (CLI + surface), `todoDone`"
   - id: WR-2
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "A failed derivation at close silently skips the freeze with no signal, permanently unfreezing the record"
   - id: IN-1
     severity: info
@@ -27,16 +27,8 @@ findings:
     severity: info
     disposition: open
     title: "Porcelain parsers don't handle git's C-quoted paths"
-  - id: WR-01
-    severity: warning
-    disposition: fixed
-    title: "Close-shaped saves bypass the exactly-once freeze"
-  - id: WR-02
-    severity: warning
-    disposition: fixed
-    title: "Frozen-snapshot absence invisible on close dispatch"
-open: 6
-total: 8
+open: 4
+total: 6
 recorded: 2026-10-18T21:46:13.558Z
 ---
 
@@ -44,14 +36,12 @@ recorded: 2026-10-18T21:46:13.558Z
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-1 | warning | open | - |
-| WR-2 | warning | open | - |
+| WR-1 | warning | fixed | 02-REVIEW-FIX.md (WR-01; id renumbered by fixer) |
+| WR-2 | warning | fixed | 02-REVIEW-FIX.md (WR-02; id renumbered by fixer) |
 | IN-1 | info | open | - |
 | IN-2 | info | open | - |
 | IN-3 | info | open | - |
 | IN-4 | info | open | - |
-| WR-01 | warning | fixed | 02-REVIEW-FIX.md (not in the current review) |
-| WR-02 | warning | fixed | 02-REVIEW-FIX.md (not in the current review) |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
