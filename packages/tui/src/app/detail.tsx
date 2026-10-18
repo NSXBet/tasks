@@ -1,8 +1,9 @@
-import { useMemo, useEffect, useState } from "react";
+import { useMemo, useEffect, useRef, useState } from "react";
+import { NativeImage } from "@opentui/core";
 import { useApp } from "./context.js";
 import { colors, priorityColor, priorityLabel, statusColor } from "../theme.js";
 import { relativeAge, truncate } from "../format.js";
-import { dependencyTree } from "../store.js";
+import { dependencyTree, fittedImageCells } from "../store.js";
 import { isBlobAttachment } from "@tasks/domain";
 import type { BlobContent } from "@tasks/surface";
 
@@ -30,10 +31,26 @@ const mdLines = (source: string): readonly MdLine[] => {
   return out;
 };
 
-/** One evidence image, fetched through the surface. Loading → pending mark; unknown bytes → missing mark. */
+/**
+ * One evidence image, fetched through the surface. Loading → pending mark;
+ * unknown bytes → missing mark.
+ *
+ * The bytes are decoded and area-kernel-resized to exactly the half-block pixel
+ * grid of the fitted cell box, then rendered with `fit="fill"`: every native
+ * blocks-protocol sample maps 1:1 onto a prescaled pixel, so downscaled
+ * screenshots keep their structure (raw 1600×880 bytes point-sample to noise —
+ * pixel-proven in .agents/tests/tui-test-tasks-5aof). Undecodable bytes fall
+ * back to the raw-bytes render. Kitty/sixel stay pinned off: Ghostty 1.3.x
+ * never paints their virtual placements.
+ */
 const BlobImage = ({ issueId, refId }: { readonly issueId: string; readonly refId: string }) => {
   const { state } = useApp();
   const [content, setContent] = useState<BlobContent | null | "loading">("loading");
+  const [scaled, setScaled] = useState<NativeImage | null>(null);
+  const [decodeFailed, setDecodeFailed] = useState(false);
+  // Holds the image handed to <image>; the renderable retains it independently,
+  // so our dispose only drops the component's reference.
+  const owned = useRef<NativeImage | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -43,14 +60,37 @@ const BlobImage = ({ issueId, refId }: { readonly issueId: string; readonly refI
     return () => { alive = false; };
   }, [state.store.surface, issueId, refId]);
 
+  useEffect(() => {
+    owned.current?.dispose();
+    owned.current = null;
+    if (content === "loading" || content === null || !content.meta.mime.startsWith("image/")) { setScaled(null); return; }
+    setDecodeFailed(false);
+    try {
+      const source = NativeImage.decode(content.bytes);
+      const cells = fittedImageCells(source.width, source.height, state.imageSize);
+      const resized = source.resize({ width: cells.width, height: cells.height * 2, kernel: "area" });
+      source.dispose();
+      owned.current = resized;
+      setScaled(resized);
+    } catch {
+      setDecodeFailed(true);
+      setScaled(null);
+    }
+  }, [content, state.imageSize.width, state.imageSize.height]);
+  useEffect(() => () => { owned.current?.dispose(); owned.current = null; }, []);
+
   if (content === "loading") return <text fg={colors.dim} content={`   ▣ ${refId} …`} />;
   if (content === null) return <text fg={colors.red} content={`   ▣ ${refId} (missing bytes)`} />;
   if (!content.meta.mime.startsWith("image/")) return <text fg={colors.dim} content={`   ▣ ${content.meta.name} (${content.meta.mime})`} />;
-  // OpenTUI's kitty/sixel paths transmit virtual placements that Ghostty 1.3.x
-  // never paints (empty box — pixel-proven in .agents/tests/tui-test-tasks-5aof).
   // Half-block SGR renders in every terminal and capture path (VHS, herdr), so
   // the TUI pins it; stream escapes from @tasks/terminal-image serve the CLI only.
-  return <image source={content.bytes} fit="fit" protocol="blocks" style={{ width: state.imageSize.width, height: state.imageSize.height, marginLeft: 2 }} />;
+  // fill + the exact fitted cell size keeps the pre-scaled source 1:1 (fill uses
+  // the box size directly; fit would re-derive the grid from a cellAspectRatio).
+  if (scaled !== null) {
+    return <image source={scaled} fit="fill" protocol="blocks" style={{ width: scaled.width, height: scaled.height / 2, marginLeft: 2 }} />;
+  }
+  if (decodeFailed) return <image source={content.bytes} fit="fit" protocol="blocks" style={{ width: state.imageSize.width, height: state.imageSize.height, marginLeft: 2 }} />;
+  return null;
 };
 
 /** Right pane: full issue detail. Owns its scroll; closes with Escape. */
