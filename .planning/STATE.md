@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 2
+current_phase: 02
 current_phase_name: Changeset Derivation & Completion Contract
 status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-10-18T19:34:33.015Z"
+stopped_at: Plan 02-01 executed (lazy changeset derivation); next: 02-02
+last_updated: "2026-10-18T20:20:00.000Z"
 last_activity: 2026-10-18
-last_activity_desc: Phase 01 complete, transitioned to Phase 2
-state_head: d79fb320274a2c87828120bba30fd483eced05c9
+last_activity_desc: Phase 02 plan 02-01 executed — tk show derives commits + changed files live
+state_head: 77f0964
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 4
-  completed_plans: 2
-  percent: 17
+  completed_plans: 3
+  percent: 25
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-18)
 
 **Core value:** A task's branch is the evidence — tk derives commits and diff from the task's worktree branch (never agent-supplied lists), review comments land on the task record with resolve state, and nothing ships past `ready-to-review` without that record.
-**Current focus:** Phase 2 — Changeset Derivation & Completion Contract
+**Current focus:** Phase 02 — Changeset Derivation & Completion Contract
 
 ## Current Position
 
-Phase: 2 (Changeset Derivation & Completion Contract) — READY TO EXECUTE
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-10-18 — Phase 01 complete, transitioned to Phase 2
+Phase: 02 (Changeset Derivation & Completion Contract) — EXECUTING
+Plan: 1 of 2 done (02-01 executed; 02-02 next)
+Status: Executing Phase 02
+Last activity: 2026-10-18 — Plan 02-01 executed (lazy changeset derivation)
 
-Progress: [██░░░░░░░░] 17%
+Progress: [██▌░░░░░░░] 25%
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Recent decisions affecting current work:
 - [Phase 1]: Changeset base pinned at `tk work` creation; diff is branch-vs-pinned-base, not live-derived
 - [Phase 1]: Worktree resolution precedence: default sibling dir < workspace `worktree.dir` < per-task metadata override (`{name}` expansion)
 - [Phase 1]: Every git call flows through `@tasks/git` enumerated commands — no scattered `git` subprocess calls
+- [Phase 2 / 02-01]: Changeset derivation is lazy and show-scoped (D-03): re-derived live on every `tk show`, never cached, never written to metadata; commits use two-dot `base..branch`, files/counts use three-dot merge-base diff (D-01/D-02)
 
 ### Pending Todos
 
@@ -89,6 +90,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-18T17:54:15.769Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-changeset-derivation-completion-contract/02-CONTEXT.md
+Last session: 2026-10-18T20:20:00.000Z
+Stopped at: Plan 02-01 executed (lazy changeset derivation); next: 02-02
+Resume file: .planning/phases/02-changeset-derivation-completion-contract/02-01-SUMMARY.md

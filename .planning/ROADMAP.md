@@ -147,7 +147,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Git Adapter & Worktree Entry | 2/2 | Complete    | 2026-10-18 |
-| 2. Changeset Derivation & Completion Contract | 0/TBD | Not started | - |
+| 2. Changeset Derivation & Completion Contract | 1/2 | In Progress|  |
 | 3. Review Component & Review Storage | 0/TBD | Not started | - |
 | 4. Terminal Review | 0/TBD | Not started | - |
 | 5. Web Review | 0/TBD | Not started | - |
