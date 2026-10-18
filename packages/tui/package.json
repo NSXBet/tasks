@@ -21,7 +21,8 @@
     "react": "^19.2.0",
     "@tasks/application": "workspace:*",
     "@tasks/domain": "workspace:*",
-    "@tasks/surface": "workspace:*"
+    "@tasks/surface": "workspace:*",
+    "@tasks/workspace": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",
