@@ -7,7 +7,7 @@
  */
 import { dirname } from "node:path";
 import { bunRunner, type ProcessRunner } from "./runner.js";
-import { parseWorktreePorcelain, type WorktreeEntry } from "./porcelain.js";
+import { parseLogOneline, parseNameStatus, parseNumstat, parseWorktreePorcelain, type LogOnelineEntry, type NameStatusEntry, type NumstatEntry, type WorktreeEntry } from "./porcelain.js";
 
 const git = async (runner: ProcessRunner, cwd: string, args: readonly string[]): Promise<string | null> => {
   const result = await runner.run(["git", ...args], cwd);
@@ -39,6 +39,24 @@ export interface GitOutcome {
   readonly ok: boolean;
   readonly stderr: string;
 }
+
+/** Commits between `base` and `branch` in log order (two-dot range, D-01 literal); null when the command fails. */
+export const gitLogOneline = async (cwd: string, base: string, branch: string, runner: ProcessRunner = bunRunner): Promise<readonly LogOnelineEntry[] | null> => {
+  const text = await git(runner, cwd, ["log", "--oneline", `${base}..${branch}`]);
+  return text === null ? null : parseLogOneline(text);
+};
+
+/** Aggregate per-file additions/deletions across the merge-base range (three-dot, D-01 literal); null when the command fails. */
+export const gitDiffNumstat = async (cwd: string, base: string, branch: string, runner: ProcessRunner = bunRunner): Promise<readonly NumstatEntry[] | null> => {
+  const text = await git(runner, cwd, ["diff", "--numstat", `${base}...${branch}`]);
+  return text === null ? null : parseNumstat(text);
+};
+
+/** Changed files with verbatim porcelain status codes across the merge-base range (three-dot, D-02 shape); null when the command fails. */
+export const gitDiffNameStatus = async (cwd: string, base: string, branch: string, runner: ProcessRunner = bunRunner): Promise<readonly NameStatusEntry[] | null> => {
+  const text = await git(runner, cwd, ["diff", "--name-status", `${base}...${branch}`]);
+  return text === null ? null : parseNameStatus(text);
+};
 
 export const gitWorktreeList = async (cwd: string, runner: ProcessRunner = bunRunner): Promise<readonly WorktreeEntry[]> => {
   const text = await git(runner, cwd, ["worktree", "list", "--porcelain"]);

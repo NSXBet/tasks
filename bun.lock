@@ -119,6 +119,7 @@
         "@tasks/application": "workspace:*",
         "@tasks/beads": "workspace:*",
         "@tasks/domain": "workspace:*",
+        "@tasks/git": "workspace:*",
         "@tasks/workspace": "workspace:*",
       },
       "devDependencies": {

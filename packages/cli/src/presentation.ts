@@ -3,7 +3,7 @@ import { exit } from "node:process";
 import { terminalImageEscape } from "@tasks/terminal-image";
 import type { Agent, Issue, IssueAttachment, IssuePathAttachment, Metadata, Run } from "@tasks/domain";
 import { isBlobAttachment } from "@tasks/domain";
-import type { ActivityRow, BlobContent, InboxEntry, RuntimeRow } from "@tasks/surface";
+import type { ActivityRow, BlobContent, ChangesetPayload, InboxEntry, RuntimeRow } from "@tasks/surface";
 import type { IssueTree, TreeNode } from "./tree.js";
 
 const iso = (value: Date | null): string | null => value?.toISOString() ?? null;
@@ -207,7 +207,7 @@ export const reviewMeta = (issue: Issue): ReviewMeta => {
   return review !== null && typeof review === "object" && !Array.isArray(review) ? review as ReviewMeta : {};
 };
 
-export function formatShow(issue: Issue, images: ReadonlyMap<string, BlobContent> = new Map()): string {
+export function formatShow(issue: Issue, images: ReadonlyMap<string, BlobContent> = new Map(), changeset: ChangesetPayload | null = null): string {
   const head = `${statusColored(issue.status)} ${cyan(issue.id)} · ${bold(issue.title)}   [${priorityBadge(issue.priority)} · ${statusLabel(issue.status)}]`;
   const meta = [issue.owner === null ? null : `Owner: ${issue.owner}`, issue.assignee === null ? null : `Assignee: ${issue.assignee}`, `Type: ${issue.type}`, issue.estimate === null ? null : `Estimate: ${issue.estimate}m`].filter(Boolean).join(" · ");
   const dates = [field("Created:", date(issue.createdAt)), issue.startedAt === null ? null : field("Started:", date(issue.startedAt)), field("Updated:", date(issue.updatedAt)), issue.closedAt === null ? null : field("Closed:", date(issue.closedAt)), issue.dueAt === null ? null : field("Due:", date(issue.dueAt)), issue.deferUntil === null ? null : field("Deferred:", date(issue.deferUntil))].filter(Boolean).join("  ");
@@ -227,6 +227,8 @@ export function formatShow(issue: Issue, images: ReadonlyMap<string, BlobContent
     const shownBase = recordedBase ?? review.base ?? null;
     const shownWorktree = recordedWorktree ?? review.worktree ?? null;
     sections.push([`${bold("BRANCH:")} ${cyan(issue.branch)}`, shownBase === null ? dim(field("BASE:", "(unpinned)")) : `${field("BASE:", shownBase)}`, shownWorktree === null ? dim(field("WORKTREE:", "(none)")) : `${field("WORKTREE:", shownWorktree)}`].filter(Boolean).join("\n"));
+    if (changeset !== null && changeset.commits.length > 0) sections.push(formatSection(`COMMITS (${changeset.commits.length})`, changeset.commits.map((commit) => `${cyan(commit.sha)} ${commit.subject}`).join("\n")));
+    if (changeset !== null && changeset.files.length > 0) sections.push(formatSection(`FILES (${changeset.files.length})`, changeset.files.map((file) => `${file.status === "A" ? green("A") : file.status === "D" ? red("D") : file.status === "R" ? magenta("R") : yellow(file.status)} ${file.path}`).join("\n")));
   }
   if (review.artifacts !== undefined && review.artifacts.length > 0) sections.push(formatSection(`ARTIFACTS (${review.artifacts.length})`, review.artifacts.map((artifact) => `${cyan(artifact.path)}  ${green(`+${artifact.added}`)}${red(`−${artifact.removed}`)}  ${dim(`${artifact.comments} comment(s)`)}`).join("\n")));
   if (review.sessions !== undefined && review.sessions.length > 0) sections.push(formatSection(`SESSIONS (${review.sessions.length})`, review.sessions.map((session) => `${session.status === "running" ? green("▸") : dim("·")} ${cyan(session.id)}  ${session.agent}  ${session.status}  ${dim(`${session.topic} · ${session.duration}`)}`).join("\n")));
