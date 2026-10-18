@@ -17,7 +17,7 @@ import {
   formatFinish, formatReview, reviewMeta,
   HUMAN_HELP, INIT_HELP, LINT_SECTIONS, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
-import { attachEvidenceUow, attachPathUow, detachBlobUow, deriveChangeset, evidenceReadUow, finishIssueUow, freezeChangesetUow, readChangesetSnapshot, inboxEntries, markInboxArchived, markInboxRead, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow } from "@tasks/surface";
+import { attachEvidenceUow, attachPathUow, detachBlobUow, deriveChangeset, evidenceReadUow, finishIssueUow, freezeChangesetUow, readChangesetBase, readChangesetSnapshot, inboxEntries, markInboxArchived, markInboxRead, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow } from "@tasks/surface";
 import { bunRunner } from "@tasks/git";
 import { formatHunkComment, hunkCommentMetaKey, parseHunkComments, pendingHunkComments, planHunk, scratchDirectory, writeAgentContext } from "./hunk.js";
 import { buildTree, type TreeOptions } from "./tree.js";
@@ -41,6 +41,15 @@ const errorWire = (_key: string, value: unknown): unknown => value instanceof Er
 const unwrap = <T, E>(result: Result<T, E>): T => { if (result.ok) return result.value; const error = result.error; const message = typeof error === "object" && error !== null && "message" in error && typeof error.message === "string" ? error.message : JSON.stringify(error, errorWire); return fail(message); };
 /** Bun.stdin reads both pipes and file redirects; async-iterating `stdin` misses redirects. */
 const readInput = async (): Promise<string> => (await Bun.stdin.text()).trimEnd();
+/**
+ * WR-02: a close that ends with a changeset base record but no frozen
+ * snapshot means CHG-02 freeze derivation failed at close time (exactly-once
+ * went unmet for that branch). Non-fatal; warns once per closed issue.
+ */
+const warnUnfrozenChangeset = (issue: Issue): void => {
+  if (issue.status !== "closed" || readChangesetBase(issue.metadata) === null || readChangesetSnapshot(issue.metadata) !== null) return;
+  process.stderr.write(`tk: warning: ${issue.id} closed with a changeset base record but no frozen snapshot (freeze derivation failed at close)\n`);
+};
 const timeFrom = (value: unknown, fallback: Date): Date => { const parsed = new Date(String(value)); return Number.isNaN(parsed.valueOf()) ? fallback : parsed; };
 const parseDate = (value: string | undefined): Date | null | undefined => { if (value === undefined) return undefined; if (value === "" || value === "null") return null; const date = new Date(value); if (Number.isNaN(date.valueOf())) fail(`invalid date: ${value}`); return date; };
 const parseMetadata = (value: string | undefined): Metadata | undefined => { if (value === undefined) return undefined; const parsed: unknown = JSON.parse(value); if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") fail("metadata must be JSON object"); return parsed as Metadata; };
@@ -1150,12 +1159,12 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
     else if (command === "orphans") { const orphans = (await service.all()).filter((issue) => issue.status !== "closed" && issue.assignee === null && issue.labels.length === 0 && issue.dependencies.length === 0 && issue.parentId === null); value = orphans.map(issueWire); human = () => formatOrphans(orphans); }
     else if (command === "duplicates" || command === "find-duplicates") { const all = await service.all(); const open = all.filter((issue) => issue.status !== "closed"); const pairs: Array<readonly [Issue, Issue, number]> = []; const tokenize = (text: string): Set<string> => new Set(text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((token) => token.length > 3)); const bags = open.map((issue) => ({ issue, tokens: tokenize(`${issue.title} ${issue.description}`) })); for (let a = 0; a < bags.length; a += 1) for (let b = a + 1; b < bags.length; b += 1) { const left = bags[a]!.tokens; const right = bags[b]!.tokens; if (left.size === 0 || right.size === 0) continue; const overlap = [...left].filter((token) => right.has(token)).length; const score = overlap / Math.max(left.size, right.size); if (score >= 0.5) pairs.push([bags[a]!.issue, bags[b]!.issue, score]); } pairs.sort((x, y) => y[2] - x[2]); value = pairs.map(([a, b, score]) => ({ a: issueWire(a), b: issueWire(b), similarity: score })); human = () => formatDuplicates(pairs); }
     else if (command === "link") { const issue = await service.link(args); value = issueWire(issue); human = () => confirmation("Linked", issue); }
-    else if (command === "duplicate") { const issue = await service.markDuplicate(args); const of = stringFlag(args, "of") ?? ""; value = issueWire(issue); human = () => confirmation(`Marked duplicate of ${of}`, issue); }
-    else if (command === "supersede") { const issue = await service.markSuperseded(args); const withId = stringFlag(args, "with") ?? ""; value = issueWire(issue); human = () => confirmation(`Marked superseded by ${withId}`, issue); }
+    else if (command === "duplicate") { const issue = await service.markDuplicate(args); warnUnfrozenChangeset(issue); const of = stringFlag(args, "of") ?? ""; value = issueWire(issue); human = () => confirmation(`Marked duplicate of ${of}`, issue); }
+    else if (command === "supersede") { const issue = await service.markSuperseded(args); warnUnfrozenChangeset(issue); const withId = stringFlag(args, "with") ?? ""; value = issueWire(issue); human = () => confirmation(`Marked superseded by ${withId}`, issue); }
     else if (command === "todo") {
       const sub = args.positionals[1];
       if (sub === "add") { const issue = await service.todoAdd(args); value = issueWire(issue); human = () => confirmation("Added TODO", issue); }
-      else if (sub === "done") { const issues = await service.todoDone(args); value = issues.map(issueWire); human = () => issues.map((issue) => confirmation("Closed", issue)).join("\n"); }
+      else if (sub === "done") { const issues = await service.todoDone(args); issues.forEach(warnUnfrozenChangeset); value = issues.map(issueWire); human = () => issues.map((issue) => confirmation("Closed", issue)).join("\n"); }
       else { const issues = await service.todoList(sub === "list" && booleanFlag(args, "all")); value = issues.map(issueWire); human = () => formatTodo(issues); }
     }
     else if (command === "lint") { const results = await service.lint(args); value = results.map(({ issue, missing }) => ({ id: issue.id, title: issue.title, type: issue.type, missing: missing.map((section) => `## ${section}`), warnings: missing.length })); human = () => formatLint(results); }
@@ -1165,7 +1174,7 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
     else if (command === "quickstart") { value = { text: QUICKSTART }; human = () => QUICKSTART; }
     else if (command === "prime") { value = { text: PRIME }; human = () => PRIME; }
     else if (command === "finish") { const issue = await service.finish(args); value = issueWire(issue); const csMeta = issue.metadata["changeset"]; const csBase = csMeta !== null && typeof csMeta === "object" && !Array.isArray(csMeta) && typeof (csMeta as Record<string, unknown>)["base"] === "string" ? (csMeta as Record<string, unknown>)["base"] as string : null; const derived = csBase !== null && issue.branch !== null ? await deriveChangeset({ cwd: workspace }, csBase, issue.branch) : null; human = () => formatFinish(issue, derived); }
-    else if (["update", "close", "reopen", "defer", "undefer", "label", "set-state"].includes(command)) { const issue = await service.mutate(args, command); value = issueWire(issue); const verbs: Readonly<Record<string, string>> = { update: "Updated issue", close: "Closed", reopen: "Reopened", defer: "Deferred", undefer: "Restored", label: "Labels updated on", "set-state": "State changed on" }; human = () => confirmation(verbs[command] ?? "Updated", issue, command === "close" && stringFlag(args, "reason") !== undefined ? `: ${stringFlag(args, "reason")}` : ""); }
+    else if (["update", "close", "reopen", "defer", "undefer", "label", "set-state"].includes(command)) { const issue = await service.mutate(args, command); warnUnfrozenChangeset(issue); value = issueWire(issue); const verbs: Readonly<Record<string, string>> = { update: "Updated issue", close: "Closed", reopen: "Reopened", defer: "Deferred", undefer: "Restored", label: "Labels updated on", "set-state": "State changed on" }; human = () => confirmation(verbs[command] ?? "Updated", issue, command === "close" && stringFlag(args, "reason") !== undefined ? `: ${stringFlag(args, "reason")}` : ""); }
     else if (command === "hunk") { const result = await service.hunk(args); value = result.value; human = result.human; }
     else if (command === "sprint") {
       const sub = args.positionals[1] ?? "list";
