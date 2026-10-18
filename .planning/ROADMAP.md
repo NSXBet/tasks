@@ -12,7 +12,7 @@ v1 delivers the **task → review** loop from `.agents/plans/2026-10-08-task-to-
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Git Adapter & Worktree Entry** - Typed `packages/git` (hunk's way) + `resolveWorktreePath` (gw port) + `tk work <id>` with pinned base SHA
+- [x] **Phase 1: Git Adapter & Worktree Entry** - Typed `packages/git` (hunk's way) + `resolveWorktreePath` (gw port) + `tk work <id>` with pinned base SHA (completed 2026-10-18)
 - [ ] **Phase 2: Changeset Derivation & Completion Contract** - Lazy commits/diff from the branch per read, terminal snapshot at close+prune, `tk finish --session`
 - [ ] **Phase 3: Review Component & Review Storage** - Vendored hunk slice as `packages/review`; comments/edits persist to the task record with resolve state
 - [ ] **Phase 4: Terminal Review** - Real TUI review: three views wired to the live component via `tk review <id>`
@@ -35,8 +35,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: TBD
 
 Plans:
-- [ ] 01-01: [Typed git adapter in packages/git]
-- [ ] 01-02: [resolveWorktreePath resolver + tk work command]
+- [x] 01-01: [Typed git adapter in packages/git]
+- [x] 01-02: [resolveWorktreePath resolver + tk work command]
 
 **Cross-cutting constraints:**
 - Porcelain parsing maps 1:1 from porcelain output — exactly one typed record per porcelain entry; equal or adjacent entries are never merged, deduplicated, or dropped by the parser.
@@ -143,7 +143,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Git Adapter & Worktree Entry | 0/TBD | Not started | - |
+| 1. Git Adapter & Worktree Entry | 2/2 | Complete    | 2026-10-18 |
 | 2. Changeset Derivation & Completion Contract | 0/TBD | Not started | - |
 | 3. Review Component & Review Storage | 0/TBD | Not started | - |
 | 4. Terminal Review | 0/TBD | Not started | - |

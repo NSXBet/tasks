@@ -4,9 +4,9 @@ v1 scope = the review loop from `.agents/plans/2026-10-08-task-to-review.md` (st
 
 ## GIT — Git adapter & worktrees
 
-- [ ] **GIT-01**: Typed git adapter in `packages/git` the hunk way — one abortable runner, enumerated commands, porcelain parsing — so every later git call goes through it
-- [ ] **GIT-02**: `resolveWorktreePath()` (gw port) — default sibling dir `<repoRoot>/../<repoName>-<id>`, `worktree.dir` workspace config, per-task metadata override; one resolver used by both `tk work` and `tk worktree create`, inline `runWorktree` path logic deleted
-- [ ] **GIT-03**: `tk work <id>` creates/enters the worktree on branch `tk/<id>` and records the pinned base SHA, worktree path, and branch in the task record
+- [x] **GIT-01**: Typed git adapter in `packages/git` the hunk way — one abortable runner, enumerated commands, porcelain parsing — so every later git call goes through it
+- [x] **GIT-02**: `resolveWorktreePath()` (gw port) — default sibling dir `<repoRoot>/../<repoName>-<id>`, `worktree.dir` workspace config, per-task metadata override; one resolver used by both `tk work` and `tk worktree create`, inline `runWorktree` path logic deleted
+- [x] **GIT-03**: `tk work <id>` creates/enters the worktree on branch `tk/<id>` and records the pinned base SHA, worktree path, and branch in the task record
 
 ## CHG — Changeset derivation
 
