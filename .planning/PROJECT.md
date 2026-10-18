@@ -22,12 +22,12 @@ A task's branch **is** the evidence: tk derives commits and diff from the task's
 - ✓ Web server — Bun-native HTTP SPA served by `tk web` with `/events` SSE stream — packages/web
 - ✓ Distribution — `bun build --compile` single-binary for 4 targets, GitHub Release assets + install.sh + `tk update`
 - ✓ Mock interfaces for the review loop — three views (task, artifact, diff) in TUI, web, and `tk show`/`work`/`review` CLI shapes from fixtures (plan steps 1–3; tasks-foo, tasks-tnc, tasks-xskm built, awaiting review)
+- ✓ Git adapter & worktree entry — `@tasks/git` typed adapter (one abortable runner, enumerated commands, porcelain parsing), `resolveWorktreePath()` with config/metadata precedence, `tk work <id>` pinning base SHA + branch + path on `tk/<id>` — Phase 1
 
 ### Active
 
 <!-- Current scope — plan steps 4–12 ("make it real" behind the approved shells). -->
 
-- [ ] `packages/git` — typed git adapter (hunk's way: one abortable runner, enumerated commands, porcelain parsing) + `resolveWorktreePath` (gw port) + `tk work <id>` with pinned base SHA
 - [ ] Lazy changeset derivation — commits + diff computed live from the branch per read; terminal `{base, head, files}` snapshot frozen only at close+prune
 - [ ] `tk finish <id> --session` — records session id, moves to `ready-to-review`, can never close/done
 - [ ] `packages/review` — vendored hunk slice (changeset, review types, watch controller; @pierre/diffs dep; broker + comment store stripped); hunk-vcs + hunk-git fold into packages/git; old spawn path deleted
@@ -51,8 +51,8 @@ A task's branch **is** the evidence: tk derives commits and diff from the task's
 
 - **Stack**: TypeScript 5.9.3 on Bun 1.3.14, Bun workspaces (14 packages), hexagonal layering `domain → application → adapters → workspace → surface → cli/tui/web/pi-extention`. Tests: vitest + bun test side by side (match the package's script). Strict tsconfig (exactOptionalPropertyTypes, verbatimModuleSyntax).
 - **Origins to vendor**: hunk (https://github.com/modem-dev/hunk — diff TUI, Apache-2.0 deps incl. @pierre/diffs) and nsxbet/gw (yurifrl fork, Go — worktree management) are copied and reimplemented in TypeScript, then replaced: upstream hunk/gw stay code origins, never runtime dependencies.
-- **Current position**: mocks 1–3 built (three tasks sit ready-to-review); real layer steps 4–12 not started. Workspace-config and task-detail/image commits already landed.
-- **Known debt**: `pi-extention` workspace-dep fix rides the review-vendoring step (trivially independent). Old `runWorktree` path logic is deleted at step 4, the `tk hunk` spawn path at step 7.
+- **Current position**: GSD Phase 1 complete (git adapter, resolver, `tk work` entry; 263 tests pass) — lazy changeset derivation is next (Phase 2). Mocks 1–3 remain built, three tasks ready-to-review.
+- **Known debt**: `pi-extention` workspace-dep fix rides the review-vendoring step (trivially independent). The `tk hunk` spawn path is deleted at step 7. Code review of Phase 1 flagged `tk --readonly work` bypassing the readonly gate (CR-01, unfixed — advisory).
 
 ## Constraints
 
@@ -71,6 +71,7 @@ A task's branch **is** the evidence: tk derives commits and diff from the task's
 | `tk finish` can set exactly `ready-to-review` — never close/done | Completion is review's entry, not the end; enforced in code | — Pending |
 | GSD chartered around the task→review plan as first milestone | Live plan with tk-tagged steps exists; mocks prove the interaction | — Pending |
 | Research skipped at init | Brownfield + 399-line plan + codebase map make domain research redundant | — Pending |
+| Task's changeset base pinned at `tk work` creation, not derived later | Record is stable against upstream movement; diff is branch-vs-pinned-base, PR-shaped | ✓ Phase 1 |
 
 ---
-*Last updated: 2026-10-17 after GSD project init (chartered around task→review plan)*
+*Last updated: 2026-10-18 after Phase 1*

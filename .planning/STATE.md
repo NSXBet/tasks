@@ -20,10 +20,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-17)
+See: .planning/PROJECT.md (updated 2026-10-18)
 
 **Core value:** A task's branch is the evidence — tk derives commits and diff from the task's worktree branch (never agent-supplied lists), review comments land on the task record with resolve state, and nothing ships past `ready-to-review` without that record.
-**Current focus:** Phase 1 — Git Adapter & Worktree Entry
+**Current focus:** Phase 2 — Changeset Derivation & Completion Contract
 
 ## Current Position
 
@@ -65,6 +65,9 @@ Recent decisions affecting current work:
 - [Init]: Lazy changeset — snapshot frozen exactly once at close+prune
 - [Init]: `tk finish` can set exactly `ready-to-review` — never close/done (enforced in code)
 - [Init]: Research skipped — brownfield + 399-line plan + codebase map made it redundant
+- [Phase 1]: Changeset base pinned at `tk work` creation; diff is branch-vs-pinned-base, not live-derived
+- [Phase 1]: Worktree resolution precedence: default sibling dir < workspace `worktree.dir` < per-task metadata override (`{name}` expansion)
+- [Phase 1]: Every git call flows through `@tasks/git` enumerated commands — no scattered `git` subprocess calls
 
 ### Pending Todos
 
@@ -72,7 +75,8 @@ None yet.
 
 ### Blockers/Concerns
 
-- Known debt riding specific phases: `pi-extention` workspace-dep fix rides Phase 3; old `runWorktree` path logic deleted in Phase 1, `tk hunk` spawn path deleted in Phase 3.
+- Code review CR-01 (Phase 1, advisory, unfixed): `tk --readonly work <id>` bypasses the readonly gate — `work` missing from the writers set in `tk.ts`; fix when the finish/close contract work touches `tk.ts`.
+- Known debt riding specific phases: `pi-extention` workspace-dep fix rides Phase 3; `tk hunk` spawn path deleted in Phase 3.
 - Mock shells (plan steps 1–3) are replaced by real implementations in Phases 4–5; mock-only plumbing is deleted at those steps.
 
 ## Deferred Items
@@ -85,6 +89,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-17
-Stopped at: Phase 01 complete, ready to plan Phase 2
+Last session: 2026-10-18
+Stopped at: Phase 1 complete — verified (5/5 must-haves), reviewed (1 critical advisory), transitioned
 Resume file: None
