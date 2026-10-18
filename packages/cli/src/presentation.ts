@@ -258,6 +258,11 @@ export function formatComments(issue: Issue): string {
   return [`${bold(`Comments on ${cyan(issue.id)}:`)}`, "", ...issue.comments.map((comment) => `${green(`[${comment.author}]`)} ${dim(`at ${datetime(comment.createdAt)}`)}\n${indent(comment.text.trimEnd())}`)].join("\n");
 }
 
+/** `tk finish` confirmation: status line plus the live-derived changeset counts (FIN-01). */
+export const formatFinish = (issue: Issue, changeset: ChangesetPayload | null = null): string =>
+  confirmation("Finished", issue) +
+  (changeset === null ? "" : dim(` — ${changeset.commits.length} commit(s), ${changeset.files.length} file(s), +${changeset.counts.additions} −${changeset.counts.deletions}`));
+
 /** bd-style mutation confirmations. */
 export const confirmation = (verb: string, issue: Issue, extra = ""): string =>
   green(`✓ ${verb} `) + cyan(issue.id) + ` — ${issue.title}${extra}`;

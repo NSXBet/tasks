@@ -4,6 +4,7 @@ import { activeRun, applyRunSideEffects, err, nextRunId, ok, type IssueUnitOfWor
 import type { SurfaceStore } from '../store.js';
 import { getOrThrow } from '../store.js';
 import { MessageError } from '../errors.js';
+import { freezeChangesetUow } from './changeset.js';
 
 const now = (): Date => new Date();
 const changed = (issue: Issue, patch: Partial<Issue>): Issue => ({ ...issue, ...patch, updatedAt: now() });
@@ -112,6 +113,10 @@ export const changeStatus = (store: SurfaceStore, id: string, change: StatusChan
   if (change.reason !== undefined && change.reason !== '') {
     next = { ...next, notes: [issue.notes, change.reason].filter(Boolean).join('\n') };
   }
+  // CHG-02: a close freezes the terminal changeset snapshot exactly once —
+  // derived live, never caller input; merge before the single save.
+  const frozen = await freezeChangesetUow(uow, { cwd: store.root }, next, status);
+  if (frozen !== null) next = { ...next, metadata: { ...next.metadata, changeset: frozen } };
   const saved = await uow.save(next);
   if (!saved.ok) throw new MessageError('save failed');
   await applyRunSideEffects(uow, next, issue.status, status, now());
@@ -231,9 +236,13 @@ export const closeMany = (store: SurfaceStore, ids: readonly string[], reason = 
   for (const raw of ids) {
     const issue = await getOrThrow(uow, raw);
     const result = changed(issue, { status: 'closed', closedAt: now(), notes: [issue.notes, reason].filter(Boolean).join('\n') });
-    const saved = await uow.save(result);
+    // CHG-02: same exactly-once freeze as changeStatus; todo-style closes
+    // without a work record derive null and save with metadata untouched.
+    const frozen = await freezeChangesetUow(uow, { cwd: store.root }, result, 'closed');
+    const merged = frozen === null ? result : { ...result, metadata: { ...result.metadata, changeset: frozen } };
+    const saved = await uow.save(merged);
     if (!saved.ok) throw new MessageError(`save failed for ${raw}`);
-    results.push(result);
+    results.push(merged);
   }
   return results;
 });

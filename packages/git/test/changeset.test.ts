@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { bunRunner, gitDiffNameStatus, gitDiffNumstat, gitLogOneline } from "../src/index.js";
+import { bunRunner, gitBranchHead, gitDiffNameStatus, gitDiffNumstat, gitLogOneline } from "../src/index.js";
 import type { ProcessRunner } from "../src/index.js";
 
 const dirs: string[] = [];
@@ -96,5 +96,19 @@ describe("changeset adapter commands", () => {
     const files = await gitDiffNameStatus(dir, "HEAD", "feature");
     expect(Array.isArray(files)).toBe(true);
     expect(files!.length).toBe(0);
+  });
+});
+
+describe("gitBranchHead (CHG-02 freeze head)", () => {
+  it("returns the branch tip sha for a live branch", () => {
+    const dir = seededRepo();
+    const head = Bun.spawnSync(["git", "rev-parse", "feature"], { cwd: dir, stdout: "pipe" }).stdout.toString().trim();
+    expect(head).not.toBe("");
+    return gitBranchHead(dir, "feature").then((value) => expect(value).toBe(head));
+  });
+
+  it("returns null when the branch does not exist (deleted-branch decay)", async () => {
+    const dir = seededRepo();
+    expect(await gitBranchHead(dir, "no-such-branch")).toBeNull();
   });
 });

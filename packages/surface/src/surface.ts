@@ -1,4 +1,5 @@
 import { openSurfaceStore, type SurfaceOptions, type SurfaceStore } from './store.js';
+import type { Issue } from '@tasks/domain';
 import { rootFrom } from './discover.js';
 import type { Metadata } from '@tasks/domain';
 
@@ -25,6 +26,7 @@ import {
   closeMany, renameIssue, deleteIssues, attachFile, detachFile, archiveIssue, unarchiveIssue,
   type UpdatePatch, type StatusChange,
 } from './operations/mutate.js';
+import { finishIssue, type FinishIssueResult } from './operations/finish.js';
 import {
   listSprints, startSprint, closeSprint, sprintAdd, sprintRemove, sprintMove,
 } from './operations/sprint.js';
@@ -80,6 +82,7 @@ export interface TasksSurface {
   // mutate
   update(id: string, patch: UpdatePatch): ReturnType<typeof updateIssue>;
   status(id: string, change: StatusChange): ReturnType<typeof changeStatus>;
+  finish(id: string, session: string): FinishIssueResult;
   defer(id: string, until?: string): ReturnType<typeof deferIssue>;
   undefer(id: string): ReturnType<typeof undeferIssue>;
   archive(id: string): ReturnType<typeof archiveIssue>;
@@ -156,6 +159,7 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     epic: (id) => epicView(store, id),
     update: (id, patch) => updateIssue(store, id, patch),
     status: (id, change) => changeStatus(store, id, change),
+    finish: (id, session) => finishIssue(store, id, session),
     defer: (id, until) => deferIssue(store, id, until),
     undefer: (id) => undeferIssue(store, id),
     archive: (id) => archiveIssue(store, id),

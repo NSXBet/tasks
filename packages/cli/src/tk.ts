@@ -14,10 +14,10 @@ import {
   formatDuplicates, formatEpic, formatGraph, formatHistory, formatLint, formatList, formatMigration, formatOrphans,
   formatAgentList, formatAgentShow, formatInbox, formatReady, formatRenamePrefix, formatRunList, formatRunShow, formatRuntimeActivity, formatRuntimeList, formatSearch, formatShow, formatSprintList, formatStale, formatStats,
   formatStatus, formatStatuses, formatTodo, formatTree, formatTypes, formatVersion, formatWhere, formatWorktreeInfo, formatWorktreeList,
-  formatReview, reviewMeta,
-  HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
+  formatFinish, formatReview, reviewMeta,
+  HUMAN_HELP, INIT_HELP, LINT_SECTIONS, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
-import { attachEvidenceUow, attachPathUow, detachBlobUow, deriveChangeset, evidenceReadUow, inboxEntries, markInboxArchived, markInboxRead, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow } from "@tasks/surface";
+import { attachEvidenceUow, attachPathUow, detachBlobUow, deriveChangeset, evidenceReadUow, finishIssueUow, freezeChangesetUow, readChangesetSnapshot, inboxEntries, markInboxArchived, markInboxRead, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow } from "@tasks/surface";
 import { bunRunner } from "@tasks/git";
 import { formatHunkComment, hunkCommentMetaKey, parseHunkComments, pendingHunkComments, planHunk, scratchDirectory, writeAgentContext } from "./hunk.js";
 import { buildTree, type TreeOptions } from "./tree.js";
@@ -26,13 +26,14 @@ import { CODEX_EVENTS, installCodexHooks, codexHooksPath, installCursorHooks, cu
 import { runCodexHook, runCursorHook } from "./agent-hooks.js";
 import { runSelfUpdate, UPDATER_HELP } from "./update.js";
 import { runSkill } from "./skill.js";
+import { runOnboard } from "./onboard.js";
 
 /** bd-style collision-resistant issue IDs: <prefix>-<base36 hash>, short like bd (bd-0t0, bd-45g). */
 const generateId = (): string => randomBytes(6).toString("base64url").toLowerCase().replace(/[^a-z0-9]/g, "x");
 /** Start at 3 chars (like bd), grow on collision pressure. */
 const idLength = (taken: number): number => (taken < 50 ? 3 : taken < 1_000 ? 4 : 6);
 
-const writers = new Set(["init", "create", "q", "update", "close", "reopen", "defer", "undefer", "comment", "note", "assign", "priority", "tag", "dep", "label", "set-state", "import", "migrate", "delete", "remove", "rename", "link", "duplicate", "supersede", "todo", "backup", "rename-prefix", "switch-backend", "hooks", "attach", "detach", "sprint", "agent", "run", "archive", "unarchive"]);
+const writers = new Set(["init", "create", "q", "update", "close", "reopen", "defer", "undefer", "comment", "note", "assign", "priority", "tag", "dep", "label", "set-state", "import", "migrate", "delete", "remove", "rename", "link", "duplicate", "supersede", "todo", "backup", "rename-prefix", "switch-backend", "hooks", "attach", "detach", "sprint", "agent", "run", "archive", "unarchive", "work", "finish"]);
 type JsonError = { readonly error: { readonly kind: "parse" | "validation" | "readonly" | "runtime"; readonly message: string } };
 type Config = WorkspaceConfig;
 const fail = (message: string): never => { throw new Error(message); };
@@ -414,7 +415,18 @@ class CommandService {
     const status = stringFlag(args, "status"); if (status !== undefined) patch = { ...patch, status }; const due = parseDate(stringFlag(args, "due")); if (due !== undefined) patch = { ...patch, dueAt: due };
     if (command === "update" && (args.flags.get("attach") !== undefined || stringFlag(args, "plan") !== undefined)) { const incoming = parseAttachments(args, this.root); const planPaths = new Set(stringFlag(args, "plan") === undefined ? [] : incoming.filter((entry) => entry.metadata["kind"] === "plan").map((entry) => entry.path)); const merged: IssueAttachment[] = [...issue.attachments.filter((entry) => isBlobAttachment(entry) || (!planPaths.has(entry.path) && !(planPaths.size > 0 && entry.metadata["kind"] === "plan")))]; for (const attachment of incoming) { const existing = merged.findIndex((entry) => !isBlobAttachment(entry) && entry.path === attachment.path); if (existing >= 0) merged[existing] = attachment; else merged.push(attachment); } patch = { ...patch, attachments: merged }; }
     if (command === "update" && stringFlag(args, "detach") !== undefined) { const target = stringFlag(args, "detach")!; const blobTarget = issue.attachments.find((entry) => isBlobAttachment(entry) && (entry.id === target || entry.name === target)); patch = { ...patch, attachments: blobTarget !== undefined ? (await detachBlobUow(uow, { root: this.root, tasksDir: join(this.root, ".tasks") }, id, target)).attachments : issue.attachments.filter((entry) => isBlobAttachment(entry) || entry.path !== target) }; }
+    // CHG-02: a close freezes the terminal changeset snapshot exactly once —
+    // derived live from git, never caller input; merge before the single save.
+    if (patch.status === "closed") { const frozen = await freezeChangesetUow(uow, { cwd: this.root }, issue, "closed"); if (frozen !== null) patch = { ...patch, metadata: { ...issue.metadata, ...patch.metadata, changeset: frozen } }; }
     const result = changed(issue, patch); unwrap(await uow.save(result)); if (patch.status !== undefined && patch.status !== issue.status) await applyRunSideEffects(uow, result, issue.status, result.status, new Date()); return result; }); }
+
+  /** `tk finish <id> --session <sid>`: the single completion path into `ready-to-review` (FIN-01). */
+  async finish(args: ParsedArgs): Promise<Issue> {
+    const id = await this.selected(args);
+    const session = stringFlag(args, "session") ?? process.env["TK_SESSION"] ?? "";
+    if (session.trim() === "") fail("finish requires --session <sid> (or TK_SESSION env)");
+    return transaction(this.database, async (uow) => finishIssueUow(uow, { cwd: this.root }, id, session));
+  }
   /** Quick capture (`bd q`): create and return only the new id. */
   async quick(args: ParsedArgs): Promise<string> { return (await this.create(args)).id; }
   /** Field shorthand used by `assign`/`priority`: patch one field on the selected issue. */
@@ -483,6 +495,7 @@ class CommandService {
   async markSuperseded(args: ParsedArgs): Promise<Issue> { const id = args.positionals[1] ?? fail("supersede requires <id>"); const replacement = stringFlag(args, "with") ?? fail("supersede requires --with <new>"); return transaction(this.database, async (uow) => { const issue = await get(uow, id); await get(uow, replacement); const result = changed(issue, { status: "closed", closedAt: new Date(), notes: [issue.notes, `Superseded by ${replacement}`].filter(Boolean).join("\n") }); unwrap(await uow.save(result)); return result; }); }
   /** `bd todo`: task-type issues, with `add`/`done`/`list` shortcuts. */
   async todoAdd(args: ParsedArgs): Promise<Issue> { const title = args.positionals.slice(2).join(" ") || fail("todo add requires title"); return this.create({ ...args, positionals: [args.positionals[0]!, title], flags: new Map([...args.flags, ["type", "task"]]) }); }
+  // No CHG-02 freeze here: branch-less todo items derive null — nothing to freeze.
   async todoDone(args: ParsedArgs): Promise<readonly Issue[]> { const ids = args.positionals.slice(2); if (ids.length === 0) fail("todo done requires at least one id"); const reason = stringFlag(args, "reason") ?? "Completed"; return transaction(this.database, async (uow) => { const results: Issue[] = []; for (const id of ids) { const issue = await get(uow, id); const result = changed(issue, { status: "closed", closedAt: new Date(), notes: [issue.notes, reason].filter(Boolean).join("\n") }); unwrap(await uow.save(result)); results.push(result); } return results; }); }
   async todoList(all: boolean): Promise<readonly Issue[]> { return transaction(this.database, async (uow) => unwrap(await uow.list({ limit: 100_000 })).items.filter((issue) => issue.type === "task" && (all || issue.status !== "closed"))); }
   /** `bd lint`: flag issues missing recommended markdown sections for their type. */
@@ -710,7 +723,10 @@ WORKING WITH ISSUES
   hunk <id> [--print]     Open a Hunk review of the issue's branch/WIP (--print shows the command)
   hunk <id> sync          Import live Hunk review comments into the issue (deduped)
 
-  tui [workspace]         Launch the terminal UI (board, kanban, graph, insights)
+  tui [workspace] [tk://route]
+                         Launch the terminal UI (board, kanban, graph, insights);
+                         a tk:// deep link boots straight into that state, e.g.
+                         'tk://task/<id>', 'tk://board', 'tk://composer/create'
   web [workspace|stop|port] [-d] [--open] [--port N] [--random-port]
                           Web UI over the workspace (-d: daemon; --dev dev mode; --open/-d
                           open browser; press w to open, d to daemonize; port: --port, TK_WEB_PORT,
@@ -763,7 +779,7 @@ SETUP
   quickstart              Quick start guide
   prime                   AI-optimized workflow context
   skill [path|install]    Print the tasks agent skill (LLM-facing docs: ops table, attachments/evidence/plans); path = location only, install copies it into a skills root — .agents/skills by default, --tool claude|omp|pi|codex picks that agent's root, --global for the user-wide copy; --force replaces an existing install; re-run after upgrading
-  onboard                 Snippet for your agent instructions file
+  onboard [install|check|remove]  Managed tk block in AGENTS.md (--file <path> or --tool claude|gemini): install replaces the marked section (hash-checked), check exits 1 unless current, remove strips it; bare prints the block
   human                   Focused help menu for human users
 
 GLOBAL FLAGS
@@ -853,10 +869,14 @@ const commandHelp = (topic: string): string | null => {
  * alternate-screen renderer owns its terminal state end to end.
  */
 async function runTui(args: ParsedArgs, root: string | null, start: string): Promise<void> {
-  const workspace = args.positionals[1] ?? root;
+  // A `tk://…` positional is the boot deep link; workspace is the other one.
+  const link = args.positionals.find((value) => value.startsWith("tk://")) ?? null;
+  const positional = args.positionals.filter((value) => !value.startsWith("tk://"));
+  const workspace = positional[1] ?? root;
   if (workspace === null) fail(await beadsHint(start));
   const entry = join(import.meta.dir, "..", "..", "tui", "src", "main.tsx");
-  const child = Bun.spawn(["bun", entry, workspace!], { cwd: workspace!, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+  const childArgs = link === null ? ["bun", entry, workspace!] : ["bun", entry, workspace!, link];
+  const child = Bun.spawn(childArgs, { cwd: workspace!, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
   exit(await child.exited);
 }
 
@@ -1022,6 +1042,9 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
   if (command === "hooks") { await runHooks(args, start, json); return; }
   if (command === "setup") { await runAgentHooksSetup(args, start, json); return; }
   if (command === "skill") { const result = await runSkill(args, import.meta.dir, root); if (json) output({ path: result.path, skill: result.skill, target: result.target, scope: result.scope }, true); else if (markdown) process.stdout.write(formatMarkdown(result, false)); else console.log(result.text); return; }
+  // Onboard writes agent instruction files (AGENTS.md by default), not the
+  // .tasks workspace — dispatch before workspace resolution.
+  if (command === "onboard") { await runOnboard(args, start, json, import.meta.dir); return; }
   // Bare `tk update` (no issue id) self-updates the binary; it must dispatch
   // before workspace resolution so it works outside any .tasks/ workspace.
   if (command === "update" && args.positionals.length === 1) { await runSelfUpdate(args, json); return; }
@@ -1086,8 +1109,11 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
       const wire = issueWire(issue);
       const changesetMeta = issue.metadata["changeset"];
       const recordedBase = changesetMeta !== null && typeof changesetMeta === "object" && !Array.isArray(changesetMeta) && typeof (changesetMeta as Record<string, unknown>)["base"] === "string" ? (changesetMeta as Record<string, unknown>)["base"] as string : null;
-      const derived = recordedBase !== null && issue.branch !== null ? await deriveChangeset({ cwd: workspace }, recordedBase, issue.branch) : null;
-      if (derived !== null) wire["changeset"] = { base: recordedBase, commits: derived.commits, files: derived.files, counts: derived.counts };
+      // CHG-02: closed tasks render the frozen snapshot with NO git calls
+      // (D-05 — the record survives branch deletion/decay); non-closed stays live.
+      const frozen = issue.status === "closed" ? readChangesetSnapshot(issue.metadata) : null;
+      const derived = frozen ?? (recordedBase !== null && issue.branch !== null ? await deriveChangeset({ cwd: workspace }, recordedBase, issue.branch) : null);
+      if (derived !== null) wire["changeset"] = { base: frozen !== null ? frozen.base : recordedBase, commits: derived.commits, files: derived.files, counts: derived.counts };
       value = [wire];
       human = () => formatShow(issue, images, derived);
     }
@@ -1138,7 +1164,7 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
     else if (command === "version") { value = { version: VERSION, service: "tk" }; human = () => formatVersion(); }
     else if (command === "quickstart") { value = { text: QUICKSTART }; human = () => QUICKSTART; }
     else if (command === "prime") { value = { text: PRIME }; human = () => PRIME; }
-    else if (command === "onboard") { value = { text: ONBOARD }; human = () => ONBOARD; }
+    else if (command === "finish") { const issue = await service.finish(args); value = issueWire(issue); const csMeta = issue.metadata["changeset"]; const csBase = csMeta !== null && typeof csMeta === "object" && !Array.isArray(csMeta) && typeof (csMeta as Record<string, unknown>)["base"] === "string" ? (csMeta as Record<string, unknown>)["base"] as string : null; const derived = csBase !== null && issue.branch !== null ? await deriveChangeset({ cwd: workspace }, csBase, issue.branch) : null; human = () => formatFinish(issue, derived); }
     else if (["update", "close", "reopen", "defer", "undefer", "label", "set-state"].includes(command)) { const issue = await service.mutate(args, command); value = issueWire(issue); const verbs: Readonly<Record<string, string>> = { update: "Updated issue", close: "Closed", reopen: "Reopened", defer: "Deferred", undefer: "Restored", label: "Labels updated on", "set-state": "State changed on" }; human = () => confirmation(verbs[command] ?? "Updated", issue, command === "close" && stringFlag(args, "reason") !== undefined ? `: ${stringFlag(args, "reason")}` : ""); }
     else if (command === "hunk") { const result = await service.hunk(args); value = result.value; human = result.human; }
     else if (command === "sprint") {

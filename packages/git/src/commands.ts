@@ -58,6 +58,12 @@ export const gitDiffNameStatus = async (cwd: string, base: string, branch: strin
   return text === null ? null : parseNameStatus(text);
 };
 
+/** Resolved commit sha of `branch` (D-13: the recorded freeze head is always git's own output); null when the ref cannot be resolved. */
+export const gitBranchHead = async (cwd: string, branch: string, runner: ProcessRunner = bunRunner): Promise<string | null> => {
+  const sha = await git(runner, cwd, ["rev-parse", "--verify", branch]);
+  return sha !== null && /^[0-9a-f]{40,64}$/.test(sha.trim()) ? sha.trim() : null;
+};
+
 export const gitWorktreeList = async (cwd: string, runner: ProcessRunner = bunRunner): Promise<readonly WorktreeEntry[]> => {
   const text = await git(runner, cwd, ["worktree", "list", "--porcelain"]);
   return text === null ? [] : parseWorktreePorcelain(text);

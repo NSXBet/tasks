@@ -6,6 +6,7 @@ export * from './tree.js';
 export type { CreateInput } from './operations/create.js';
 export * from './operations/query.js';
 export * from './operations/changeset.js';
+export * from './operations/finish.js';
 export * from './operations/mutate.js';
 export * from './operations/deps.js';
 export * from './operations/comments.js';
