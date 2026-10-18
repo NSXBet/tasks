@@ -2,19 +2,19 @@
 import { access, copyFile, cp, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { cwd, exit, stdin } from "node:process";
 import { randomBytes } from "node:crypto";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { findBeadsWorkspace, inferPrefix, migrateBeadsJsonl, resolveBeadsJsonl, searchPath, type MigrationSummary } from "@tasks/beads";
 import { AgentAccessSchema, AgentModeSchema, AgentSchema, RunSchema, RunStateSchema, agentId, agentName, agentSlug, dependencyTarget, isBlobAttachment, issueDescription, issueFromBdWire, issueId, issuePriority, issueTitle, issueToBdWire, runId, SprintSchema, sprintSlug, sprintToBdWire, type Agent, type AgentAccess, type AgentMode, type Issue, type IssueAttachment, type IssueId, type IssuePathAttachment, type Metadata, type Run, type Sprint } from "@tasks/domain";
 import { applyRunSideEffects, canonicalTimestampCodec, err, isActiveRunState, nextRunId, ok, type IssueUnitOfWork, type Result } from "@tasks/application";
 import { DEFAULT_STORAGE, describeStorage, openEphemeralScratch, openStorage, readWorkspaceConfig, resolveStorageConfig, writeWorkspaceConfig, type StorageAdapter, type StorageConfig, type WorkspaceConfig } from "@tasks/workspace";
 import { booleanFlag, directory, parseArgs, stringFlag, ArgumentParseError, type ParsedArgs } from "./args.js";
-import { gitCommonDir, gitCurrentBranch, gitDefaultBranch, gitHasUncommittedChanges, gitHasUnpushedCommits, gitMergeBase, gitStashCount, gitToplevel, gitWorktreeAdd, gitWorktreeList, gitWorktreeRemove, mainWorktreeRoot, resolveWorktreePath } from "@tasks/git";
+import { gitBranchExists, gitCommonDir, gitCreateBranch, gitCurrentBranch, gitDefaultBranch, gitHasUncommittedChanges, gitHasUnpushedCommits, gitMergeBase, gitStashCount, gitToplevel, gitWorktreeAdd, gitWorktreeList, gitWorktreeRemove, mainWorktreeRoot, resolveWorktreePath } from "@tasks/git";
 import {
   commentWire, confirmation, formatBackup, formatBlocked, formatComments, formatCount, formatDepList, formatDoctor,
   formatDuplicates, formatEpic, formatGraph, formatHistory, formatLint, formatList, formatMigration, formatOrphans,
   formatAgentList, formatAgentShow, formatInbox, formatReady, formatRenamePrefix, formatRunList, formatRunShow, formatRuntimeActivity, formatRuntimeList, formatSearch, formatShow, formatSprintList, formatStale, formatStats,
   formatStatus, formatStatuses, formatTodo, formatTree, formatTypes, formatVersion, formatWhere, formatWorktreeInfo, formatWorktreeList,
-  formatWork, formatReview, reviewMeta,
+  formatReview, reviewMeta,
   HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
 import { attachEvidenceUow, attachPathUow, detachBlobUow, evidenceReadUow, inboxEntries, markInboxArchived, markInboxRead, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow } from "@tasks/surface";
@@ -590,6 +590,63 @@ class CommandService {
     });
     return { value: { id: updated.id, imported: pending.imported.length, skipped: pending.skipped, total: comments.length, comments: commentWire(updated) }, human: () => green(`✓ Imported ${pending.imported.length} hunk comment(s) into ${updated.id}`) + (pending.skipped > 0 ? dim(` (${pending.skipped} already synced)`) : "") };
   }
+
+  /**
+   * `tk work <id>` — create or re-enter the task's worktree on branch `tk/<id>`
+   * and record the PR container evidence on the issue: branch, worktree path,
+   * and the base SHA pinned once at creation. Every recorded value comes from
+   * an actual git operation's output — never caller- or agent-supplied lists.
+   */
+  async work(args: ParsedArgs): Promise<{ readonly value: Record<string, unknown>; readonly human: (() => string) | null }> {
+    const raw = args.positionals[1] ?? fail("work requires an issue id");
+    if (raw.trim() === "") fail("work requires a non-empty issue id");
+    const commonDir = await gitCommonDir(this.root);
+    const mainRoot = mainWorktreeRoot(commonDir === null ? fail("tk work requires a git repository") : commonDir);
+    const issue = await transaction(this.database, (uow) => get(uow, raw));
+    const workspaceConfig = await readWorkspaceConfig(join(mainRoot, ".tasks")).catch(() => ({}) as WorkspaceConfig);
+    const override = typeof issue.metadata["worktree_dir"] === "string" ? (issue.metadata["worktree_dir"] as string) : null;
+    const branch = `tk/${issue.id}`;
+    const placement = resolveWorktreePath({ repoRoot: mainRoot, name: `${basename(mainRoot)}-${issue.id}`, dir: workspaceConfig.worktree?.dir ?? null, override });
+    const entries = await gitWorktreeList(mainRoot);
+    const existing = entries.find((entry) => entry.branch === branch) ?? entries.find((entry) => entry.path === placement.path);
+    let path: string;
+    let created = false;
+    if (existing !== undefined) {
+      path = existing.path;
+    } else {
+      const branchExists = await gitBranchExists(mainRoot, branch);
+      if (!branchExists) {
+        const createdBranch = await gitCreateBranch(mainRoot, branch);
+        if (!createdBranch.ok) fail(createdBranch.stderr || `failed to create branch ${branch}`);
+      }
+      const outcome = await gitWorktreeAdd(mainRoot, placement.path, branch, false);
+      if (!outcome.ok) fail(outcome.stderr || `failed to create worktree at ${placement.path}`);
+      path = placement.path;
+      created = true;
+    }
+    const usedBranch = existing?.branch ?? branch;
+    const defaultBranch = await gitDefaultBranch(mainRoot);
+    let base: string | null = null;
+    let note = "";
+    if (defaultBranch === null) note = "base unpinned: no default branch (no origin/HEAD, no main/master)";
+    else {
+      base = await gitMergeBase(mainRoot, usedBranch, defaultBranch);
+      if (base === null) note = `base unpinned: could not resolve merge base of ${usedBranch} and ${defaultBranch}`;
+    }
+    const updated = await transaction(this.database, async (uow) => {
+      const current = await get(uow, raw);
+      const priorRaw = current.metadata["changeset"];
+      const prior: Metadata = priorRaw !== null && typeof priorRaw === "object" && !Array.isArray(priorRaw) ? priorRaw as Metadata : {};
+      const changeset: Metadata = { ...prior };
+      // Only the base SHA is pinned here; commits/files/diff derive lazily later.
+      // An existing recorded base is never rewritten on re-entry.
+      if (base !== null && (typeof prior["base"] !== "string" || prior["base"] === "")) changeset["base"] = base;
+      const recordedBase = typeof changeset["base"] === "string" && changeset["base"] !== "" ? changeset["base"] : null;
+      unwrap(await uow.save(changed(current, { branch: usedBranch, metadata: { ...current.metadata, worktree: path, changeset } })));
+      return { id: current.id, recordedBase };
+    });
+    return { value: { id: updated.id, path, branch: usedBranch, base: updated.recordedBase, created }, human: () => green(`✓ worktree ready at ${cyan(path)} (branch ${usedBranch})`) + (created ? "" : dim(" (existing)")) + (note !== "" ? dim(` — ${note}`) : "") };
+  }
 }
 
 /** Stable machine-readable migration contract; every non-imported record is accounted for. */
@@ -691,6 +748,7 @@ SETUP
   where                   Show workspace paths
   doctor                  Health check
   ping                    Liveness probe
+  work <id>               Create or re-enter the task's worktree on branch tk/<id>
   worktree create <name>  Create a git worktree sharing this .tasks/ workspace
   worktree list           List worktrees and their tasks-workspace state
   worktree info           Show tasks-workspace state for the current worktree
@@ -1022,8 +1080,8 @@ async function runAgentHooksSetup(args: ParsedArgs, start: string, json: boolean
     else if (command === "attach") { const issue = await service.attach(args); value = issueWire(issue); human = () => confirmation("Attached file to", issue); }
     else if (command === "detach") { const issue = await service.detach(args); value = issueWire(issue); human = () => confirmation("Detached file from", issue); }
     else if (command === "q") { const id = await service.quick(args); value = { id }; human = () => id; }
+    else if (command === "work") { const result = await service.work(args); value = result.value; human = result.human; }
     else if (command === "show") { const [issue, images] = await service.showWithImages(args); value = [issueWire(issue)]; human = () => formatShow(issue, images); }
-    else if (command === "work") { const issue = await service.show(args); value = [issueWire(issue), { review: reviewMeta(issue), action: "WIP" }]; human = () => formatWork(issue); }
     else if (command === "review") { const issue = await service.show(args); value = [issueWire(issue), { review: reviewMeta(issue), action: "WIP" }]; human = () => formatReview(issue); }
     else if (command === "list" || command === "ready") { const issues = await service.list(args, command === "ready"); value = issues.map(issueWire); human = () => (command === "ready" ? formatReady(issues) : formatList(issues)); }
     else if (command === "blocked") { const all = await service.all(); const blocked = all.filter((issue) => issue.dependencies.some((edge) => edge.type === "blocks" && all.some((other) => other.id === edge.target && other.status !== "closed"))); value = blocked.map(issueWire); human = () => formatBlocked(blocked, all); }

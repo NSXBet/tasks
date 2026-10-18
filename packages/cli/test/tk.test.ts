@@ -813,17 +813,6 @@ describe("tk review mock surface (Phase 0)", () => {
     }
   });
 
-  it("tk work shows branch context and a WIP action", () => {
-    const directory = workspace();
-    json(directory, ["init", "--prefix", "tk"]);
-    json(directory, ["import"], JSON.stringify(reviewIssue()));
-    const result = run(directory, ["work", "tk-142"]);
-    expect(result.status, result.stderr).toBe(0);
-    for (const fragment of ["tk/tk-142", "main @ 9f13ee4", "../platform-api-tk-142", "WIP"]) {
-      expect(result.stdout, fragment).toContain(fragment);
-    }
-  });
-
   it("tk review shows diff hunks and WIP actions", () => {
     const directory = workspace();
     json(directory, ["init", "--prefix", "tk"]);

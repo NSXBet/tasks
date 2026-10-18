@@ -45,10 +45,19 @@ export const gitWorktreeList = async (cwd: string, runner: ProcessRunner = bunRu
   return text === null ? [] : parseWorktreePorcelain(text);
 };
 
-export async function gitWorktreeAdd(cwd: string, path: string, branch: string, runner: ProcessRunner = bunRunner): Promise<GitOutcome> {
-  const result = await runner.run(["git", "worktree", "add", path, "-b", branch], cwd);
+export async function gitWorktreeAdd(cwd: string, path: string, branch: string, createBranch = true, runner: ProcessRunner = bunRunner): Promise<GitOutcome> {
+  const result = await runner.run(createBranch ? ["git", "worktree", "add", path, "-b", branch] : ["git", "worktree", "add", path, branch], cwd);
   return { ok: result.code === 0, stderr: result.stderr };
 }
+
+/** True when a local branch with this exact name exists. */
+export const gitBranchExists = async (cwd: string, branch: string, runner: ProcessRunner = bunRunner): Promise<boolean> => (await runner.run(["git", "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], cwd)).code === 0;
+
+/** Creates a local branch at the current HEAD; a non-zero exit (e.g. already exists) surfaces in the outcome. */
+export const gitCreateBranch = async (cwd: string, branch: string, runner: ProcessRunner = bunRunner): Promise<GitOutcome> => {
+  const result = await runner.run(["git", "branch", branch], cwd);
+  return { ok: result.code === 0, stderr: result.stderr };
+};
 
 export async function gitWorktreeRemove(cwd: string, path: string, force: boolean, runner: ProcessRunner = bunRunner): Promise<GitOutcome> {
   const result = await runner.run(["git", "worktree", "remove", ...(force ? ["--force"] : []), path], cwd);

@@ -34,7 +34,8 @@ export interface WorktreeResolution {
 export function resolveWorktreePath(input: WorktreeResolverInput): WorktreeResolution {
   const source = input.override != null ? "override" : input.dir != null ? "config" : "default";
   if (source === "override") {
-    const path = isAbsolute(input.override!) ? resolve(input.override!) : resolve(input.repoRoot, input.override!);
+    const expanded = input.override!.replace(/\{name\}/g, input.name);
+    const path = isAbsolute(expanded) ? resolve(expanded) : resolve(input.repoRoot, expanded);
     return { path, source };
   }
   if (source === "config") {

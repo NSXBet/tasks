@@ -57,7 +57,7 @@ describe("git adapter commands", () => {
     expect(await gitMergeBase("/nowhere", "a", "b", runner)).toBeNull();
     // Command functions carrying outcomes carry code+stderr verbatim — no command
     // function converts non-zero into a success-shaped default.
-    const add = await gitWorktreeAdd("/nowhere", "/tmp/x", "nope", runner);
+    const add = await gitWorktreeAdd("/nowhere", "/tmp/x", "nope", true, runner);
     expect(add).toEqual({ ok: false, stderr: "fatal: not a git repository" });
     const remove = await gitWorktreeRemove("/nowhere", "/tmp/x", true, runner);
     expect(remove).toEqual({ ok: false, stderr: "fatal: not a git repository" });

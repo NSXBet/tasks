@@ -1,7 +1,7 @@
 import { writeSync } from "node:fs";
 import { exit } from "node:process";
 import { terminalImageEscape } from "@tasks/terminal-image";
-import type { Agent, Issue, IssueAttachment, IssuePathAttachment, Run } from "@tasks/domain";
+import type { Agent, Issue, IssueAttachment, IssuePathAttachment, Metadata, Run } from "@tasks/domain";
 import { isBlobAttachment } from "@tasks/domain";
 import type { ActivityRow, BlobContent, InboxEntry, RuntimeRow } from "@tasks/surface";
 import type { IssueTree, TreeNode } from "./tree.js";
@@ -78,6 +78,14 @@ export const statusLabel = (status: string): string => {
 /* Wire format — unchanged JSON contract.                              */
 /* ------------------------------------------------------------------ */
 
+/** Reads the pinned base SHA out of `metadata["changeset"]` for the wire; null when absent. */
+const wireChangesetBase = (metadata: Metadata): string | null => {
+  const changeset = metadata["changeset"];
+  if (changeset === null || typeof changeset !== "object" || Array.isArray(changeset)) return null;
+  const base = (changeset as Record<string, unknown>)["base"];
+  return typeof base === "string" && base !== "" ? base : null;
+};
+
 export function issueWire(issue: Issue): Record<string, unknown> {
   return {
     schema_version: 1, _type: "issue", id: issue.id, title: issue.title, description: issue.description,
@@ -86,7 +94,10 @@ export function issueWire(issue: Issue): Record<string, unknown> {
     updated_at: issue.updatedAt.toISOString(), started_at: iso(issue.startedAt), closed_at: iso(issue.closedAt),
     due_at: iso(issue.dueAt), defer_until: iso(issue.deferUntil), parent: issue.parentId, sprint: issue.sprintId, labels: [...issue.labels],
     notes: issue.notes, design: issue.design, acceptance_criteria: issue.acceptanceCriteria, estimated_minutes: issue.estimate,
-    spec_id: issue.specId, external_ref: issue.externalRef, branch: issue.branch, metadata: issue.metadata,
+    spec_id: issue.specId, external_ref: issue.externalRef, branch: issue.branch,
+    worktree: typeof issue.metadata["worktree"] === "string" ? issue.metadata["worktree"] : null,
+    changeset: { base: wireChangesetBase(issue.metadata) },
+    metadata: issue.metadata,
     attachments: issue.attachments.map((attachment) => (isBlobAttachment(attachment) ? { ...attachment } : { path: attachment.path, metadata: attachment.metadata })),
     dependencies: issue.dependencies.map((edge) => ({ issue_id: edge.issueId, depends_on_id: edge.target, type: edge.type, created_at: edge.createdAt.toISOString(), created_by: edge.createdBy, metadata: edge.metadata })),
     dependency_count: issue.dependencyCount, dependent_count: issue.dependentCount,
@@ -208,7 +219,15 @@ export function formatShow(issue: Issue, images: ReadonlyMap<string, BlobContent
   if (issue.design !== null) sections.push(formatSection("DESIGN", issue.design.trimEnd()));
   if (issue.acceptanceCriteria !== null) sections.push(formatSection("ACCEPTANCE CRITERIA", issue.acceptanceCriteria.trimEnd()));
   if (issue.notes !== null) sections.push(formatSection("NOTES", issue.notes.trimEnd()));
-  if (issue.branch !== null) sections.push([`${bold("BRANCH:")} ${cyan(issue.branch)}`, review.base === undefined ? null : `${field("base:", review.base)}`, review.worktree === undefined ? null : `${field("worktree:", review.worktree)}`].filter(Boolean).join("\n"));
+  if (issue.branch !== null) {
+    const recordedWorktree = typeof issue.metadata["worktree"] === "string" ? issue.metadata["worktree"] : null;
+    const recordedChangeset = issue.metadata["changeset"];
+    const recordedBase = recordedChangeset !== null && typeof recordedChangeset === "object" && !Array.isArray(recordedChangeset) && typeof (recordedChangeset as Record<string, unknown>)["base"] === "string" ? (recordedChangeset as Record<string, unknown>)["base"] as string : null;
+    // Recorded `tk work` evidence wins; the Phase-0 review mock's base/worktree is the fallback.
+    const shownBase = recordedBase ?? review.base ?? null;
+    const shownWorktree = recordedWorktree ?? review.worktree ?? null;
+    sections.push([`${bold("BRANCH:")} ${cyan(issue.branch)}`, shownBase === null ? dim(field("BASE:", "(unpinned)")) : `${field("BASE:", shownBase)}`, shownWorktree === null ? dim(field("WORKTREE:", "(none)")) : `${field("WORKTREE:", shownWorktree)}`].filter(Boolean).join("\n"));
+  }
   if (review.artifacts !== undefined && review.artifacts.length > 0) sections.push(formatSection(`ARTIFACTS (${review.artifacts.length})`, review.artifacts.map((artifact) => `${cyan(artifact.path)}  ${green(`+${artifact.added}`)}${red(`−${artifact.removed}`)}  ${dim(`${artifact.comments} comment(s)`)}`).join("\n")));
   if (review.sessions !== undefined && review.sessions.length > 0) sections.push(formatSection(`SESSIONS (${review.sessions.length})`, review.sessions.map((session) => `${session.status === "running" ? green("▸") : dim("·")} ${cyan(session.id)}  ${session.agent}  ${session.status}  ${dim(`${session.topic} · ${session.duration}`)}`).join("\n")));
   if (issue.attachments.length > 0) sections.push(formatAttachments(issue.attachments, images));
@@ -216,14 +235,6 @@ export function formatShow(issue: Issue, images: ReadonlyMap<string, BlobContent
   if (issue.parentId !== null) sections.push(`${bold("PARENT:")} ${cyan(issue.parentId)}`);
   if (issue.comments.length > 0) sections.push(formatSection(`COMMENTS (${issue.comments.length})`, issue.comments.map((comment) => `${dim(datetime(comment.createdAt))} ${green(comment.author)}${agentAuthors[comment.author] === true ? cyan("  [agent]") : ""}\n${indent(comment.text.trimEnd())}`).join("\n\n")));
   return sections.join("\n\n");
-}
-
-/** `tk work` mock: shows the branch context; env setup is a WIP stub. */
-export function formatWork(issue: Issue): string {
-  const head = `${statusColored(issue.status)} ${cyan(issue.id)} · ${bold(issue.title)}   [${priorityBadge(issue.priority)} · ${statusLabel(issue.status)}]`;
-  const review = reviewMeta(issue);
-  const branch = [`${bold("BRANCH:")} ${cyan(issue.branch ?? dim("(none)"))}`, review.base === undefined ? null : `${field("base:", review.base)}`, review.worktree === undefined ? null : `${field("worktree:", review.worktree)}`].filter(Boolean).join("\n");
-  return [head, branch, `${bold("ENV SETUP:")} WIP`].join("\n");
 }
 
 /** `tk review` mock: shows diff hunks from metadata; edit/comment actions are WIP stubs. */
