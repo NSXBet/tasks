@@ -22,6 +22,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: Git Adapter & Worktree Entry
+
 **Goal**: The PR container exists — every task can get a worktree on its own branch, and all git access flows through one typed adapter
 **Mode**: mvp
 **Depends on**: Nothing (first phase)
@@ -30,13 +31,21 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. `tk work <id>` in a scratch repo creates a worktree on branch `tk/<id>` — visible in `git worktree list` — and records the pinned base SHA, worktree path, and branch on the task record (`tk show` renders the WORKTREE/branch lines)
   2. Worktree location follows the one resolver: default sibling dir `<repoRoot>/../<repoName>-<id>`, `worktree.dir` workspace config, or per-task metadata override — and the same resolver serves `tk worktree create`
   3. Every git call goes through the typed adapter (one abortable runner, enumerated commands, porcelain parsing) — no scattered `git` subprocess calls; the inline `runWorktree` path logic is deleted, not wrapped
+
 **Plans**: TBD
 
 Plans:
 - [ ] 01-01: [Typed git adapter in packages/git]
 - [ ] 01-02: [resolveWorktreePath resolver + tk work command]
 
+**Cross-cutting constraints:**
+- Porcelain parsing maps 1:1 from porcelain output — exactly one typed record per porcelain entry; equal or adjacent entries are never merged, deduplicated, or dropped by the parser.
+- Every porcelain parser returns an empty array for empty/whitespace-only porcelain output — never undefined, never null, never throws.
+- Parsed collections preserve porcelain output order verbatim; the adapter adds no sorting — ordering is the caller's concern.
+- The resolver performs no writes and holds no state — interrupted or concurrent calls always recompute the same deterministic path; worktree-creation races surface as git's own 'already exists' error at the caller, not in the resolver.
+
 ### Phase 2: Changeset Derivation & Completion Contract
+
 **Goal**: The PR record exists — commits and diff derive live from the branch (the agent supplies nothing), and completion is `tk finish` into `ready-to-review` and nothing else
 **Mode**: mvp
 **Depends on**: Phase 1
@@ -46,6 +55,7 @@ Plans:
   2. `tk finish <id> --session <sid>` records the session id, moves status to `ready-to-review`, and prints derived counts (commits · +− · files)
   3. `tk finish` cannot set closed or done — the completion contract is enforced in code, not docs
   4. At close+prune the changeset snapshot (`{base, head, files}`) freezes into the record exactly once, and a closed task keeps rendering commits and diff from the frozen snapshot with no worktree present
+
 **Plans**: TBD
 
 Plans:
@@ -53,6 +63,7 @@ Plans:
 - [ ] 02-02: [tk finish command + terminal snapshot freeze]
 
 ### Phase 3: Review Component & Review Storage
+
 **Goal**: tk owns its diff component — the vendored hunk slice takes tk-derived input and writes review state straight to the task record
 **Mode**: mvp
 **Depends on**: Nothing (independent of Phases 1–2 — touches only a new package, per plan step 7; must land before Phase 4)
@@ -62,6 +73,7 @@ Plans:
   2. `hunk-vcs`/`hunk-git` fold into `packages/git` — one adapter, no second one — and the old `tk hunk` spawn path is deleted; the `pi-extention` workspace-dep fix rides this phase
   3. A reviewer comment on a line or file persists straight to the task record and shows in `tk show` with resolve counts
   4. Resolving a comment flips it to ✓ and an all-resolved thread shows "All resolved" in the header — stored on the record, not gestured
+
 **Plans**: TBD
 
 Plans:
@@ -69,6 +81,7 @@ Plans:
 - [ ] 03-02: [Review storage swap onto the task record with resolve state]
 
 ### Phase 4: Terminal Review
+
 **Goal**: The full review loop works in the terminal — the mock-proved three views go live over the tk-derived diff
 **Mode**: mvp
 **Depends on**: Phase 2 + Phase 3
@@ -78,6 +91,7 @@ Plans:
   2. A commit from a second terminal re-renders the diff live — no restart, no refresh key
   3. An in-view edit persists to the worktree file and the diff re-renders around it
   4. Comments composed in the TUI land on the task record (same store `tk show` reads) and the mock shell's plumbing is deleted at this step
+
 **UI hint**: yes
 **Plans**: TBD
 
@@ -85,6 +99,7 @@ Plans:
 - [ ] 04-01: [Wire three TUI views to the live review component; tk review entry point]
 
 ### Phase 5: Web Review
+
 **Goal**: The same review surface in the browser — TUI and web are one review surface in two shapes, over the same task record
 **Mode**: mvp
 **Depends on**: Phase 2 + Phase 3 (shell from mock web — independent of Phase 4)
@@ -93,6 +108,7 @@ Plans:
   1. `/tasks/:id` renders the three views — task view (description, sessions, artifacts rail), artifact view (file/doc + comments), diff view with per-hunk/per-file comments — from the task record
   2. The web diff updates through the existing `/events` SSE stream when the worktree changes
   3. A web edit writes the worktree file and appears in the TUI's diff; a web comment lands in the task store and shows in the TUI
+
 **UI hint**: yes
 **Plans**: TBD
 
@@ -101,6 +117,7 @@ Plans:
 - [ ] 05-02: [SSE live diff + edit write-endpoint]
 
 ### Phase 6: Worktree Lifecycle & Injection
+
 **Goal**: tk replaces gw — worktree removal is merge-aware and cleanable with hooks — and the harness learns the workflow contract
 **Mode**: mvp
 **Depends on**: Phase 1 (lifecycle work is plan-parallel with Phases 2–5); executes last — INJ-01 documents finished commands
@@ -110,6 +127,7 @@ Plans:
   2. `tk worktree clean` (dry-run by default) lists every closed-task, merged, clean worktree; `--yes` removes them
   3. Configured `worktree.post_start`/`post_checkout`/`pre_end` hooks run at their lifecycle points, and `tk work`/`worktree create` post-start detects the package manager and installs deps (configurable off)
   4. Fresh clone → `tk onboard` → the workflow contract (work in `tk work`, finish with `tk finish --session`, never mark done, review with `tk review`) is present in AGENTS.md, `tk prime` context, and `skills/tasks/SKILL.md`
+
 **Plans**: TBD
 
 Plans:
