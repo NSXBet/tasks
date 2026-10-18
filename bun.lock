@@ -133,6 +133,7 @@
         "@tasks/application": "workspace:*",
         "@tasks/domain": "workspace:*",
         "@tasks/surface": "workspace:*",
+        "@tasks/workspace": "workspace:*",
         "react": "^19.2.0",
       },
       "devDependencies": {
