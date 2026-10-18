@@ -7,6 +7,8 @@ description: "Use this skill whenever doing anything TUI-related — testing, ve
 
 Test the TUI through its real interface: launch the actual binary in a Herdr pane, drive it with keys, read the rendered frames, and save pixel prints as evidence. No tmux, no mocks for verification — the renderer is the product.
 
+Division of labor: **Herdr panes are only for the interactive loop** (send key → read frame → assert → adjust). **Prints never need Herdr** — VHS runs fully headless (own virtual terminal, rendered offscreen); run the tape as a plain command from anywhere.
+
 (Headless frame tests — e.g. `bun run --filter <package> test` — do not see layout. They never replace the loop below.)
 
 ## Evidence directory
@@ -65,7 +67,7 @@ Selection state is easiest to verify by acting: open the detail and read its tit
 
 ### 6. Pixel print (the deliverable)
 
-VHS records its own terminal running the real binary. Write a tape **with relative paths only** — this VHS rejects absolute paths for `Output`/`Screenshot` — then run it from the tape's own directory:
+VHS records its own terminal running the real binary — fully headless, no Herdr pane or server required. Write a tape **with relative paths only** — this VHS rejects absolute paths for `Output`/`Screenshot` — then run it from the tape's own directory:
 
 ```
 # run.tape
