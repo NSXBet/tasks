@@ -24,8 +24,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/postgres build && bun run --filter @tasks/file build && bun run --filter @tasks/workspace build && bun run --filter @tasks/s3 build && bun run --filter @tasks/beads build && bun run --filter @tasks/surface build && bun run --filter @tasks/cli build && bun run --filter @tasks/tui build && bun run --filter @tasks/web build",
-    "check": "bun run --filter @tasks/domain check && bun run --filter @tasks/application check && bun run --filter @tasks/sqlite check && bun run --filter @tasks/postgres check && bun run --filter @tasks/file check && bun run --filter @tasks/workspace check && bun run --filter @tasks/s3 check && bun run --filter @tasks/beads check && bun run --filter @tasks/surface check && bun run --filter @tasks/cli check && bun run --filter @tasks/tui check && bun run --filter @tasks/web check",
+    "build": "bun run --filter @tasks/git build && bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/postgres build && bun run --filter @tasks/file build && bun run --filter @tasks/workspace build && bun run --filter @tasks/s3 build && bun run --filter @tasks/beads build && bun run --filter @tasks/surface build && bun run --filter @tasks/cli build && bun run --filter @tasks/tui build && bun run --filter @tasks/web build",
+    "check": "bun run --filter @tasks/git check && bun run --filter @tasks/domain check && bun run --filter @tasks/application check && bun run --filter @tasks/sqlite check && bun run --filter @tasks/postgres check && bun run --filter @tasks/file check && bun run --filter @tasks/workspace check && bun run --filter @tasks/s3 check && bun run --filter @tasks/beads check && bun run --filter @tasks/surface check && bun run --filter @tasks/cli check && bun run --filter @tasks/tui check && bun run --filter @tasks/web check",
     "test": "bun test packages/*/test/*.test.ts",
     "test:sqlite": "bun run --filter @tasks/sqlite test",
     "test:cli": "bun run --filter @tasks/cli test",
@@ -54,6 +54,11 @@
       "bun": "./packages/application/src/index.ts",
       "types": "./packages/application/dist/index.d.ts",
       "default": "./packages/application/dist/index.js"
+    },
+    "./git": {
+      "bun": "./packages/git/src/index.ts",
+      "types": "./packages/git/dist/index.d.ts",
+      "default": "./packages/git/dist/index.js"
     },
     "./cli": "./packages/cli/src/tk.ts"
   },

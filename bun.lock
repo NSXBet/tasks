@@ -45,6 +45,7 @@
         "@tasks/beads": "workspace:*",
         "@tasks/domain": "workspace:*",
         "@tasks/file": "workspace:*",
+        "@tasks/git": "workspace:*",
         "@tasks/surface": "workspace:*",
         "@tasks/terminal-image": "workspace:*",
         "@tasks/workspace": "workspace:*",
@@ -66,6 +67,13 @@
       },
       "devDependencies": {
         "@types/node": "^22.0.0",
+      },
+    },
+    "packages/git": {
+      "name": "@tasks/git",
+      "version": "0.1.0",
+      "dependencies": {
+        "bun-types": "^1.4.0",
       },
     },
     "packages/pi-extention": {
@@ -236,6 +244,8 @@
     "@tasks/domain": ["@tasks/domain@workspace:packages/domain"],
 
     "@tasks/file": ["@tasks/file@workspace:packages/file"],
+
+    "@tasks/git": ["@tasks/git@workspace:packages/git"],
 
     "@tasks/postgres": ["@tasks/postgres@workspace:packages/postgres"],
 

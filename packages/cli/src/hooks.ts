@@ -16,7 +16,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { spawnSync } from "node:child_process";
 import { cwd } from "node:process";
 import { VERSION } from "./presentation.js";
-import { gitCommonDir, gitToplevel, mainWorktreeRoot } from "./git.js";
+import { gitCommonDir, gitToplevel, mainWorktreeRoot } from "@tasks/git";
 /** Git hooks managed by tk; content is generated dynamically by generateHookSection(). */
 export const managedHookNames: readonly string[] = ["pre-commit", "post-merge", "pre-push", "post-checkout", "prepare-commit-msg"];
 

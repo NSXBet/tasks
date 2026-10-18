@@ -8,7 +8,7 @@ import { AgentAccessSchema, AgentModeSchema, AgentSchema, RunSchema, RunStateSch
 import { applyRunSideEffects, canonicalTimestampCodec, err, isActiveRunState, nextRunId, ok, type IssueUnitOfWork, type Result } from "@tasks/application";
 import { DEFAULT_STORAGE, describeStorage, openEphemeralScratch, openStorage, readWorkspaceConfig, resolveStorageConfig, writeWorkspaceConfig, type StorageAdapter, type StorageConfig, type WorkspaceConfig } from "@tasks/workspace";
 import { booleanFlag, directory, parseArgs, stringFlag, ArgumentParseError, type ParsedArgs } from "./args.js";
-import { gitCommonDir, gitCurrentBranch, gitDefaultBranch, gitHasUncommittedChanges, gitHasUnpushedCommits, gitStashCount, gitToplevel, gitWorktreeAdd, gitWorktreeList, gitWorktreeRemove, mainWorktreeRoot } from "./git.js";
+import { gitCommonDir, gitCurrentBranch, gitDefaultBranch, gitHasUncommittedChanges, gitHasUnpushedCommits, gitMergeBase, gitStashCount, gitToplevel, gitWorktreeAdd, gitWorktreeList, gitWorktreeRemove, mainWorktreeRoot, resolveWorktreePath } from "@tasks/git";
 import {
   commentWire, confirmation, formatBackup, formatBlocked, formatComments, formatCount, formatDepList, formatDoctor,
   formatDuplicates, formatEpic, formatGraph, formatHistory, formatLint, formatList, formatMigration, formatOrphans,
@@ -18,7 +18,7 @@ import {
   HUMAN_HELP, INIT_HELP, LINT_SECTIONS, ONBOARD, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
 import { attachEvidenceUow, attachPathUow, detachBlobUow, evidenceReadUow, inboxEntries, markInboxArchived, markInboxRead, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow } from "@tasks/surface";
-import { bunRunner } from "./git.js";
+import { bunRunner } from "@tasks/git";
 import { formatHunkComment, hunkCommentMetaKey, parseHunkComments, pendingHunkComments, planHunk, scratchDirectory, writeAgentContext } from "./hunk.js";
 import { buildTree, type TreeOptions } from "./tree.js";
 import { checkGitHooks, installHooks, managedHookNames, runHookCommand, uninstallHooks } from "./hooks.js";
@@ -192,17 +192,12 @@ async function runWorktree(args: ParsedArgs, start: string, json: boolean): Prom
     if (booleanFlag(args, "readonly")) fail("readonly mode blocks writes");
     const name = args.positionals[2] ?? fail("worktree create requires <name>");
     const branch = stringFlag(args, "branch") ?? name;
-    const path = resolve(start, name);
+    const config = await readWorkspaceConfig(join(mainRoot, ".tasks")).catch(() => ({}) as WorkspaceConfig);
+    const path = resolveWorktreePath({ repoRoot: start, name, dir: config.worktree?.dir ?? null }).path;
     const outcome = await gitWorktreeAdd(start, path, branch);
     if (!outcome.ok) fail(outcome.stderr || `failed to create worktree at ${path}`);
     // No .tasks/ redirect to write: rootFrom() already follows git-common-dir
     // back to the main worktree, exactly like git worktree itself.
-    const gitignore = join(mainRoot, ".gitignore");
-    // mainRoot comes back resolved by git (/private/var on macOS), while the
-    // lexical cwd may go through a symlink (/var) — compare in real-path space.
-    const real = await realpath(path).catch(() => path);
-    const relative = real.startsWith(`${mainRoot}/`) ? real.slice(mainRoot.length + 1) : null;
-    if (relative !== null) { const existing = await readFile(gitignore, "utf8").catch(() => ""); if (!existing.split("\n").includes(relative)) await writeFile(gitignore, `${existing}${existing.endsWith("\n") || existing === "" ? "" : "\n"}${relative}\n`); }
     const result = { name, path, branch, created: true };
     if (json) output(result, true); else console.log(`${green("\u2713 Created worktree")} ${cyan(path)} on branch ${branch}`);
     return;
@@ -212,7 +207,7 @@ async function runWorktree(args: ParsedArgs, start: string, json: boolean): Prom
     const name = args.positionals[2] ?? fail("worktree remove requires <name>");
     const force = booleanFlag(args, "force");
     const entries = await gitWorktreeList(start);
-    const target = entries.find((entry) => entry.path === resolve(start, name) || entry.path.endsWith(`/${name}`)) ?? fail(`no such worktree: ${name}`);
+    const target = entries.find((entry) => entry.path.endsWith(`/${name}`)) ?? fail(`no such worktree: ${name}`);
     if (!force) {
       const [dirty, unpushed, stashes] = await Promise.all([gitHasUncommittedChanges(target.path), gitHasUnpushedCommits(target.path), gitStashCount(target.path)]);
       const problems = [dirty ? "uncommitted changes" : null, unpushed ? "unpushed commits" : null, stashes > 0 ? `${stashes} stash(es)` : null].filter((entry): entry is string => entry !== null);
@@ -569,7 +564,7 @@ class CommandService {
       const agentContext = await writeAgentContext(issue, scratch);
       const defaultBranch = issue.branch === null ? null : await gitDefaultBranch(reviewCwd);
       if (issue.branch !== null && defaultBranch === null) fail(`could not identify the default branch for ${issue.branch}; configure origin/HEAD or create main/master`);
-      const base = defaultBranch === null ? null : await bunRunner.run(["git", "merge-base", issue.branch!, defaultBranch], reviewCwd).then((result) => result.code === 0 ? result.stdout : fail(`could not resolve merge base for branch ${issue.branch}: ${result.stderr || "branch not found"}`));
+      const base = defaultBranch === null ? null : await gitMergeBase(reviewCwd, issue.branch!, defaultBranch) ?? fail(`could not resolve merge base for branch ${issue.branch}: branch not found`);
       const plan = planHunk(base, reviewCwd, reviewRoot, extras, agentContext);
       if (booleanFlag(args, "print")) {
         return { value: { id: issue.id, argv: plan.argv, cwd: plan.cwd, mode: plan.mode, agent_context: plan.agentContext }, human: () => `${cyan(plan.argv.join(" "))}  ${dim(`# cwd: ${plan.cwd}`)}\n${dim(`# agent-context: ${plan.agentContext}`)}` };
