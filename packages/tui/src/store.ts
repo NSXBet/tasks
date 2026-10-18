@@ -42,6 +42,28 @@ export const buildBoard = (issues: readonly Issue[], activeSprintId: string | nu
 
 export type FilterKind = "all" | "ready" | "open" | "in_progress" | "ready-to-review" | "closed" | "mine" | "sprint" | "archived";
 
+/** Attachment-image cell size in the detail pane (terminal cells). */
+export interface ImageSize {
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Fixed default; `.tasks/config.json` `tuiImage` and the `--image-size` flag override it. */
+export const DEFAULT_IMAGE_SIZE: ImageSize = { width: 36, height: 14 };
+
+/** Parses a `WxH` string (e.g. `44x18`); null when malformed or non-positive. */
+export const parseImageSize = (value: string): ImageSize | null => {
+  const match = value.trim().match(/^(\d+)x(\d+)$/i);
+  if (!match) return null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  return width > 0 && height > 0 ? { width, height } : null;
+};
+
+/** Precedence: explicit flag > workspace config `tuiImage` > fixed default. */
+export const resolveImageSize = (flag: ImageSize | null, config: ImageSize | undefined): ImageSize =>
+  flag ?? config ?? DEFAULT_IMAGE_SIZE;
+
 /** Archived issues stay loaded but out of every default view; only the icebox tab surfaces them. */
 const notArchived = (issue: Issue): boolean => issue.status !== "archived";
 
