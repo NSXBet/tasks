@@ -57,4 +57,19 @@ v1 scope = the review loop from `.agents/plans/2026-10-08-task-to-review.md` (st
 
 | Requirement | Phase |
 |-------------|-------|
-| (pending) | |
+| GIT-01 | Phase 1 |
+| GIT-02 | Phase 1 |
+| GIT-03 | Phase 1 |
+| CHG-01 | Phase 2 |
+| CHG-02 | Phase 2 |
+| FIN-01 | Phase 2 |
+| REV-01 | Phase 3 |
+| REV-02 | Phase 3 |
+| REV-03 | Phase 4 |
+| WEB-01 | Phase 5 |
+| WEB-02 | Phase 5 |
+| LC-01 | Phase 6 |
+| LC-02 | Phase 6 |
+| LC-03 | Phase 6 |
+| LC-04 | Phase 6 |
+| INJ-01 | Phase 6 |
