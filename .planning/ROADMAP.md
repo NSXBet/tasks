@@ -56,10 +56,13 @@ Plans:
   3. `tk finish` cannot set closed or done — the completion contract is enforced in code, not docs
   4. At close+prune the changeset snapshot (`{base, head, files}`) freezes into the record exactly once, and a closed task keeps rendering commits and diff from the frozen snapshot with no worktree present
 
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
+**Wave 1**
 - [ ] 02-01: [Lazy changeset derivation vs pinned base]
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 02-02: [tk finish command + terminal snapshot freeze]
 
 ### Phase 3: Review Component & Review Storage
