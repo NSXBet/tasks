@@ -17,6 +17,12 @@ matching section as its release notes — add a section for every new version
   shared `@tasks/terminal-image` package; TUI evidence images keep
   half-block rendering, now pinned at the render site instead of a
   process-wide `OPENTUI_IMAGE_PROTOCOL` default.
+- TUI evidence images are area-resampled to the exact half-block cell grid
+  before rendering, instead of relying on OpenTUI's point-sampling blocks
+  path — large screenshots attached to issues (e.g. 1600×880) previously
+  rendered as salt-and-pepper noise in the detail pane; they now downscale
+  to a recognizable thumbnail. Decode failures fall back to the previous
+  path.
 
 ## [0.6.0] - 2026-10-17
 
