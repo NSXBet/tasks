@@ -216,18 +216,24 @@ export const markDuplicate = (store: SurfaceStore, id: string, canonical: string
   const issue = await getOrThrow(uow, id);
   await getOrThrow(uow, canonical);
   const result = changed(issue, { status: 'closed', closedAt: now(), notes: [issue.notes, `Duplicate of ${canonical}`].filter(Boolean).join('\n') });
-  const saved = await uow.save(result);
+  // Changeset freeze (CHG-02, WR-01): duplicate-close freezes exactly once, like changeStatus.
+  const frozen = await freezeChangesetUow(uow, { cwd: store.root }, result, 'closed');
+  const merged = frozen === null ? result : { ...result, metadata: { ...result.metadata, changeset: frozen } };
+  const saved = await uow.save(merged);
   if (!saved.ok) throw new MessageError('save failed');
-  return result;
+  return merged;
 });
 
 export const markSuperseded = (store: SurfaceStore, id: string, replacement: string) => store.transact(async (uow) => {
   const issue = await getOrThrow(uow, id);
   await getOrThrow(uow, replacement);
   const result = changed(issue, { status: 'closed', closedAt: now(), notes: [issue.notes, `Superseded by ${replacement}`].filter(Boolean).join('\n') });
-  const saved = await uow.save(result);
+  // Changeset freeze (CHG-02, WR-01): supersede-close freezes exactly once, like changeStatus.
+  const frozen = await freezeChangesetUow(uow, { cwd: store.root }, result, 'closed');
+  const merged = frozen === null ? result : { ...result, metadata: { ...result.metadata, changeset: frozen } };
+  const saved = await uow.save(merged);
   if (!saved.ok) throw new MessageError('save failed');
-  return result;
+  return merged;
 });
 
 /** `todo done`: close task-type issues with a reason note. */
