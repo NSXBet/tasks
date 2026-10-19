@@ -140,7 +140,7 @@ export class WatchManager {
       },
     });
     try {
-      await client.call('events.subscribe', { subscription: id, ...subscription });
+      await client.call('events.subscribe', { subscription: id, root: this.#options.root, ...subscription });
     } catch (cause) {
       client.close();
       throw cause;

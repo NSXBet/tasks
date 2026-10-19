@@ -39,6 +39,12 @@
     },
     {
       "path": "./packages/web"
+    },
+    {
+      "path": "./packages/rpc"
+    },
+    {
+      "path": "./packages/daemon"
     }
   ],
   "compilerOptions": {

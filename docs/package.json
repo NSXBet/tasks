@@ -1,0 +1,14 @@
+{
+  "name": "@tasks/docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "run": "astro preview"
+  },
+  "dependencies": {
+    "astro": "^5.14.0",
+    "astro-pagefind": "^1.8.3"
+  }
+}

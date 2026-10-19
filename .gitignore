@@ -19,3 +19,20 @@ docs/html/references/
 
 # VibeWise learning notes (local)
 .vibe-wise/
+
+# Worktrees
+.worktrees
+!.worktrees/.gitkeep
+
+# GSD
+.gsd
+
+# Astro (docs site)
+**/.astro/
+
+# Environment files — never commit
+.env
+.env.production
+
+# macOS
+.DS_Store

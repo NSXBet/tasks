@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-const executable = join(process.cwd(), "packages/cli/src/tk.ts");
+const executable = join(import.meta.dir, "../../cli/src/tk.ts");
 const dirs: string[] = [];
 function workspace(): string { const value = mkdtempSync(join(tmpdir(), "tk-work-")); dirs.push(value); return value; }
 function run(directory: string, args: readonly string[], input?: string): { readonly stdout: string; readonly stderr: string; readonly status: number } { const result = Bun.spawnSync([process.execPath, executable, "-C", directory, ...args], { stdin: input === undefined ? undefined : new TextEncoder().encode(input), stdout: "pipe", stderr: "pipe" }); return { stdout: new TextDecoder().decode(result.stdout), stderr: new TextDecoder().decode(result.stderr), status: result.exitCode }; }

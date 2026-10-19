@@ -1,0 +1,12 @@
+schema = 1
+id = "tk-board"
+name = "tk Board"
+version = "0.1.0"
+description = "Live block of this workspace's tk issues, refreshed from the event poll."
+icon = "kanban"
+host = "host.luau"
+
+[[blocks]]
+id = "board"
+title = "New tk Board"
+palette = true

@@ -1,0 +1,538 @@
+---
+import Search from "astro-pagefind/components/Search";
+
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
+interface OutlineGroup {
+  id: string;
+  title: string;
+  headings: Heading[];
+}
+
+interface Props {
+  outline: OutlineGroup[];
+}
+const { outline } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tk — Documentation</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%23d9c06a'/><text x='8' y='12' font-size='11' text-anchor='middle' fill='%23101312' font-family='serif' font-weight='bold'>t</text></svg>" />
+    <script is:inline>
+      document.documentElement.dataset.theme =
+        localStorage.getItem("docs-theme") ?? "dark";
+    </script>
+  </head>
+  <body>
+    <aside class="rail" id="rail">
+      <div class="rail-head">
+        <a class="wordmark" href="#overview">tk <span>docs</span></a>
+        <button
+          class="search-trigger"
+          id="open-search"
+          type="button"
+          aria-label="Search docs"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6" />
+            <path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          </svg>
+          Search docs…
+        </button>
+      </div>
+
+      <nav class="outline" aria-label="Documents">
+        {
+          outline.map((group) => (
+            <section class="outline-group" data-doc={group.id}>
+              <a class="outline-doc" href={`#${group.id}`}>{group.title}</a>
+              {group.headings.length > 0 && (
+                <ul>
+                  {group.headings.map((h) => (
+                    <li data-depth={h.depth}>
+                      <a href={`#${h.slug}`}>{h.text}</a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ))
+        }
+      </nav>
+
+      <div class="rail-foot">
+        <button class="ghost" id="theme-toggle" type="button">Toggle light mode</button>
+      </div>
+    </aside>
+
+    <header class="topbar">
+      <button class="ghost" id="rail-toggle" type="button" aria-controls="rail">Hide navigation</button>
+      <span class="topbar-title" id="topbar-title">Overview</span>
+    </header>
+
+    <main id="main">
+      <slot />
+    </main>
+
+    <dialog id="search-dialog">
+      <Search className="pagefind-ui" uiOptions={{ showImages: false, placeholderText: "Search documentation" }} />
+    </dialog>
+
+    <style is:global>
+      :root {
+        --rail-w: 296px;
+      }
+      html[data-theme="dark"] {
+        --bg: #101312;
+        --surface: #161a18;
+        --surface-2: #1c211e;
+        --text: #e9e5d9;
+        --muted: #9aa096;
+        --accent: #d9c06a;
+        --border: #242927;
+        --code-bg: #0b0e0d;
+      }
+      html[data-theme="light"] {
+        --bg: #f6f3ea;
+        --surface: #fffdf6;
+        --surface-2: #efebe0;
+        --text: #24261f;
+        --muted: #6f7367;
+        --accent: #8a6d1f;
+        --border: #e2ddcd;
+        --code-bg: #eee9db;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        /* No scroll-behavior:smooth — it stalls mid-flight on this 58k px page. */
+        scroll-padding-top: 72px;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.65 ui-serif,
+          Georgia,
+          "Times New Roman",
+          serif;
+      }
+      ::selection {
+        background: var(--accent);
+        color: #101312;
+      }
+
+      /* ── Rail ─────────────────────────────────────────────── */
+      .rail {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: var(--rail-w);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 18px 14px;
+        background: var(--surface);
+        border-right: 1px solid var(--border);
+        overflow-y: auto;
+        transition:
+          transform 0.25s ease,
+          visibility 0.25s;
+        z-index: 20;
+      }
+      body.nav-hidden .rail {
+        transform: translateX(-100%);
+        visibility: hidden;
+      }
+      .rail-head {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .wordmark {
+        font-size: 26px;
+        letter-spacing: 0.02em;
+        text-decoration: none;
+        color: var(--text);
+      }
+      .wordmark span {
+        color: var(--accent);
+        font-style: italic;
+      }
+      .search-trigger {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface-2);
+        color: var(--muted);
+        font: inherit;
+        font-size: 14px;
+        cursor: pointer;
+        text-align: left;
+        width: 100%;
+      }
+      .search-trigger:hover {
+        border-color: var(--accent);
+        color: var(--text);
+      }
+      .outline {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .outline-group {
+        padding: 6px 0;
+        border-top: 1px solid var(--border);
+      }
+      .outline-doc {
+        display: block;
+        font-size: 14.5px;
+        font-weight: 600;
+        color: var(--text);
+        text-decoration: none;
+        padding: 3px 6px;
+        border-radius: 6px;
+      }
+      .outline-group ul {
+        list-style: none;
+        margin: 2px 0 0;
+        padding: 0;
+      }
+      .outline-group li[data-depth="3"] a {
+        padding-left: 22px;
+        font-size: 13.5px;
+      }
+      .outline-group li a {
+        display: block;
+        font-size: 13.5px;
+        color: var(--muted);
+        text-decoration: none;
+        padding: 3px 6px;
+        border-radius: 6px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .outline-group li a:hover {
+        color: var(--text);
+        background: var(--surface-2);
+      }
+      .outline-group li a.active {
+        color: var(--accent);
+        background: var(--surface-2);
+      }
+      .rail-foot {
+        border-top: 1px solid var(--border);
+        padding-top: 10px;
+      }
+      .ghost {
+        border: none;
+        background: none;
+        color: var(--muted);
+        font: inherit;
+        font-size: 13.5px;
+        cursor: pointer;
+        padding: 4px 6px;
+      }
+      .ghost:hover {
+        color: var(--text);
+      }
+
+      /* ── Top bar ──────────────────────────────────────────── */
+      .topbar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        left: 0;
+        height: 52px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 0 20px;
+        background: color-mix(in srgb, var(--bg) 85%, transparent);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid var(--border);
+        z-index: 10;
+      }
+      #rail-toggle {
+        flex-shrink: 0;
+      }
+      body.nav-hidden #rail-toggle::before {
+        content: "› ";
+      }
+      .topbar-title {
+        font-size: 15px;
+        color: var(--muted);
+        font-style: italic;
+      }
+
+      /* ── Content ──────────────────────────────────────────── */
+      main {
+        margin-left: var(--rail-w);
+        padding: 90px clamp(20px, 6vw, 96px) 120px;
+        transition: margin-left 0.25s ease;
+      }
+      body.nav-hidden main {
+        margin-left: 0;
+      }
+      .doc {
+        max-width: 76ch;
+        margin: 0 auto;
+      }
+      .doc + .doc {
+        margin-top: 64px;
+        padding-top: 64px;
+        border-top: 1px solid var(--border);
+      }
+      .doc :global(h1) {
+        font-size: 34px;
+        line-height: 1.2;
+        margin: 0 0 24px;
+        letter-spacing: -0.01em;
+      }
+      .doc :global(h2) {
+        font-size: 24px;
+        margin: 44px 0 14px;
+        padding-top: 8px;
+        scroll-margin-top: 72px;
+      }
+      .doc :global(h3) {
+        font-size: 19px;
+        margin: 30px 0 10px;
+        scroll-margin-top: 72px;
+      }
+      .doc :global(h1 a),
+      .doc :global(h2 a),
+      .doc :global(h3 a),
+      .doc :global(h4 a) {
+        text-decoration: none;
+        color: inherit;
+      }
+      .doc :global(p),
+      .doc :global(li) {
+        color: color-mix(in srgb, var(--text) 92%, var(--muted));
+      }
+      .doc :global(a) {
+        color: var(--accent);
+      }
+      .doc :global(code) {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 0.86em;
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 1.5px 5px;
+      }
+      .doc :global(pre) {
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px 18px;
+        overflow-x: auto;
+        line-height: 1.5;
+      }
+      .doc :global(pre code) {
+        background: none;
+        border: none;
+        padding: 0;
+        font-size: 13px;
+      }
+      .doc :global(blockquote) {
+        margin: 18px 0;
+        padding: 2px 18px;
+        border-left: 3px solid var(--accent);
+        color: var(--muted);
+      }
+      .doc :global(table) {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 18px 0;
+        font-size: 14.5px;
+      }
+      .doc :global(th),
+      .doc :global(td) {
+        border: 1px solid var(--border);
+        padding: 7px 12px;
+        text-align: left;
+      }
+      .doc :global(th) {
+        background: var(--surface-2);
+      }
+      .doc :global(hr) {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 32px 0;
+      }
+
+      /* ── Search dialog (pagefind) ─────────────────────────── */
+      dialog#search-dialog {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--surface);
+        color: var(--text);
+        width: min(640px, 92vw);
+        padding: 18px;
+      }
+      dialog#search-dialog::backdrop {
+        background: rgba(8, 10, 9, 0.6);
+        backdrop-filter: blur(3px);
+      }
+      .pagefind-ui .pagefind-ui__search-input {
+        width: 100%;
+        padding: 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface-2);
+        color: var(--text);
+        font: inherit;
+        font-size: 15px;
+      }
+      .pagefind-ui .pagefind-ui__search-input:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      .pagefind-ui .pagefind-ui__results {
+        margin-top: 12px;
+        padding: 0;
+        list-style: none;
+      }
+      .pagefind-ui .pagefind-ui__result {
+        padding: 10px 6px;
+        border-top: 1px solid var(--border);
+      }
+      .pagefind-ui .pagefind-ui__result-title {
+        font-size: 15.5px;
+        font-weight: 600;
+      }
+      .pagefind-ui .pagefind-ui__result-title .pagefind-ui__title {
+        color: var(--accent);
+      }
+      .pagefind-ui .pagefind-ui__result-excerpt {
+        font-size: 13.5px;
+        color: var(--muted);
+      }
+      .pagefind-ui .pagefind-ui__message {
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .pagefind-ui mark {
+        background: color-mix(in srgb, var(--accent) 30%, transparent);
+        color: inherit;
+        border-radius: 3px;
+      }
+
+      @media (max-width: 860px) {
+        .rail {
+          width: min(var(--rail-w), 82vw);
+        }
+        main {
+          margin-left: 0;
+        }
+      }
+    </style>
+
+    <script>
+      // Theme toggle (persisted).
+      document.getElementById("theme-toggle")?.addEventListener("click", () => {
+        const next =
+          document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+        document.documentElement.dataset.theme = next;
+        localStorage.setItem("docs-theme", next);
+      });
+
+      // Rail collapse.
+      const railToggle = document.getElementById("rail-toggle");
+      const setNav = (hidden: boolean) => {
+        document.body.classList.toggle("nav-hidden", hidden);
+        if (railToggle)
+          railToggle.textContent = hidden ? "Show navigation" : "Hide navigation";
+      };
+      railToggle?.addEventListener("click", () =>
+        setNav(!document.body.classList.contains("nav-hidden")),
+      );
+      if (window.innerWidth < 860) setNav(true);
+
+      // Open pagefind search.
+      document.getElementById("open-search")?.addEventListener("click", () => {
+        (
+          document.getElementById("search-dialog") as HTMLDialogElement | null
+        )?.showModal();
+        document
+          .querySelector<HTMLElement>(".pagefind-ui__search-input")
+          ?.focus();
+      });
+      document.addEventListener("keydown", (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+          e.preventDefault();
+          document.getElementById("open-search")?.click();
+        }
+      });
+
+      // Scrollspy: highlight the rail link for the heading under the viewport top.
+      const links = [
+        ...document.querySelectorAll<HTMLAnchorElement>(".outline-group a"),
+      ];
+      const targets = [
+        ...document.querySelectorAll<HTMLElement>(
+          ".doc h1[id], .doc h2[id], .doc h3[id]",
+        ),
+      ];
+      let ticking = false;
+      const spy = () => {
+        ticking = false;
+        const y = window.scrollY + 90;
+        let current: HTMLElement | undefined;
+        for (const t of targets) {
+          if (t.offsetTop <= y) current = t;
+          else break;
+        }
+        for (const a of links) {
+          a.classList.toggle(
+            "active",
+            current ? a.hash === `#${current.id}` : false,
+          );
+        }
+        const doc = current?.closest("section.doc");
+        if (doc) {
+          const group = links.find((a) => a.hash === `#${doc.id}`);
+          if (group) group.classList.add("active");
+        }
+        const title = document.getElementById("topbar-title");
+        if (title && doc) {
+          const groupLink = links.find((a) => a.hash === `#${doc.id}`);
+          const headingText = current?.textContent?.trim();
+          if (groupLink) {
+            const docTitle = groupLink.textContent?.trim() ?? "";
+            title.textContent =
+              headingText && headingText !== docTitle
+                ? `${docTitle} — ${headingText}`
+                : docTitle;
+          }
+        }
+      };
+      window.addEventListener(
+        "scroll",
+        () => {
+          if (!ticking) {
+            ticking = true;
+            requestAnimationFrame(spy);
+          }
+        },
+        { passive: true },
+      );
+      spy();
+    </script>
+  </body>
+</html>

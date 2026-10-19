@@ -90,6 +90,14 @@
         "bun-types": "^1.4.0",
       },
     },
+    "packages/lua": {
+      "name": "@tasks/lua",
+      "version": "0.1.0",
+      "dependencies": {
+        "@tasks/rpc": "workspace:*",
+        "typebox": "^1.3.18",
+      },
+    },
     "packages/pi-extention": {
       "name": "@tasks/pi-extention",
       "version": "0.2.0",
@@ -331,6 +339,8 @@
     "@tasks/file": ["@tasks/file@workspace:packages/file"],
 
     "@tasks/git": ["@tasks/git@workspace:packages/git"],
+
+    "@tasks/lua": ["@tasks/lua@workspace:packages/lua"],
 
     "@tasks/pi-extention": ["@tasks/pi-extention@workspace:packages/pi-extention"],
 

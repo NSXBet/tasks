@@ -5,12 +5,13 @@
  * adds an SSE channel that live-reloads the page when the shell file changes
  * and opens the browser automatically.
  *
- * Instance model: one server per port. Binding the default port while another
- * tk web server is already serving the workspace fails loudly with the live
- * instance's identity instead of silently drifting to the next port.
+ * Instance model: one shared interface. The first server binds the default
+ * port; a later `tk web` from any workspace repoints that live instance at
+ * its own workspace via POST /api/open instead of starting a rival server,
+ * so exactly one web UI exists to keep open in a browser tab.
  */
 import { readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { watch, type FSWatcher } from "chokidar";
 import {
   readWorktreeFile, reviewPayloadFor, reviewThreads, threadInputFrom,
@@ -18,26 +19,30 @@ import {
 } from "./review.js";
 import { ReviewCommentStoreError } from "@tasks/review";
 import {
-  createSurface, pidAlive, probeWebServer, readRuntimeRegistry,
-  registerRuntime, unregisterRuntime, WEB_DEFAULT_PORT, WEB_RUNTIME_ID,
+  createSurface, pidAlive, probeWebServer, readRuntimeRegistry, readWebWorkspaces, rootFrom,
+  registerRuntime, unregisterRuntime, WEB_DEFAULT_PORT, WEB_RUNTIME_ID, writeWebWorkspaces,
   type SurfaceError, type TasksSurface, type WebRuntimeRow, type WebServerStatus,
 } from "@tasks/surface";
-import { dispatchRpc, PROTOCOL_VERSION, type RpcOutcome, type SurfaceLease } from "@tasks/rpc";
+import { dispatchRpc, rpcResponse, PROTOCOL_VERSION, type RpcOutcome, type RpcRequest, type SurfaceLease } from "@tasks/rpc";
+import { runWatchLoop, type WatchEvent, type WatchEventKind } from "@tasks/surface";
 
 export interface WebServerOptions {
   readonly root: string;
+  /** Port to bind; 0 binds an ephemeral port (tests). Omitted: the shared default. */
   readonly port?: number;
   readonly dev?: boolean;
-  /** Bind an ephemeral port instead of the default, bypassing the single-instance check. */
-  readonly randomPort?: boolean;
   /** Inject an existing surface (daemon hosting): reused verbatim, never closed by the server. */
   readonly surface?: TasksSurface;
+  /** Invoked whenever the server tears itself down (HTTP /api/stop or failed ownership probe), so a host can drop its reference. */
+  readonly onStopped?: () => void;
 }
 
 export interface WebServer {
   readonly port: number;
   readonly url: string;
   readonly status: () => WebServerStatus;
+  /** Repoints the server at another tasks workspace (`POST /api/open`). */
+  readonly open: (path: unknown) => Promise<{ ok: boolean; message?: string }>;
   readonly close: () => Promise<void>;
 }
 
@@ -83,8 +88,8 @@ export class PortBusyError extends Error {
   constructor(port: number, live: WebServerStatus | null) {
     super(
       live === null
-        ? `port ${port} is in use by another process — pick --port N or --random-port`
-        : `port ${port} already serving ${live.workspace} — stop it with tk web stop, or pick --port N / --random-port`,
+        ? `port ${port} is in use by another process — pick --port N`
+        : `port ${port} already serving ${live.workspace} — run tk web to repoint the shared instance here, stop it with tk web stop, or pick --port N`,
     );
     this.name = "PortBusyError";
     this.port = port;
@@ -93,18 +98,27 @@ export class PortBusyError extends Error {
 }
 
 export const startWebServer = async (options: WebServerOptions): Promise<WebServer> => {
-  // Injected surface (daemon hosting) is reused verbatim and never closed here;
-  // its owner controls the lifecycle.
-  const surface = options.surface ?? await createSurface({ root: options.root });
+  // The served workspace is mutable: POST /api/open repoints the whole
+  // surface (dispatch root, review threads, worktree watchers) at another
+  // tasks workspace, so every request reads the active surface. `owned`
+  // marks surfaces this server created itself — only those are closed on
+  // switch or shutdown; an injected surface (daemon hosting) stays its
+  // owner's responsibility.
+  let active: { root: string; surface: TasksSurface; owned: boolean } = {
+    root: options.root,
+    surface: options.surface ?? await createSurface({ root: options.root }),
+    owned: options.surface === undefined,
+  };
   const actor = process.env["USER"] ?? "unknown";
-  // Server-lifetime lease: one surface, closed in stopServer. Every JSON route
-  // is a verb-table skin — dispatch, param validation, and error kinds stay
-  // single-sourced in @tasks/rpc; this server only maps outcomes to HTTP.
-  const provide = async (): Promise<SurfaceLease> => ({ surface, dispose: async () => {} });
+  // Server-lifetime lease: one surface per active workspace, closed on switch
+  // and in stopServer. Every JSON route is a verb-table skin — dispatch, param
+  // validation, and error kinds stay single-sourced in @tasks/rpc; this server
+  // only maps outcomes to HTTP.
+  const provide = async (): Promise<SurfaceLease> => ({ surface: active.surface, dispose: async () => {} });
   const call = async (method: string, params: Record<string, unknown> = {}): Promise<RpcOutcome> =>
-    dispatchRpc({ v: PROTOCOL_VERSION, method, root: options.root, params }, provide, { actor });
+    dispatchRpc({ v: PROTOCOL_VERSION, method, root: active.root, params }, provide, { actor });
   const errorStatus = (kind: string): number => (kind === "internal" ? 500 : 400);
-  const threads = reviewThreads(surface.store);
+  const threads = (): ReturnType<typeof reviewThreads> => reviewThreads(active.surface.store);
   const issueWire = async (id: string): Promise<ReviewIssueLike | null> => {
     const outcome = await call("issue.show", { id });
     if (!outcome.ok || typeof outcome.value !== "object" || outcome.value === null) return null;
@@ -112,9 +126,17 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
   };
   const dev = options.dev ?? false;
   const startedAt = new Date().toISOString();
-  // The single-instance slot is WEB_DEFAULT_PORT; `--port N` moves it, `--random-port` bypasses it.
-  const port = options.randomPort === true ? 0 : options.port ?? WEB_DEFAULT_PORT;
-  const tasksDir = surface.store.tasksDir;
+  // The shared-interface slot is WEB_DEFAULT_PORT; `--port N` moves it, port 0
+  // binds an ephemeral port (tests only).
+  const port = options.port ?? WEB_DEFAULT_PORT;
+  const tasksDir = active.surface.store.tasksDir;
+  // Known workspaces for the browser picker: the boot workspace first, then
+  // every workspace this server has served (persisted beside the runtime
+  // registry so the list outlives the server).
+  const workspaces: string[] = [options.root];
+  for (const entry of await readWebWorkspaces(tasksDir)) {
+    if (!workspaces.includes(entry)) workspaces.push(entry);
+  }
   // Crash cleanup: a web row whose pid is gone must not block the next start.
   // Watch rows are untouched — their heartbeat lifecycle belongs to the watcher.
   const staleWebRows = (await readRuntimeRegistry(tasksDir)).filter(
@@ -185,6 +207,18 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
     watchedWorktrees.clear();
   });
   void syncWorktreeWatch();
+  // Events ring (tasks-861t): one host-level watch loop feeds a bounded ring;
+  // RPC clients poll GET /api/events and reconcile with the cumulative dropped
+  // counter — the Luau client's short-poll transport.
+  const eventRing = createEventRing({ capacity: 512, ttlMs: 5 * 60_000 });
+  let eventLoopStopped = false;
+  stopWatches.push(() => { eventLoopStopped = true; });
+  void runWatchLoop(
+    active.surface.store,
+    { interval: 250 },
+    (event) => eventRing.push(event),
+    () => eventLoopStopped,
+  ).catch(() => { /* loop logged its 3-strikes failure; ring keeps serving what it holds */ });
   // Bind last: a squatted port (any non-tk process) must surface as PortBusyError,
   // not a raw bind crash that leaves the surface store open.
   let server: Bun.Server<never>;
@@ -193,8 +227,22 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
       port,
       async fetch(request): Promise<Response> {
       const url = new URL(request.url);
+      const body = async (): Promise<Record<string, unknown>> => {
+        try {
+          const parsed: unknown = await request.json();
+          // Guard proves the object shape; individual keys stay unvalidated by design (each read narrows again).
+          if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+          return {};
+        } catch { return {}; }
+      };
       if (request.method === "GET" && url.pathname === "/api/status") {
         return json(status());
+      }
+      if (request.method === "POST" && url.pathname === "/api/open") {
+        const input = await body();
+        const result = await open(input["path"]);
+        if (!result.ok) return json({ error: { kind: "param", message: result.message ?? "invalid path" } }, 400);
+        return json({ ok: true, ...status() });
       }
       if (request.method === "POST" && url.pathname === "/api/stop") {
         // Respond first so the stopper gets a clean ack; the server tears down right after.
@@ -234,6 +282,46 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         });
         return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
       }
+      if (request.method === "POST" && url.pathname === "/api/rpc") {
+        // 1 MiB body cap: RPC params are small JSON documents; anything larger
+        // is abuse (blobs go through the evidence attachment path instead).
+        const raw = await request.text();
+        if (raw.length > 1_048_576) return json({ error: { kind: "invalid_params", message: "rpc body exceeds 1 MiB" } }, 413);
+        let parsed: unknown;
+        try { parsed = JSON.parse(raw); } catch {
+          return json({ error: { kind: "invalid_params", message: "body must be valid JSON" } }, 400);
+        }
+        const envelope = (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}) as Record<string, unknown>;
+        if (!("method" in envelope) || typeof envelope.method !== "string") {
+          return json({ error: { kind: "invalid_params", message: "method is required" } }, 400);
+        }
+        if (!("v" in envelope) || typeof envelope.v !== "number") {
+          return json({ error: { kind: "invalid_params", message: "v (protocol version) must be a number" } }, 400);
+        }
+        if ("root" in envelope) {
+          return json({ error: { kind: "invalid_params", message: "root is injected server-side and must be omitted" } }, 400);
+        }
+        const params = "params" in envelope && envelope.params !== null && typeof envelope.params === "object" && !Array.isArray(envelope.params)
+          ? envelope.params as Record<string, unknown>
+          : {};
+        const rpcRequest: RpcRequest = {
+          v: envelope.v,
+          method: envelope.method,
+          root: options.root,
+          params,
+          ...(typeof envelope.id === "string" ? { id: envelope.id } : {}),
+        };
+        const outcome = await dispatchRpc(rpcRequest, provide, { actor });
+        return json(rpcResponse(rpcRequest, outcome), outcome.ok ? 200 : errorStatus(outcome.error.kind));
+      }
+      if (request.method === "GET" && url.pathname === "/api/events") {
+        const after = Number(url.searchParams.get("after") ?? "0");
+        if (!Number.isInteger(after) || after < 0) return json({ error: { kind: "invalid_params", message: "after must be a non-negative integer" } }, 400);
+        const kindsParam = url.searchParams.get("kinds");
+        const kinds = kindsParam === null ? undefined : kindsParam.split(",").map((k) => k.trim()).filter((k) => k !== "");
+        const { events, dropped } = eventRing.query(after, kinds);
+        return json({ events, dropped });
+      }
       if (request.method === "GET" && url.pathname === "/api/board") {
         const board = await call("board.get");
         if (!board.ok) return json({ error: board.error }, errorStatus(board.error.kind));
@@ -243,20 +331,12 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
       if (request.method === "GET" && blobMatch !== null) {
         const id = decodeURIComponent(blobMatch[1]!);
         const ref = decodeURIComponent(blobMatch[2]!);
-        const outcome = await surface.evidenceRead(id, ref);
+        const outcome = await active.surface.evidenceRead(id, ref);
         if (!outcome.ok) return json({ error: outcome.error }, 500);
         const content = outcome.value;
         if (content === null) return json({ error: { kind: "runtime", message: `no stored blob for ${ref}` } }, 404);
         return new Response(content.bytes as unknown as BodyInit, { headers: { "content-type": content.meta.mime, "cache-control": "no-store" } });
       }
-      const body = async (): Promise<Record<string, unknown>> => {
-        try {
-          const parsed: unknown = await request.json();
-          // Guard proves the object shape; individual keys stay unvalidated by design (each read narrows again).
-          if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
-          return {};
-        } catch { return {}; }
-      };
       const issueMatch = /^\/api\/issue\/([^/]+)(\/[a-z-]+)?$/.exec(url.pathname);
       if (request.method === "POST" && issueMatch !== null) {
         const id = decodeURIComponent(issueMatch[1]!);
@@ -322,27 +402,27 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
           if (sub === "threads") {
             const threadId = reviewParts[4] === undefined ? null : decodeURIComponent(reviewParts[4]);
             const tail = reviewParts[5] === undefined ? null : decodeURIComponent(reviewParts[5]);
-            if (request.method === "GET") return json(await threads.list(rid));
+            if (request.method === "GET") return json(await threads().list(rid));
             if (threadId === null) {
               if (request.method !== "POST") return json({ error: { kind: "runtime", message: "unsupported method" } }, 405);
               const created = threadInputFrom(await body());
               if (created === null) return json({ error: { kind: "runtime", message: "filePath and body are required" } }, 400);
-              return json(await threads.create(rid, created));
+              return json(await threads().create(rid, created));
             }
             const input = await body();
             const text = (key: string): string | undefined => { const value = input[key]; return typeof value === "string" ? value : undefined; };
             if (request.method === "POST" && tail === null) {
               const replyBody = text("body");
               if (replyBody === undefined) return json({ error: { kind: "runtime", message: "body is required" } }, 400);
-              return json(await threads.reply(rid, threadId, { body: replyBody }));
+              return json(await threads().reply(rid, threadId, { body: replyBody }));
             }
             if (request.method === "POST" && tail === "resolve") {
-              return json(await threads.setResolved(rid, threadId, { resolved: input["resolved"] === true }));
+              return json(await threads().setResolved(rid, threadId, { resolved: input["resolved"] === true }));
             }
             if (request.method === "PUT" && tail !== null) {
               const editBody = text("body");
               if (editBody === undefined) return json({ error: { kind: "runtime", message: "body is required" } }, 400);
-              return json(await threads.editComment(rid, threadId, tail, editBody));
+              return json(await threads().editComment(rid, threadId, tail, editBody));
             }
             return json({ error: { kind: "runtime", message: "unsupported method" } }, 405);
           }
@@ -364,7 +444,7 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
     });
   } catch {
     stopWatching?.();
-    await surface.store.close();
+    if (active.owned) await active.surface.store.close();
     throw new PortBusyError(port, null);
   }
 
@@ -380,7 +460,8 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
   });
   const status = (): WebServerStatus => ({
     tk: "web",
-    workspace: options.root,
+    workspace: active.root,
+    workspaces,
     pid: process.pid,
     port: server.port ?? port,
     url: `http://localhost:${server.port}`,
@@ -388,35 +469,131 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
     dev,
   });
 
+  /** Repoints the server at another tasks workspace. Invalid paths are rejected; the current one is a no-op ack. */
+  const open = async (rawPath: unknown): Promise<{ ok: boolean; message?: string }> => {
+    if (typeof rawPath !== "string" || rawPath.length === 0) return { ok: false, message: "path must be a non-empty string" };
+    const root = resolve(rawPath);
+    if (root === active.root) return { ok: true };
+    // Discover from the path like the CLI does: a subdirectory of a workspace
+    // resolves to its enclosing root; anything without a `.tasks` ancestor is
+    // rejected before openStorage can fabricate a fresh empty workspace.
+    const discovered = await rootFrom(root);
+    if (discovered === null) return { ok: false, message: `not a tasks workspace: no .tasks at or above ${root}` };
+    // Same workspace through a different path (e.g. a subdirectory): no-op —
+    // re-running the swap would close and reopen the surface for nothing.
+    if (discovered === active.root) return { ok: true };
+    let surface: TasksSurface;
+    try {
+      surface = await createSurface({ root: discovered });
+    } catch (error) {
+      return { ok: false, message: `not a usable workspace: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    // Close only surfaces we created; an injected surface stays its owner's.
+    if (active.owned) await active.surface.store.close().catch(() => {});
+    const previousTasksDir = join(active.root, ".tasks");
+    active = { root: discovered, surface, owned: true };
+    // The web registry row moves with the server: workspace-relative
+    // `tk web stop`/`port` resolve through the serving workspace's own
+    // registry, so a repoint must re-home the row or those commands fall
+    // back to the shared default port and can hit a different instance.
+    await registerRuntime(join(discovered, ".tasks"), {
+      id: WEB_RUNTIME_ID,
+      kind: "web",
+      pid: process.pid,
+      port: server.port ?? port,
+      url: `http://localhost:${server.port}`,
+      workspace: discovered,
+      startedAt,
+    });
+    await unregisterRuntime(previousTasksDir, WEB_RUNTIME_ID).catch(() => {});
+    // Picker list moves the new workspace to the front and persists; watchers
+    // and open pages follow the new board.
+    const next = [discovered, ...workspaces.filter((entry) => entry !== discovered)];
+    workspaces.length = 0;
+    workspaces.push(...next);
+    void writeWebWorkspaces(join(discovered, ".tasks"), next).catch(() => {});
+    void syncWorktreeWatch();
+    broadcastReload();
+    return { ok: true };
+  };
+
   // Ownership proof: on macOS a second listener can "bind" a taken port without
   // error while the kernel keeps routing traffic to the original owner, so only
   // a live HTTP answer carrying our own pid proves we actually serve this port.
   // Runs after `status` is defined — the probe exercises the real /api/status route.
   const owned = await probeWebServer(`http://localhost:${server.port ?? port}`);
   if (owned === null || owned.pid !== process.pid) {
+    options.onStopped?.();
     stopWatching?.();
     await server.stop(true);
     await unregisterRuntime(tasksDir, WEB_RUNTIME_ID);
-    if (options.surface === undefined) await surface.store.close();
+    if (active.owned) await active.surface.store.close();
     throw new PortBusyError(port, owned);
   }
 
   const stopServer = async (): Promise<void> => {
+    // The HTTP /api/stop route calls this directly, so it is the only hook that
+    // covers every stop path — a hosting daemon must drop its reference here.
+    options.onStopped?.();
     stopWatching?.();
     reloadWaiters = [];
     await server.stop(true);
     await unregisterRuntime(tasksDir, WEB_RUNTIME_ID);
-    if (options.surface === undefined) await surface.store.close();
+    if (active.owned) await active.surface.store.close();
   };
   return {
     port: server.port ?? 0,
     url: `http://localhost:${server.port}`,
     status,
+    open,
     close: stopServer,
   };
 };
 
 export type { SurfaceError };
+
+/**
+ * Bounded watch-event ring backing GET /api/events. Re-sequences events with a
+ * host-level monotonic `seq` (each watch loop's own seq restarts), evicts by
+ * TTL first then capacity, and counts every eviction in a cumulative `dropped`
+ * total so pollers can detect gaps: any monotonic jump in `dropped` means
+ * re-fetch `board.get` to resync. Units are milliseconds per the watch layer.
+ */
+export interface EventRing {
+  push: (event: WatchEvent) => void;
+  query: (after: number, kinds?: readonly string[]) => { events: WatchEvent[]; dropped: number };
+  droppedCount: () => number;
+}
+export const createEventRing = (options: { capacity: number; ttlMs: number }): EventRing => {
+  const events: WatchEvent[] = [];
+  let nextSeq = 0;
+  let droppedTotal = 0;
+  const evict = (): void => {
+    const now = Date.now();
+    while (events.length > 0 && now - Date.parse(events[0]!.at) > options.ttlMs) {
+      events.shift();
+      droppedTotal += 1;
+    }
+    while (events.length > options.capacity) {
+      events.shift();
+      droppedTotal += 1;
+    }
+  };
+  return {
+    push: (event) => {
+      nextSeq += 1;
+      events.push({ ...event, seq: nextSeq });
+      evict();
+    },
+    query: (after, kinds) => ({
+      events: events.filter(
+        (event) => event.seq > after && (kinds === undefined || kinds.includes(event.kind)),
+      ),
+      dropped: droppedTotal,
+    }),
+    droppedCount: () => droppedTotal,
+  };
+};
 
 /** Opens `url` in the default browser (macOS `open`; silently absent elsewhere). */
 export const launchBrowser = (url: string): void => {

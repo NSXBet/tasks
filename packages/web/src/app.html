@@ -32,7 +32,12 @@
   }
   .brand { font-weight: 700; font-size: 15px; letter-spacing: .02em; display: flex; align-items: baseline; gap: 7px; }
   .brand em { font-style: normal; color: var(--accent); }
-  .brand .ws { color: var(--faint); font-size: 12px; font-weight: 500; }
+  .brand select.ws {
+    appearance: none; background: none; border: none; color: var(--faint);
+    font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; padding: 0 2px;
+    max-width: 40vw; text-overflow: ellipsis;
+  }
+  .brand select.ws:hover, .brand select.ws:focus { color: var(--text); outline: none; }
   .search { flex: 1; max-width: 420px; position: relative; }
   .search input {
     width: 100%; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
@@ -325,7 +330,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">tk<em>·</em>web <span class="ws" id="wsName"></span></div>
+    <div class="brand">tk<em>·</em>web <select class="ws" id="wsSelect" title="Active workspace"></select></div>
     <div class="search">
       <input id="searchInput" placeholder="Search issues…">
       <kbd>/</kbd>
@@ -1033,7 +1038,6 @@
       state.actor = data.actor ?? "—";
       state.activeSprint = data.activeSprint ?? null;
       $("actorName").textContent = state.actor;
-      $("wsName").textContent = data.root ? `· ${String(data.root).split("/").pop()}` : "";
       $("conn").classList.remove("stale");
       if (modalIssue && $("modalOverlay").classList.contains("show")) {
         const fresh = state.issues.find((i) => i.id === modalIssue.id);
@@ -1049,6 +1053,33 @@
 
   await refresh();
   setInterval(refresh, 2000);
+  // Workspace picker — from /api/status (it carries the full known list, not
+  // just the board payload's root). Choosing one repoints the shared instance
+  // (POST /api/open); the server broadcasts a reload and every open page
+  // follows the new board.
+  const wsSelect = $("wsSelect");
+  const paintWorkspaces = (s) => {
+    if (!s?.workspace) return;
+    const known = Array.isArray(s.workspaces) && s.workspaces.length > 0 ? s.workspaces : [s.workspace];
+    wsSelect.replaceChildren(...known.map((p) => new Option(p, p)));
+    wsSelect.value = s.workspace;
+    wsSelect.title = s.workspace;
+  };
+  api("/api/status").then((s) => {
+    paintWorkspaces(s);
+    // ?path=<workspace> deep-link: repoint the shared instance, then drop the
+    // param so a reload doesn't re-open it.
+    const wanted = new URLSearchParams(location.search).get("path");
+    if (wanted === null || wanted.length === 0) return;
+    history.replaceState(null, "", location.pathname);
+    api("/api/open", { path: wanted }).catch((err) => { toast(`tk web: ${err.message}`, true); });
+  }).catch(() => {});
+  wsSelect.addEventListener("change", () => {
+    api("/api/open", { path: wsSelect.value }).catch((err) => {
+      toast(`tk web: ${err.message}`, true);
+      api("/api/status").then(paintWorkspaces).catch(() => {});
+    });
+  });
   if ("EventSource" in window) {
     const events = new EventSource("/events");
     events.onmessage = (m) => { if (m.data === "reload") location.reload(); };

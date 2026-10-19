@@ -14,6 +14,7 @@
   "dependencies": {
     "@tasks/application": "workspace:*",
     "@tasks/beads": "workspace:*",
+    "@tasks/daemon": "workspace:*",
     "@tasks/domain": "workspace:*",
     "@tasks/git": "workspace:*",
     "@tasks/file": "workspace:*",

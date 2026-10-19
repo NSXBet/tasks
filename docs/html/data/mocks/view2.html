@@ -1,0 +1,54 @@
+<!-- §2 · VIEW 2 · ARTIFACT VIEW (verbatim from task-to-review.html) -->
+<figure >
+    <div class="panel rounded-xl overflow-hidden">
+      <div class="flex items-center gap-3 px-4 h-10 border-b border-[#1d2833] text-[11px]">
+        <span class="text-[#41505f]">TK-142</span><span class="text-[#41505f]">/</span><span class="text-[#d7e1ea] font-bold">retry.ts</span>
+        <span class="pill pill-open ml-2">1 OPEN</span>
+        <span class="pill">2 ✓</span>
+        <span class="pill pill-open ml-auto">SUMMARY</span><span class="pill">AUTO</span>
+      </div>
+      <div class="grid grid-cols-[1fr_300px] min-h-[360px]">
+        <!-- artifact pane -->
+        <div class="relative py-4 text-[11.5px] leading-[1.75] overflow-x-auto">
+          <div class="px-4 pb-2 text-[10px] tracking-widest text-[#7c8b99]">SRC/UPLOADER/RETRY.TS — changed file content</div>
+          <div class="px-4 relative">
+            <div class="ctx"><span class="ln">41</span><span class="pl-1">export async function withRetry&lt;T&gt;(token: string): Promise&lt;T&gt; {</span></div>
+            <div class="ctx"><span class="ln">42</span><span class="pl-1">  const session = await getSession(token)</span></div>
+            <div class="del relative"><span class="anchor-dot"></span><span class="ln">43</span><span class="pl-1">-  const res = await fetch(REFRESH_URL, { token })</span></div>
+            <div class="del"><span class="ln">44</span><span class="pl-1">-  if (res.status === 401) return retry(token)</span></div>
+            <div class="add"><span class="ln">43</span><span class="pl-1">+  const res = await refreshMutex.run(token, async () =&gt; {</span></div>
+            <div class="add"><span class="ln">44</span><span class="pl-1">+    return fetch(REFRESH_URL, { token })</span></div>
+            <div class="add"><span class="ln">45</span><span class="pl-1">+  })</span></div>
+            <div class="ctx"><span class="ln">46</span><span class="pl-1">  if (!res.ok) throw new RetryError(res.status)</span></div>
+            <div class="ctx"><span class="ln">47</span><span class="pl-1">  return res.json() as Promise&lt;T&gt;</span></div>
+            <div class="ctx"><span class="ln">48</span><span class="pl-1">}</span></div>
+          </div>
+          <div class="px-4 pt-4 text-[10.5px] leading-5 text-[#41505f]">docs render as docs · code renders as code · same comment surface on both</div>
+        </div>
+        <!-- comments panel -->
+        <div class="border-l border-[#1d2833] py-4 px-4 text-[11px] flex flex-col">
+          <div class="text-[10px] tracking-widest text-[#7c8b99] pb-2 border-b border-[#1d2833]">COMMENTS · 1 OPEN · 2 ✓</div>
+          <div class="mt-3 space-y-4 overflow-y-auto">
+            <div class="panel rounded-lg p-2.5 border-[#273445]">
+              <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#a78bfa]">K</span><span class="text-[#d7e1ea]">kyle</span><span>2m</span><span class="ml-auto pill pill-open">lines 43–45</span></div>
+              <p class="mt-1.5 leading-5 text-[#c3d0dc]">will the mutex deadlock if <code>REFRESH_URL</code> itself refreshes?</p>
+              <div class="mt-1.5 flex gap-2 text-[9px] text-[#58a6ff]"><span>REPLY</span><span class="text-[#41505f]">·</span><span class="text-[#3ddc97]">✓ resolved by reply</span></div>
+            </div>
+            <div class="panel rounded-lg p-2.5 border-[#273445]">
+              <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#3ddc97]">A</span><span class="text-[#d7e1ea]">assistant</span><span>1m</span><span class="ml-auto pill">retry.ts (file)</span><span class="text-[#3ddc97]">✓</span></div>
+              <p class="mt-1.5 leading-5 text-[#c3d0dc]">bounded at MAX=5; the timeout surfaces as <code>RetryError</code>, so the caller can retry without us.</p>
+            </div>
+            <div class="panel rounded-lg p-2.5 border-[#273445]">
+              <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#58a6ff]">S</span><span class="text-[#d7e1ea]">sarah</span><span>just now</span><span class="ml-auto pill pill-open">line 46</span></div>
+              <p class="mt-1.5 leading-5 text-[#c3d0dc]">throw before returning the parsed body? good catch by the test.</p>
+              <div class="mt-1.5 flex gap-2 text-[9px] text-[#58a6ff]"><span>REPLY</span><span class="text-[#41505f]">·</span><span class="text-[#9fb0bf]">resolve</span></div>
+            </div>
+          </div>
+          <!-- composer -->
+          <div class="mt-3 panel rounded-lg border-[#273445] p-2">
+            <div class="text-[9.5px] text-[#41505f] flex gap-3"><span class="text-[#3ddc97]">whole file</span><span class="text-[#58a6ff]">selection → lines 43–45</span></div>
+            <div class="mt-1.5 h-6 rounded bg-[#0d1117] border border-[#1d2833] px-2 flex items-center text-[10px] text-[#41505f]">mention a line, a file, or a person…</div>
+          </div>
+        </div>
+      </div>
+    </div>

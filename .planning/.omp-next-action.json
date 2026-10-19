@@ -1,0 +1,6 @@
+{
+  "label": "**Execute Phase 1** — run both plans",
+  "command": "/gsd-execute-phase 1",
+  "requiresFreshContext": false,
+  "deferredAt": "2026-10-18T01:39:47.179Z"
+}

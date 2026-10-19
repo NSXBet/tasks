@@ -1,3 +1,6 @@
 {
-  "prefix": "tasks"
+  "prefix": "tasks",
+  "storage": {
+    "backend": "sqlite"
+  }
 }

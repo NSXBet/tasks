@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-const executable = join(process.cwd(), "packages/cli/src/tk.ts");
+const executable = join(import.meta.dir, "../../cli/src/tk.ts");
 const dirs: string[] = [];
 function scratch(): string { const value = mkdtempSync(join(tmpdir(), "tk-finish-")); dirs.push(value); return value; }
 afterEach(() => { for (const dir of dirs) rmSync(dir, { recursive: true, force: true }); dirs.length = 0; });

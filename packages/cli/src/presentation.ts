@@ -302,13 +302,18 @@ export function formatRunShow(run: Run): string {
 
 const isActiveRunState = (state: string): boolean => state === "queued" || state === "running";
 
+/** Coarse duration ("3s", "2m", "5h", "6d") for uptime and age displays. */
+export function duration(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86_400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86_400)}d`;
+}
+
 /** Coarse relative age ("3s", "2m", "5h", "6d") for heartbeat displays. */
 function relAge(iso: string): string {
-  const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86_400)}d`;
+  return duration((Date.now() - new Date(iso).getTime()) / 1000);
 }
 
 /** Human view of `tk runtime list`: one line per registered watcher or web server. */
@@ -316,8 +321,6 @@ export function formatRuntimeList(rows: readonly RuntimeRow[]): string {
   if (rows.length === 0) return dim("No live runtimes.");
   const line = (row: RuntimeRow): string => row.kind === "web"
     ? `  ${green("●")} ${cyan(row.id)}  web  ${bold(row.workspace)}  ${dim(`pid ${row.pid} · up ${relAge(row.startedAt)} · ${row.url}`)}`
-    : row.kind === "tkd"
-    ? `  ${green("●")} ${cyan(row.id)}  tkd  ${bold(row.workspace)}  ${dim(`pid ${row.pid} · up ${relAge(row.startedAt)} · ${row.socketPath}`)}`
     : `  ${green("●")} ${cyan(row.id)}  watch  ${row.label === null || row.label === "" ? dim("(no label)") : bold(row.label)}  ${dim(`pid ${row.pid} · up ${relAge(row.startedAt)} · heartbeat ${relAge(row.heartbeatAt)} · ${row.subscriptions.length === 0 ? "all" : row.subscriptions.join(", ")}`)}`;
   return [bold("Runtimes:"), ...rows.map(line)].join("\n");
 }

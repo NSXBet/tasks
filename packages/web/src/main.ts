@@ -5,11 +5,10 @@ import { launchBrowser, PortBusyError, startWebServer, type WebServer } from "./
 
 /**
  * tk web entry: serves the web UI over the resolved workspace.
- * Usage: `bun packages/web/src/main.ts [workspace-root] [--dev] [--open] [--port N] [--random-port] [--daemon]`.
+ * Usage: `bun packages/web/src/main.ts [workspace-root] [--dev] [--open] [--port N] [--daemon]`.
  * Without a root the workspace is discovered from cwd like the tk CLI;
  * `--dev` live-reloads on shell edits, `--port N` (or TK_WEB_PORT) picks the
- * port, `--random-port` binds an ephemeral port bypassing the single-instance
- * check, and `--daemon`/`--open` hand off to a detached child / launch the
+ * port, and `--daemon`/`--open` hand off to a detached child / launch the
  * browser. Interactive sessions can press `d` to daemonize or `w` to open the
  * browser at any time.
  */
@@ -39,7 +38,6 @@ const workspaceConfig = await readWorkspaceConfig(join(root, ".tasks")).catch((e
 });
 const { port, ignored } = resolveWebPort(flagValue("--port"), process.env["TK_WEB_PORT"], workspaceConfig?.webPort);
 for (const bad of ignored) process.stderr.write(`tk web: ignoring invalid port ${JSON.stringify(bad)}\n`);
-const randomPort = has("--random-port");
 
 let server: WebServer | undefined;
 let handingOff = false;
@@ -49,10 +47,10 @@ let handingOff = false;
  * wait for the child's `web` runtime row (the registry is the rendezvous —
  * the parent cannot know the child's URL any other way), and report. The
  * child outlives the parent: no signal tie, ignored stdio. An interactive
- * server closes first — the child rebinds the freed port (random-port
- * sessions pin the child to the bound port, so the URL survives the
- * handoff). Returns the daemon URL, or null when the child died or never
- * registered — the caller decides how to fail.
+ * server closes first — the child rebinds the freed port (the child is
+ * pinned to the bound port, so the URL survives the handoff). Returns the
+ * daemon URL, or null when the child died or never registered — the caller
+ * decides how to fail.
  */
 const daemonize = async (): Promise<string | null> => {
   // The port must be free before the child starts: an interactive server
@@ -63,7 +61,7 @@ const daemonize = async (): Promise<string | null> => {
     await server.close();
     server = undefined;
   }
-  const childFlags = argv.filter((token) => token !== "--daemon" && !(pin !== null && token === "--random-port"));
+  const childFlags = argv.filter((token) => token !== "--daemon");
   if (pin !== null) childFlags.push("--port", String(pin));
   // `detached` gives the child its own session: it must outlive this process,
   // the terminal, and any SIGHUP to the caller's foreground process group.
@@ -102,7 +100,6 @@ const interactive = Boolean(process.stdin.isTTY);
 const options: Parameters<typeof startWebServer>[0] = {
   root, dev,
   ...(port !== undefined ? { port } : {}),
-  ...(randomPort ? { randomPort: true } : {}),
 };
 
 try {
@@ -114,7 +111,7 @@ try {
     const detail = error.live === null
       ? `tk web: ${error.message}`
       : `tk web: port ${error.port} already serving ${error.live.workspace} — http://localhost:${error.live.port} (pid ${error.live.pid})\n` +
-        `  stop it with tk web stop, pick another with --port N, or use --random-port\n`;
+        `  run tk web to repoint the shared instance here, stop it with tk web stop, or pick another port with --port N\n`;
     process.stderr.write(`${detail}\n`);
     process.exit(1);
   }

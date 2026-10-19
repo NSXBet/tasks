@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, realpathSync, mkdtempSync, readFileSync, rmSync,
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-const executable = join(process.cwd(), "packages/cli/src/tk.ts");
+const executable = join(import.meta.dir, "../../cli/src/tk.ts");
 const workspaces: string[] = [];
 function workspace(): string { const value = mkdtempSync(join(tmpdir(), "tk-hooks-")); workspaces.push(value); return value; }
 function gitRepo(): string { const value = workspace(); Bun.spawnSync(["git", "init", "-q"], { cwd: value }); return value; }

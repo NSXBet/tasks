@@ -1,0 +1,10 @@
+{
+  "name": "@tasks/lua",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Luau reimplementation of the tk CLI command surface over the tk web RPC. No TypeScript, no codegen: hand-written Luau only (json/transport/wire/client/events), tested with lune.",
+  "scripts": {
+    "test": "lune run luau/tk/tests/run_all.luau"
+  }
+}

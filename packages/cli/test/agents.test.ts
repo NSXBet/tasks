@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { RunSchema, type Run } from "@tasks/domain";
 import { FileAdapter } from "@tasks/file";
 
-const executable = join(process.cwd(), "packages/cli/src/tk.ts");
+const executable = join(import.meta.dir, "../../cli/src/tk.ts");
 const workspaces: string[] = [];
 function workspace(): string { const value = mkdtempSync(join(tmpdir(), "tk-cli-agents-")); workspaces.push(value); return value; }
 function run(directory: string, args: readonly string[], input?: string): { readonly stdout: string; readonly stderr: string; readonly status: number } { const result = Bun.spawnSync([process.execPath, executable, "-C", directory, ...args], { stdin: input === undefined ? undefined : new TextEncoder().encode(input), stdout: "pipe", stderr: "pipe" }); return { stdout: new TextDecoder().decode(result.stdout), stderr: new TextDecoder().decode(result.stderr), status: result.exitCode }; }

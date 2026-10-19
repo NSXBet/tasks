@@ -15,11 +15,11 @@ import {
   formatAgentList, formatAgentShow, formatInbox, formatReady, formatRenamePrefix, formatRunList, formatRunShow, formatRuntimeActivity, formatRuntimeList, formatSearch, formatShow, formatSprintList, formatStale, formatStats,
   formatStatus, formatStatuses, formatTodo, formatTree, formatTypes, formatVersion, formatWhere, formatWorktreeInfo, formatWorktreeList,
   formatFinish,
-  HUMAN_HELP, INIT_HELP, LINT_SECTIONS, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
+  HUMAN_HELP, INIT_HELP, LINT_SECTIONS, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, duration, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
-import { attachEvidenceUow, attachPathUow, detachBlobUow, deriveChangeset, pruneIssueWorktree, evidenceReadUow, finishIssueUow, freezeChangesetUow, readChangesetBase, readChangesetSnapshot, inboxEntries, markInboxArchived, markInboxRead, openSurfaceStore, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow } from "@tasks/surface";
+import { attachEvidenceUow, attachPathUow, detachBlobUow, deriveChangeset, pruneIssueWorktree, evidenceReadUow, finishIssueUow, freezeChangesetUow, readChangesetBase, readChangesetSnapshot, inboxEntries, markInboxArchived, markInboxRead, openSurfaceStore, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, WEB_DEFAULT_PORT, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow } from "@tasks/surface";
 import { bunRunner } from "@tasks/git";
-import { connectOrSpawn, RpcCallError } from "@tasks/daemon";
+import { cleanStaleSocket, connectDaemon, connectOrSpawn, daemonSocketPath, probeDaemon, RpcCallError, socketAlive, type DaemonStatus } from "@tasks/daemon";
 import { formatHunkComment, hunkCommentMetaKey, parseHunkComments, pendingHunkComments, planHunk, scratchDirectory, writeAgentContext } from "./hunk.js";
 import { buildTree, type TreeOptions } from "./tree.js";
 import { checkGitHooks, installHooks, managedHookNames, runHookCommand, uninstallHooks } from "./hooks.js";
@@ -797,11 +797,16 @@ WORKING WITH ISSUES
                          Launch the terminal UI (board, kanban, graph, insights);
                          a tk:// deep link boots straight into that state, e.g.
                          'tk://task/<id>', 'tk://board', 'tk://composer/create'
-  web [workspace|stop|port] [-d] [--open] [--port N] [--random-port]
-                          Web UI over the workspace (-d: daemon; --dev dev mode; --open/-d
-                          open browser; press w to open, d to daemonize; port: --port, TK_WEB_PORT,
-                          or config webPort (default 21579);
-                          stop: shut the live instance; port: print its URL; --random-port: parallel instance)
+  web [workspace|stop|port] [-d] [--open] [--port N]
+                          Web UI over the workspace (-d: daemon; --dev dev mode; --open
+                          open browser; port: --port, TK_WEB_PORT, or config webPort
+                          (default 21579); one shared interface — running it again from
+                          another workspace repoints it; stop: shut the live instance;
+                          port: print its URL)
+  daemon [start|status|stop|restart] [--json] [--idle-ms N]
+                          Manage the per-workspace daemon (tkd): start (or bootstrap
+                          via tk web), status (ping + hosted web URL; --quiet exits 1
+                          when down), stop, restart. --idle-ms sets idle exit delay.
   watch [--kinds k1,k2] [--ids id1,id2] [--label l] [--interval ms]
                           Watch for changes (NDJSON events on stdout)
   runtime list            Live watcher registry (id, pid, heartbeat age)
@@ -952,16 +957,17 @@ async function runTui(args: ParsedArgs, root: string | null, start: string): Pro
 }
 
 /**
- * `tk web [workspace|stop|port] [-d|--daemon] [--dev] [--open] [--port N] [--random-port]` —
- * serve the web UI over the resolved workspace. By default the tkd daemon
- * hosts the server (`web.start` over the socket): the CLI bootstraps the
- * daemon if needed, prints the URL, and returns — the daemon keeps serving
- * until it idles out or `tk web stop` / `tkd stop` shuts it down. `--dev`
- * keeps the old foreground child (live reload owns the terminal, Ctrl-C
- * stops it); `-d/--daemon` is an accepted alias from the child-process era.
- * `stop` shuts the live instance down over HTTP and prunes a stale registry
- * row; `port` prints the live instance URL. `--open` launches the browser
- * (in the daemon for the default path). The port is `--port`, else
+ * `tk web [workspace|stop|port] [-d|--daemon] [--dev] [--open] [--port N]` —
+ * serve the web UI over the resolved workspace. There is exactly one shared
+ * web interface: when a live instance already answers the requested port, it
+ * is repointed at this workspace over HTTP (`POST /api/open`) instead of
+ * starting a rival server; only when nothing answers does the CLI bootstrap
+ * the tkd daemon to host one. The daemon keeps serving until it idles out or
+ * `tk web stop` / `tkd stop` shuts it down. `--dev` keeps the foreground
+ * child (live reload owns the terminal, Ctrl-C stops it); `-d/--daemon` is an
+ * accepted alias from the child-process era. `stop` shuts the live instance
+ * down over HTTP and prunes a stale registry row; `port` prints the live
+ * instance URL. `--open` launches the browser. The port is `--port`, else
  * `TK_WEB_PORT`, else the workspace config's `webPort`, else the shared
  * default (21579).
  */
@@ -978,19 +984,16 @@ async function runWeb(args: ParsedArgs, root: string | null, start: string): Pro
     const row = (await readRuntimeRegistry(tasksDir)).find((entry) => entry.kind === "web") ?? null;
     const webConfig = await readWebConfig(tasksDir);
     const { port: requested } = resolveWebPort(stringFlag(args, "port"), process.env["TK_WEB_PORT"], webConfig?.webPort);
-    // The registry names the instance if it recorded one; the port is the
-    // fallback probe — either way a live HTTP answer is the only proof.
-    const status = row !== null && row.kind === "web" ? await probeWebServer(row.url) : await probeWebServer(`http://localhost:${requested}`);
+    // One shared web interface: the registry row is only a hint (the instance
+    // it named may since have been repointed at another workspace), so the row
+    // URL is probed first and the shared port falls back — a live HTTP answer
+    // is the only proof. The instance is stopped or reported regardless of
+    // which workspace it currently serves.
+    const status = (row !== null && row.kind === "web" ? await probeWebServer(row.url) : null) ?? await probeWebServer(`http://localhost:${requested}`);
     if (status === null) {
       if (row !== null) await unregisterRuntime(tasksDir, row.id);
       process.stdout.write(`tk web: no server running for ${root}\n`);
       exit(sub === "stop" ? 0 : 1);
-    }
-    if (status!.workspace !== root) {
-      // Whatever answers the port belongs to another workspace; it is not ours
-      // to stop or claim. The row that pointed here is stale either way.
-      if (row !== null) await unregisterRuntime(tasksDir, row.id);
-      fail(`tk web: ${status!.url} is serving ${status!.workspace} — no server running for ${root}`);
     }
     if (sub === "port") { process.stdout.write(`${status!.url}\n`); exit(0); }
     const stopped = await fetch(`${status!.url}/api/stop`, { method: "POST" }).catch(() => null);
@@ -1003,28 +1006,52 @@ async function runWeb(args: ParsedArgs, root: string | null, start: string): Pro
   const dev = booleanFlag(args, "dev");
   const open = booleanFlag(args, "open");
   const daemon = booleanFlag(args, "daemon");
-  const randomPort = booleanFlag(args, "random-port");
   const port = stringFlag(args, "port");
   if (dev) {
     // Dev mode keeps the foreground child: the live-reload server owns the
     // terminal and its lifetime is the CLI lifetime.
     const entry = join(import.meta.dir, "..", "..", "web", "src", "main.ts");
-    const child = Bun.spawn(["bun", entry, workspace!, "--dev", ...(open ? ["--open"] : []), ...(port !== undefined ? ["--port", port] : []), ...(randomPort ? ["--random-port"] : []), ...(daemon ? ["--daemon"] : [])], { cwd: workspace!, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+    const child = Bun.spawn(["bun", entry, workspace!, "--dev", ...(open ? ["--open"] : []), ...(port !== undefined ? ["--port", port] : []), ...(daemon ? ["--daemon"] : [])], { cwd: workspace!, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
     exit(await child.exited);
   }
-  // Default: bootstrap the daemon and let it host the web server.
-  const resolvedRoot = await rootFrom(workspace!);
-  if (resolvedRoot === null) fail(await beadsHint(workspace!));
-  const webConfig = await readWebConfig(join(resolvedRoot!, ".tasks"));
+  // Default: one shared web interface. A live instance answering the port is
+  // repointed at this workspace (it may already serve a different one);
+  // otherwise the daemon bootstraps and hosts a fresh server.
+  const dir = await rootFrom(workspace!);
+  if (dir === null) fail(await beadsHint(workspace!));
+  const webConfig = await readWebConfig(join(dir!, ".tasks"));
   const { port: resolvedPort } = resolveWebPort(port, process.env["TK_WEB_PORT"], webConfig?.webPort);
-  const client = await connectOrSpawn(resolvedRoot!).catch((error: unknown) => fail(`tk web: daemon unavailable (${error instanceof Error ? error.message : String(error)})`));
+
+  const tasksDir = join(dir!, ".tasks");
+  const row = (await readRuntimeRegistry(tasksDir)).find((entry) => entry.kind === "web") ?? null;
+  const live = (row !== null ? await probeWebServer(row.url) : null) ?? await probeWebServer(`http://localhost:${resolvedPort ?? WEB_DEFAULT_PORT}`);
+  if (live !== null) {
+    // Replace, never rival: repoint the running instance at this workspace.
+    const response = await fetch(`${live.url}/api/open`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: dir }),
+      signal: AbortSignal.timeout(8000),
+    }).catch(() => null);
+    if (response === null || !response.ok) {
+      const reason = response === null ? "unreachable" : `rejected (${response.status})`;
+      fail(`tk web: ${live.url} is serving ${live.workspace} and could not be repointed (${reason})`);
+    }
+    // Inline macOS browser open: the CLI talks to the web server only over
+    // HTTP, so @tasks/web's launchBrowser is not imported here.
+    if (open) { try { Bun.spawn(["open", live.url], { stdout: "ignore", stderr: "ignore" }); } catch { /* non-macOS */ } }
+    process.stdout.write(`tk web → ${live.url}  (now serving ${dir}, was ${live.workspace})\n`);
+    exit(0);
+  }
+
+  const client = await connectOrSpawn(dir!).catch((error: unknown) => fail(`tk web: daemon unavailable (${error instanceof Error ? error.message : String(error)})`));
   try {
     const served = await client.call("web.start", {
+      root: dir,
       ...(resolvedPort !== undefined ? { port: resolvedPort } : {}),
-      ...(randomPort ? { randomPort: true } : {}),
       ...(open ? { open: true } : {}),
-    }) as { readonly url: string; readonly port: number; readonly pid: number; readonly alreadyRunning: boolean };
-    process.stdout.write(`tk web → ${served.url}${served.alreadyRunning ? "  (already serving)" : ""}  (daemon pid ${served.pid})\n`);
+    }) as { readonly url: string; readonly port: number; readonly pid: number };
+    process.stdout.write(`tk web → ${served.url}  (daemon pid ${served.pid})\n`);
   } catch (error) {
     fail(`tk web: ${error instanceof RpcCallError ? error.wireError.message : error instanceof Error ? error.message : String(error)}`);
   } finally {
@@ -1032,6 +1059,162 @@ async function runWeb(args: ParsedArgs, root: string | null, start: string): Pro
     client.close();
   }
   exit(0);
+}
+/**
+ * `tk daemon [start|status|stop|restart]` — manage the global tkd daemon.
+ * Every command connects to the running daemon (`connectDaemon`, never spawns)
+ * or reports it absent; only `start`/`restart` bring one into existence via the
+ * same `connectOrSpawn` bootstrap `tk web` uses. Status gathers `daemon.ping`
+ * plus `web.status`, so one command shows the whole daemon story. Global —
+ * no workspace resolution required.
+ */
+async function runDaemon(args: ParsedArgs, start: string): Promise<void> {
+  const sub = args.positionals[1];
+  if (sub !== undefined && sub !== "start" && sub !== "status" && sub !== "stop" && sub !== "restart") {
+    fail("usage: tk daemon [start|status|stop|restart] [--json] [--idle-ms N]  (status also accepts --quiet)");
+  }
+  const json = booleanFlag(args, "json");
+  const quiet = booleanFlag(args, "quiet");
+
+  const idleRaw = stringFlag(args, "idle-ms");
+  if (idleRaw !== undefined && !/^\d+$/.test(idleRaw)) fail("tk daemon: --idle-ms must be a non-negative integer");
+  const idleMs = idleRaw === undefined ? undefined : Number(idleRaw);
+
+  // One snapshot: daemon status + hosted web, or null when not running (raced
+  // shutdown included). Every command goes through here or probes first — none
+  // of the management paths ever spawns a daemon.
+  const describe = async (): Promise<{ readonly daemon: DaemonStatus; readonly web: { readonly url: string; readonly port: number; readonly root?: string } | null } | null> => {
+    const client = await connectDaemon();
+    if (client === null) return null;
+    try {
+      const daemon = await client.call("daemon.ping") as DaemonStatus;
+      let web: { readonly url: string; readonly port: number; readonly root?: string } | null = null;
+      try {
+        const webStatus = await client.call("web.status") as { readonly hosting: boolean; readonly url?: string; readonly port?: number; readonly root?: string };
+        if (webStatus.hosting) web = { url: webStatus.url!, port: webStatus.port!, ...(webStatus.root === undefined ? {} : { root: webStatus.root }) };
+      } catch { /* web host torn down between ping and status: not hosting */ }
+      return { daemon, web };
+    } finally {
+      client.close();
+    }
+  };
+
+  if (sub === "status" || sub === undefined) {
+    const snapshot = await describe();
+    if (snapshot === null) {
+      if (json) output({ running: false, root: start, socketPath: daemonSocketPath() }, true);
+      else if (quiet) exit(1);
+      else process.stdout.write(`${dim("Daemon is not running.")} Start one: ${cyan("tk daemon start")}\n`);
+      return;
+    }
+    const { daemon, web } = snapshot;
+    if (json) {
+      output({
+        running: true,
+        root: start,
+        roots: daemon.roots,
+        socket_path: daemon.socketPath,
+        pid: daemon.pid,
+        // The probe holds exactly one connection while sampling the ping; report
+        // only other attached clients (transient probe socket is not interesting).
+        connections: Math.max(0, daemon.connections - 1),
+        event_subscriptions: daemon.eventSubscriptions,
+        idle_ms: daemon.idleMs,
+        uptime_ms: daemon.uptimeMs,
+        uptime: duration(daemon.uptimeMs / 1000),
+        web: web === null ? { hosting: false } : { hosting: true, url: web.url, port: web.port, ...(web.root === undefined ? {} : { root: web.root }) },
+      }, true);
+      return;
+    }
+    if (quiet) exit(0);
+    const lines = [
+      `${green("●")} daemon  ${cyan(`pid ${daemon.pid}`)}  ${dim(`up ${duration(daemon.uptimeMs / 1000)} · socket ${daemon.socketPath}`)}`,
+      daemon.roots.length === 0
+        ? `  ${dim("workspaces")} ${dim("none open yet")}`
+        : `  ${dim("workspaces")} ${daemon.roots.join(", ")}`,
+      `  ${dim("connections")} ${Math.max(0, daemon.connections - 1)}  ${dim("event subscriptions")} ${daemon.eventSubscriptions}  ${dim("idle exit")} ${daemon.idleMs === 0 ? "disabled" : `${duration(daemon.idleMs / 1000)} idle`}`,
+      web === null
+        ? `  ${dim("web")} ${dim("not hosted (tk web starts it)")}`
+        : `  ${dim("web")} ${cyan(web.url)} ${dim(`(port ${web.port}${web.root === undefined ? "" : `, ${web.root}`})`)}`,
+    ];
+    process.stdout.write(lines.join("\n") + "\n");
+    return;
+  }
+
+  if (sub === "start") {
+    const already = await probeDaemon(1000);
+    if (already !== null) {
+      if (json) output({ started: false, alreadyRunning: true, pid: already.pid }, true);
+      else process.stdout.write(`daemon already running (pid ${already.pid})\n`);
+      return;
+    }
+    const client = await connectOrSpawn(start, { ...(idleMs !== undefined ? { idleMs } : {}) }).catch((error: unknown) => fail(`tk daemon: ${error instanceof Error ? error.message : String(error)}`));
+    try {
+      const ping = await client.call("daemon.ping") as DaemonStatus;
+      if (json) output({ started: true, alreadyRunning: false, pid: ping.pid, socket_path: ping.socketPath, idle_ms: ping.idleMs }, true);
+      else process.stdout.write(`${green("✓ daemon started")} ${dim(`pid ${ping.pid} · socket ${ping.socketPath}${idleMs === 0 ? " · idle exit disabled" : ""}`)}\n`);
+    } finally {
+      // The connection itself pins the daemon out of idle exit; drop it and let
+      // the daemon live its normal life.
+      client.close();
+    }
+    return;
+  }
+
+  if (sub === "stop") {
+    const running = await probeDaemon(1000);
+    if (running === null) {
+      await cleanStaleSocket(daemonSocketPath()).catch(() => {});
+      if (json) output({ stopped: false, running: false }, true);
+      else process.stdout.write(`${dim("daemon not running")}\n`);
+      return;
+    }
+    const client = await connectDaemon();
+    if (client === null) fail("tk daemon: daemon vanished between probe and connect — retry");
+    try {
+      await client!.call("daemon.stop");
+    } catch (error) {
+      // The stop ack usually lands before teardown; a transport drop here is success.
+      if (!(error instanceof RpcCallError)) throw error;
+    } finally {
+      client!.close();
+    }
+    if (json) output({ stopped: true, running: false, pid: running.pid }, true);
+    else process.stdout.write(`${green("✓ daemon stopped")} ${dim(`pid ${running.pid}`)}\n`);
+    return;
+  }
+
+  // restart: stop the live daemon first — connectOrSpawn would happily reconnect
+  // to the old process, turning "restart" into a no-op ping.
+  const before = await probeDaemon(1000);
+  if (before !== null) {
+    const stopClient = await connectDaemon();
+    if (stopClient !== null) {
+      try {
+        await stopClient.call("daemon.stop");
+      } catch (error) {
+        // The stop ack usually lands before teardown; a transport drop here is success.
+        if (!(error instanceof RpcCallError)) throw error;
+      } finally {
+        stopClient.close();
+      }
+      // The old socket must be gone before the new spawn, or connectOrSpawn
+      // races the dying daemon's listener.
+      const deadline = Date.now() + 3000;
+      while (await socketAlive(daemonSocketPath(), 200)) {
+        if (Date.now() >= deadline) fail("tk daemon: old daemon socket did not close within 3s");
+        await Bun.sleep(50);
+      }
+    }
+  }
+  const client = await connectOrSpawn(start, { ...(idleMs !== undefined ? { idleMs } : {}) }).catch((error: unknown) => fail(`tk daemon: ${error instanceof Error ? error.message : String(error)}`));
+  try {
+    const ping = await client.call("daemon.ping") as DaemonStatus;
+    if (json) output({ restarted: true, stoppedPid: before?.pid ?? null, pid: ping.pid, socket_path: ping.socketPath, idle_ms: ping.idleMs }, true);
+    else process.stdout.write(`${green("✓ daemon restarted")} ${dim(`${before !== null ? `was pid ${before.pid}, ` : ""}now pid ${ping.pid} · socket ${ping.socketPath}`)}\n`);
+  } finally {
+    client.close();
+  }
 }
 async function runWatch(args: ParsedArgs, start: string): Promise<void> {
   const root = await rootFrom(start);
@@ -1109,6 +1292,7 @@ async function main(): Promise<void> { const rawTokens = process.argv.slice(2); 
   if (command === "help" || booleanFlag(args, "help") || booleanFlag(args, "h")) { process.stdout.write(topic === undefined ? HELP : commandHelp(topic) ?? HELP); return; }
   if (command === "tui") { await runTui(args, root, start); return; }
   if (command === "web") { await runWeb(args, root, start); return; }
+  if (command === "daemon") { await runDaemon(args, start); return; }
   if (command === "watch") { await runWatch(args, start); return; }
 /**
  * `tk setup cursor|codex [--global] [--remove]` — agent lifecycle hooks.json
@@ -1309,7 +1493,7 @@ const derived = !json && csBase !== null && issue.branch !== null ? await derive
     else if (command === "unarchive") { const issue = await service.unarchive(args); value = issueWire(issue); human = () => confirmation("Unarchived", issue); }
     else if (command === "runtime") {
       const sub = args.positionals[1] ?? fail("runtime requires operation (list, activity)");
-      if (sub === "list") { const rows = await readRuntimeRegistry(tasksDir); value = rows.map((row) => ({ schema_version: 1, _type: "runtime_row", id: row.id, kind: row.kind, label: row.kind === "watch" ? row.label : null, pid: row.pid, started_at: row.startedAt, heartbeat_at: row.kind === "watch" ? row.heartbeatAt : null, subscriptions: row.kind === "watch" ? row.subscriptions : [], url: row.kind === "web" ? row.url : undefined, socket_path: row.kind === "tkd" ? row.socketPath : undefined })); human = () => formatRuntimeList(rows); }
+      if (sub === "list") { const rows = await readRuntimeRegistry(tasksDir); value = rows.map((row) => ({ schema_version: 1, _type: "runtime_row", id: row.id, kind: row.kind, label: row.kind === "watch" ? row.label : null, pid: row.pid, started_at: row.startedAt, heartbeat_at: row.kind === "watch" ? row.heartbeatAt : null, subscriptions: row.kind === "watch" ? row.subscriptions : [], url: row.kind === "web" ? row.url : undefined })); human = () => formatRuntimeList(rows); }
       else if (sub === "activity") { const rawLimit = stringFlag(args, "limit"); const limit = rawLimit === undefined ? undefined : Number(rawLimit); if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) fail("invalid --limit: expected positive integer"); const rows = await readActivity(tasksDir, limit); value = rows.map((row) => ({ schema_version: 1, _type: "activity_row", at: row.at, runtime_id: row.runtimeId, kind: row.kind, detail: row.detail })); human = () => formatRuntimeActivity(rows); }
       else fail(`unknown runtime subcommand: ${sub} (expected list, activity)`);
     }

@@ -8,8 +8,49 @@ matching section as its release notes — add a section for every new version
 
 ## [Unreleased]
 
+### Added
+
+- `tk web` now exposes the full RPC verb table at `POST /api/rpc` (server-injected
+  workspace root, 1 MiB body cap) and a watch-event feed at
+  `GET /api/events?after=<seq>&kinds=a,b` — a bounded event ring (512 events,
+  5-minute TTL) re-sequenced server-side with a cumulative `dropped` counter for
+  reconciliation. HTTP clients (including the upcoming Luau bridge) get full RPC
+  parity without a unix socket.
+- A workspace-agnostic `tkd` daemon (`packages/daemon`): one unix-socket process
+  hosting the RPC verb table over ndjson frames for every `.tasks` workspace it
+  is asked about. Clients share the daemon's single surface store instead of
+  each opening their own; the daemon self-heals (stale socket cleanup,
+  spawn-on-connect), refuses roots that are not tasks workspaces
+  (`root_invalid`), and idles out when nothing is connected or subscribed.
+  `tk daemon status` reports its state without spawning one.
+- `tk web` now bootstraps the daemon and hosts the web UI inside it
+  (`web.start`/`web.stop`/`web.status` over the socket) — the server outlives
+  the invoking terminal without the previous detached-child dance; `--dev`
+  keeps the foreground live-reload child. `tk web stop` shuts the hosted
+  server down over HTTP as before.
+- `events.subscribe` / `events.unsubscribe` over the tkd socket, reusing the
+  in-process watch loop: subscribers get ndjson event frames per connection,
+  loops restart on their own transient failures, and active subscriptions pin
+  the daemon against idle exit. The pi/omp extension opts in via
+  `TK_EVENTS=daemon`, falling back to its in-process watcher when the daemon
+  is unavailable.
+
 ### Fixed
 
+- The daemon's web host no longer turns into a phantom after `tk web stop`:
+  the hosted server's HTTP `/api/stop` route tore the listening socket down
+  without telling the daemon, so `web.status` kept reporting `hosting: true`
+  and the next `tk web start` echoed the dead URL — which by then served
+  whatever process had grabbed the freed port. The server now notifies its
+  host on every self-teardown path (`onStopped` callback covering both the
+  route and a failed ownership probe), so the daemon drops its reference and
+  `web.start` boots a genuinely fresh server.
+- Changeset bases no longer anchor to a stale `origin/HEAD`: when the local
+  default branch (`main`/`master`) tip strictly descends from the remote tip
+  (rewelded history, unpushed work), `tk work`/`tk review`/`tk finish` pin
+  the base at the local line instead of the remote one — previously a stale
+  remote made changesets span the repo's entire local history. In-sync,
+  diverged, and remote-ahead repos keep `origin/HEAD` precedence.
 - `tk show` image evidences paint in Ghostty and other kitty-graphics
   terminals: emission uses the chunked transmit-and-display form (`a=T`)
   instead of virtual placements Ghostty 1.3.x never paints, alongside OSC
@@ -187,3 +228,19 @@ matching section as its release notes — add a section for every new version
   git sync, Hunk review integration, and the `tk` CLI.
 
 
+
+## 2026-10-19 One Shared tk Web Instance
+
+### Changed
+- `tk web` from any workspace now repoints the live shared instance at that workspace instead of failing on a busy port — one browser URL serves whichever workspace you run it from
+- The web UI's workspace picker (with `?path=` deep links) switches the shared instance between known workspaces without leaving the browser
+- `tk web stop`/`port` resolve through the serving workspace's own registry row, so a repointed server is stoppable from the workspace it now serves
+- Runtime-registry writes are serialized and atomic — the daemon's 250ms watch heartbeat no longer erases freshly registered web rows, and readers never see a torn `runtime.json`
+- Removed `--random-port`; `tk web` shares one interface by default, and the daemon `web.start` verb accepts port `0` to bind an ephemeral port (tests)
+
+## 2026-10-18 Onboard Managed Injection
+
+### Added
+- `tk onboard install` writes the task→review workflow directly into your agent instructions file as a marked, refreshable section — create and claim tasks, keep them updated, hand over ready-to-review, and print a work-done summary at close
+- The managed section is stamped `<!-- BEGIN TK INTEGRATION v:1 hash:<8hex> -->`; install is a byte-identical no-op when the section body matches its hash stamp, `check` exits 0 only when current (missing/no-section/stale exit 1), and legacy unversioned markers parse as stale and migrate in place on install
+- `--file <path>` targets another instruction file; `--tool claude|gemini` selects that agent's default instruction filename; `remove` strips only the managed section, leaving hand-written notes untouched

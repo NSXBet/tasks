@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Run } from '@tasks/domain';
@@ -91,6 +91,7 @@ export interface InboxEntry {
 }
 
 const runtimePath = (tasksDir: string): string => join(tasksDir, 'runtime.json');
+const webWorkspacesPath = (tasksDir: string): string => join(tasksDir, 'web-workspaces.json');
 const activityPath = (tasksDir: string): string => join(tasksDir, 'activity.ndjson');
 const inboxPath = (tasksDir: string): string => join(tasksDir, 'inbox.json');
 
@@ -98,9 +99,14 @@ const readJson = async <T>(path: string, fallback: T): Promise<T> => {
   try { return JSON.parse(await readFile(path, 'utf8')) as T; } catch { return fallback; }
 };
 
+/** Writes through a same-directory temp file + rename: readers either see the
+ * old or the new content, never a torn file (a mid-write read once fed a CLI
+ * prune garbage and cost the workspace its registry). */
 const writeJson = async (path: string, value: unknown): Promise<void> => {
   await mkdir(join(path, '..'), { recursive: true });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`);
+  await rename(tmp, path);
 };
 
 /** Human-readable subscription summary for the registry row and CLI output. */
@@ -120,20 +126,43 @@ export const readRuntimeRegistry = (tasksDir: string): Promise<readonly RuntimeR
 const writeRuntimeRegistry = (tasksDir: string, rows: readonly RuntimeRow[]): Promise<void> =>
   writeJson(runtimePath(tasksDir), rows);
 
-export const registerRuntime = async (tasksDir: string, row: RuntimeRow): Promise<void> => {
-  const rows = (await readRuntimeRegistry(tasksDir)).filter((existing) => existing.id !== row.id);
-  await writeRuntimeRegistry(tasksDir, [...rows, row]);
+/** Serializes registry read-modify-write cycles per process: the daemon owns
+ * watch heartbeats, daemon rows, and web rows in one event loop, so two
+ * unsynchronized cycles interleave and the later write erases the earlier
+ * row (a 250ms heartbeat snapshot used to swallow the just-registered web
+ * row). Keyed by tasksDir; never deleted — one entry per workspace, and a
+ * still-settling chain must keep receiving later mutations. Cross-process
+ * writers (CLI prunes) remain unordered with the daemon, which is the
+ * pre-existing behavior. */
+const registryLocks = new Map<string, Promise<unknown>>();
+const withRegistryLock = <T>(tasksDir: string, work: () => Promise<T>): Promise<T> => {
+  const next = (registryLocks.get(tasksDir) ?? Promise.resolve()).catch(() => {}).then(work);
+  registryLocks.set(tasksDir, next);
+  return next;
 };
 
+export const registerRuntime = (tasksDir: string, row: RuntimeRow): Promise<void> => withRegistryLock(tasksDir, async () => {
+  const rows = (await readRuntimeRegistry(tasksDir)).filter((existing) => existing.id !== row.id);
+  await writeRuntimeRegistry(tasksDir, [...rows, row]);
+});
+
 /** Refreshes the heartbeat stamp; a no-op when the row was already removed. Only watch rows heartbeat. */
-export const heartbeatRuntime = async (tasksDir: string, runtimeId: string, at: Date): Promise<void> => {
+export const heartbeatRuntime = (tasksDir: string, runtimeId: string, at: Date): Promise<void> => withRegistryLock(tasksDir, async () => {
   const rows = await readRuntimeRegistry(tasksDir);
   if (!rows.some((row) => row.kind === 'watch' && row.id === runtimeId)) return;
   await writeRuntimeRegistry(tasksDir, rows.map((row) => (row.kind === 'watch' && row.id === runtimeId ? { ...row, heartbeatAt: at.toISOString() } : row)));
-};
+});
 
-export const unregisterRuntime = async (tasksDir: string, runtimeId: string): Promise<void> => {
+export const unregisterRuntime = (tasksDir: string, runtimeId: string): Promise<void> => withRegistryLock(tasksDir, async () => {
   await writeRuntimeRegistry(tasksDir, (await readRuntimeRegistry(tasksDir)).filter((row) => row.id !== runtimeId));
+});
+
+/** Known tk web workspaces: the boot workspace plus every one opened through it. Lives beside the runtime registry in the boot workspace. */
+export const readWebWorkspaces = async (tasksDir: string): Promise<readonly string[]> =>
+  (await readJson<readonly string[]>(webWorkspacesPath(tasksDir), [])).filter((path) => typeof path === 'string');
+
+export const writeWebWorkspaces = async (tasksDir: string, paths: readonly string[]): Promise<void> => {
+  await writeJson(webWorkspacesPath(tasksDir), [...paths]);
 };
 
 /** Identity the server reports on `GET /api/status`; port is the ground truth for instance identity. */
@@ -141,6 +170,8 @@ export interface WebServerStatus {
   /** Wire marker distinguishing tk web servers from any other HTTP service on the port. */
   readonly tk: 'web';
   readonly workspace: string;
+  /** Every workspace the server has served (boot workspace first) — feeds the browser's workspace picker. */
+  readonly workspaces: readonly string[];
   readonly pid: number;
   readonly port: number;
   readonly url: string;
@@ -161,9 +192,11 @@ export const probeWebServer = async (url: string, timeoutMs = 800): Promise<WebS
     const body: unknown = await response.json();
     if (typeof body !== 'object' || body === null) return null;
     const record = body as Record<string, unknown>;
-    const { tk, pid, port, workspace, startedAt, dev } = record;
+    const { tk, pid, port, workspace, startedAt, dev, workspaces } = record;
     if (tk !== 'web' || typeof pid !== 'number' || typeof port !== 'number' || typeof workspace !== 'string' || typeof startedAt !== 'string') return null;
-    return { tk: 'web', workspace, pid, port, startedAt, url: typeof record['url'] === 'string' ? record['url'] : url, dev: dev === true };
+    // Older servers omit the list; fall back to the one workspace they serve.
+    const known = Array.isArray(workspaces) && workspaces.every((path) => typeof path === 'string') ? workspaces : [workspace];
+    return { tk: 'web', workspace, workspaces: known, pid, port, startedAt, url: typeof record['url'] === 'string' ? record['url'] : url, dev: dev === true };
   } catch { return null; }
 };
 

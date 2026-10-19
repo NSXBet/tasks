@@ -86,7 +86,7 @@ tk update <id> [--branch <name>]  # Update fields; link the issue branch
 tk dep <id> add <target>      # Add dependency
 tk attach <id> <path>        # Attach a file path (--attach-metadata k=v,k2=v2)
 tk detach <id> <path>        # Remove an attachment
-tk tui [workspace]            # Launch the terminal UI (list/kanban/graph/insights)
+tk tui [workspace] ['tk://route']  # Launch the terminal UI; deep-link boots into a state, e.g. 'tk://task/<id>'
 tk watch [--kinds a,b] [--ids x,y]   # Stream issue-change events as NDJSON (foreground)
 tk tree [--all] [--depth N]  # Tree view: epics, subtasks, dependency fan-out
 tk search <text>              # Full-text search

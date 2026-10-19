@@ -1,0 +1,27 @@
+{
+  "name": "@tasks/daemon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bun run --filter @tasks/web build && tsc -p tsconfig.json",
+    "check": "bun run --filter @tasks/web build && tsc --noEmit -p tsconfig.json",
+    "test": "bun run build && cd ../.. && bun test packages/daemon/test"
+  },
+  "dependencies": {
+    "@tasks/rpc": "workspace:*",
+    "@tasks/surface": "workspace:*",
+    "@tasks/web": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3"
+  }
+}

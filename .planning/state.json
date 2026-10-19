@@ -1,0 +1,43 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": null,
+  "phases": [
+    {
+      "number": "1",
+      "name": "Git Adapter & Worktree Entry",
+      "status": "complete"
+    },
+    {
+      "number": "2",
+      "name": "Changeset Derivation & Completion Contract",
+      "status": "complete"
+    },
+    {
+      "number": "3",
+      "name": "Review Component & Review Storage",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "Terminal Review",
+      "status": "pending"
+    },
+    {
+      "number": "5",
+      "name": "Web Review",
+      "status": "pending"
+    },
+    {
+      "number": "6",
+      "name": "Worktree Lifecycle & Injection",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd:plan-phase 3",
+    "label": "Plan the next phase",
+    "reason": "Phase 02 complete (plans, review, UAT closed) · 03 pending planning"
+  },
+  "updated_at": "2026-10-18T19:36:52.732Z"
+}

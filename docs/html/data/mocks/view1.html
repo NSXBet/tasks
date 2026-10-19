@@ -1,0 +1,156 @@
+<!-- §2 · VIEW 1 · TASK VIEW (verbatim from task-to-review.html) -->
+<figure >
+    <div class="panel rounded-xl overflow-hidden relative">
+      <!-- titlebar -->
+      <div class="flex items-center gap-3 px-4 h-10 border-b border-[#1d2833] text-[11px]">
+        <span class="text-[#3ddc97] font-bold">tk</span>
+        <span class="text-[#41505f]">/</span><span>TK-142</span>
+        <span class="pill pill-open ml-2">● ready-to-review</span>
+        <span class="pill">c comment · q quit</span>
+        <span class="pill ml-auto">TUI ⇄ WEB</span>
+      </div>
+      <div class="grid grid-cols-[210px_1fr_248px] min-h-[340px]">
+        <!-- left: working tasks -->
+        <div class="border-r border-[#1d2833] py-3 text-[11.5px]">
+          <div class="px-4 pb-2 text-[10px] tracking-widest text-[#7c8b99]">TASKS</div>
+          <div class="px-4 py-1.5 text-[#9fb0bf] flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#3fb950]"></span>auth refactor</div>
+          <div class="px-4 py-1.5 text-[#9fb0bf] flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#d29922]"></span>api limiting</div>
+          <div class="px-4 py-1.5 text-[#9fb0bf] flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#7c8b99]"></span>dashboard</div>
+          <div class="px-4 py-1.5 bg-[#141b24] text-[#d7e1ea] font-bold border-l-2 border-[#3ddc97] flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#58a6ff]"></span>uploader retries</div>
+          <div class="px-4 py-1.5 text-[#9fb0bf] flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#7c8b99]"></span>flaky tests triage</div>
+          <div class="px-4 py-1.5 text-[#9fb0bf] flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#7c8b99]"></span>docs pass</div>
+          <div class="px-4 pt-3 text-[10px] text-[#41505f]">…the task list tk already has (kanban)</div>
+        </div>
+        <!-- center: task front and center -->
+        <div class="py-5 px-6">
+          <h3 class="text-[19px] font-bold leading-snug">Fix flaky retry logic in uploader</h3>
+          <div class="mt-2 flex flex-wrap items-center gap-2 text-[10.5px] text-[#7c8b99]">
+            <span class="pill">worktree .worktrees/TK-142</span>
+            <span class="pill pill-run">tk/TK-142 → main</span>
+          </div>
+          <div class="mt-4 flex gap-2">
+            <button class="px-3 h-7 rounded-md bg-[#12332a] border border-[#1f6b52] text-[10.5px] text-[#3ddc97]">◧ open diff</button>
+            <span class="text-[9.5px] text-[#41505f] self-center ml-1">ready-to-review — work already begun, no start-work button · opens the diff modal</span>
+          </div>
+          <!-- artifacts: the main column -->
+          <div class="mt-6 max-w-[620px]">
+            <div class="text-[10px] tracking-widest text-[#7c8b99] pb-1.5 border-b border-[#1d2833]">ARTIFACTS — evidence on the task</div>
+            <div class="mt-2 flex flex-wrap items-center gap-1 text-[9.5px]"><span class="pill">0 src</span><span class="pill pill-amber">2 edit</span><span class="pill pill-open">1 new</span><span class="pill">3 other</span><span class="ml-auto pill pill-idle">GROUPED</span></div>
+            <div class="mt-3 text-[9px] tracking-widest text-[#41505f]">UNREFERENCED (3)</div>
+            <div class="space-y-0.5 mt-1">
+              <div class="flex items-center gap-1.5 py-1 text-[11px]"><span class="text-[#9fb0bf] truncate">uploads/01a145d8…</span><span class="ml-auto pill pill-open">● 2</span></div>
+              <div class="flex items-center gap-1.5 py-1 text-[11px]"><span class="text-[#9fb0bf] truncate">uploads/7f2c99e1…</span><span class="ml-auto pill">—</span></div>
+              <div class="flex items-center gap-1.5 py-1 text-[11px] bg-[#141b24] -mx-2 px-2 rounded"><span class="text-[#3ddc97]">▸ task.md</span><span class="ml-auto pill pill-open">● 5</span></div>
+            </div>
+            <p class="pt-3 text-[10px] leading-5 text-[#41505f]">evidence on the task — <code>tk evidence</code> uploads + task.md; typed counts read before anything opens; images are commentable right here (R74)</p>
+          </div>
+          <!-- comments preview -->
+          <div class="mt-5">
+            <div class="text-[10px] tracking-widest text-[#7c8b99] pb-1.5 border-b border-[#1d2833]">COMMENTS · 7</div>
+            <div class="mt-2 space-y-2">
+              <div class="flex items-start gap-2 text-[11px]"><span class="avatar bg-[#a78bfa]">K</span><span class="text-[#9fb0bf]">will the mutex deadlock under load? <span class="ln-ref text-[#41505f]">→ retry.ts:43–45</span></span></div>
+              <div class="flex items-start gap-2 text-[11px]"><span class="avatar bg-[#3ddc97]">A</span><span class="text-[#9fb0bf]">bounded at MAX=5, timeout surfaces as <code>RetryError</code>. <span class="ln-ref text-[#41505f]">→ retry.ts (file)</span></span></div>
+              <div class="flex items-start gap-2 text-[11px]"><span class="avatar bg-[#a78bfa]">K</span><span class="text-[#9fb0bf]">this screenshot is the 500 the spike fixed <span class="ln-ref text-[#41505f]">→ evidence:01a145d8</span></span></div>
+            </div>
+            <p class="mt-2.5 text-[10px] leading-5 text-[#41505f]">one comments store — file, line, or evidence; each comment carries where it was made (R73)</p>
+          </div>
+        </div>
+        <!-- right: tabbed side rail -->
+        <div class="border-l border-[#1d2833] py-3 px-3 text-[11.5px] w-[248px] shrink-0 max-md:w-auto max-md:border-l-0 max-md:border-t">
+          <div id="rail-tabs" class="flex text-[9px] tracking-wide border-b border-[#1d2833]">
+            <button data-tab="sessions" class="rail-tab px-1.5 py-1.5 text-[#7c8b99] border-b-2 border-transparent -mb-px">SESSIONS</button>
+            <button data-tab="changes" class="rail-tab px-1.5 py-1.5 text-[#3ddc97] border-b-2 border-[#3ddc97] -mb-px">CHANGES</button>
+            <button data-tab="workspace" class="rail-tab px-1.5 py-1.5 text-[#7c8b99] border-b-2 border-transparent -mb-px">WORKSPC</button>
+            <button data-tab="minimap" class="rail-tab px-1.5 py-1.5 text-[#7c8b99] border-b-2 border-transparent -mb-px">MINIMAP</button>
+          </div>
+          <!-- SESSIONS -->
+          <div data-panel="sessions" class="rail-panel mt-2 hidden">
+            <div class="text-[9px] tracking-widest text-[#41505f]">AGENT RUNS ON THE TASK</div>
+            <table class="w-full text-[10.5px] mt-1">
+              <tr class="text-[#41505f] text-[9px] tracking-widest"><td class="py-1.5">STATUS</td><td>SESSION</td><td class="text-right">UPD</td></tr>
+              <tr class="border-t border-[#1d2833]"><td class="py-1.5"><span class="pill pill-done">DONE</span></td><td class="text-[#9fb0bf] truncate">research patterns</td><td class="text-right text-[#7c8b99]">10m</td></tr>
+              <tr class="border-t border-[#1d2833]"><td class="py-1.5"><span class="pill pill-run">RUNNING</span></td><td class="text-[#9fb0bf] truncate">design discussion</td><td class="text-right text-[#7c8b99]">2m</td></tr>
+              <tr class="border-t border-[#1d2833]"><td class="py-1.5"><span class="pill pill-done">DONE</span></td><td class="text-[#9fb0bf] truncate">retry harness spike</td><td class="text-right text-[#7c8b99]">1h</td></tr>
+            </table>
+            <p class="pt-3 text-[10px] leading-5 text-[#41505f]">sessions live in the rail — the center column belongs to the work (R68)</p>
+          </div>
+          <!-- CHANGES -->
+          <div data-panel="changes" class="rail-panel mt-2">
+            <div class="flex items-center gap-1 text-[9.5px]"><span class="pill pill-run">ALL (2)</span><span class="pill">TO REVIEW (2)</span><span class="ml-auto text-[9px] text-[#41505f]">↑↓ PATH</span></div>
+            <div class="mt-2 space-y-0.5">
+              <div class="flex items-center gap-1.5 py-1"><span class="text-[#9fb0bf]">▸ src/</span><span class="ml-auto text-[#58a6ff]">●</span></div>
+              <div class="flex items-center gap-1.5 py-1 pl-3"><span class="text-[#9fb0bf]">▸ middleware/</span><span class="ml-auto text-[#58a6ff]">●</span></div>
+              <div class="flex items-center gap-1.5 py-1 pl-6 bg-[#141b24] -mx-2 px-2 rounded cursor-pointer" data-open-diff><span class="text-[#3ddc97]">auth.ts</span><span class="pill pill-amber">M</span><span class="ml-auto text-[#58a6ff]">●</span></div>
+              <div class="flex items-center gap-1.5 py-1 pl-3"><span class="text-[#9fb0bf]">▸ uploader/</span><span class="ml-auto text-[#58a6ff]">●</span></div>
+              <div class="flex items-center gap-1.5 py-1 pl-6 cursor-pointer" data-open-diff><span class="text-[#9fb0bf]">retry.ts</span><span class="pill pill-amber">M</span><span class="ml-auto text-[#58a6ff]">●</span></div>
+            </div>
+            <p class="pt-3 text-[10px] leading-5 text-[#41505f]">live from the worktree — a folder dot means something inside still needs review · click a file or the tab to open the diff modal</p>
+          </div>
+          <!-- WORKSPACE -->
+          <div data-panel="workspace" class="rail-panel mt-2 hidden">
+            <div class="space-y-1 text-[10px]">
+              <div class="flex gap-2"><span class="text-[#41505f] w-16 shrink-0">branch</span><span class="text-[#3ddc97]">tk/TK-142 → main</span></div>
+              <div class="flex gap-2"><span class="text-[#41505f] w-16 shrink-0">worktree</span><span class="text-[#9fb0bf]">.worktrees/TK-142</span></div>
+              <div class="flex gap-2"><span class="text-[#41505f] w-16 shrink-0">host</span><span class="text-[#9fb0bf] truncate">Yuris-MacBook-Pro-2</span></div>
+              <div class="flex gap-2 items-center"><span class="text-[#41505f] w-16 shrink-0">state</span><span class="pill pill-amber">2 dirty</span></div>
+            </div>
+            <div class="mt-3 flex gap-1.5">
+              <button class="px-2 h-6 rounded bg-[#1a2531] border border-[#273445] text-[9.5px] text-[#d7e1ea]">commit</button>
+              <button class="px-2 h-6 rounded bg-[#12332a] border border-[#1f6b52] text-[9.5px] text-[#3ddc97]">open pr</button>
+            </div>
+            <p class="pt-3 text-[10px] leading-5 text-[#41505f]">the worktree contract made visible — the task owns it, the rail reports it; the center chips carry the same worktree on narrow views (R70)</p>
+          </div>
+          <!-- MINIMAP -->
+          <div data-panel="minimap" class="rail-panel mt-2 hidden">
+            <div class="flex items-end gap-[3px] h-24">
+              <div class="flex-1 h-10 rounded-sm bg-[#1a2531]"></div>
+              <div class="flex-1 h-16 rounded-sm bg-[#f85149]/40"></div>
+              <div class="flex-1 h-8 rounded-sm bg-[#1a2531]"></div>
+              <div class="flex-1 h-20 rounded-sm bg-[#3fb950]/40"></div>
+              <div class="flex-1 h-12 rounded-sm bg-[#1a2531]"></div>
+              <div class="flex-1 h-24 rounded-sm bg-[#f85149]/40"></div>
+              <div class="flex-1 h-7 rounded-sm bg-[#1a2531]"></div>
+              <div class="flex-1 h-14 rounded-sm bg-[#3fb950]/40"></div>
+            </div>
+            <p class="pt-3 text-[10px] leading-5 text-[#41505f]">the diff at a glance — red/green bars per hunk; click jumps into the diff modal</p>
+          </div>
+        </div>
+      </div>
+      <!-- diff modal (opens on CHANGES or a file) -->
+      <div id="diff-modal" class="absolute inset-0 z-10 hidden items-center justify-center bg-black/60 p-4">
+        <div class="term w-[680px] max-w-full rounded-xl border border-[#273445] overflow-hidden">
+          <div class="flex items-center gap-3 px-4 h-10 border-b border-[#1d2833] text-[11px]">
+            <span class="text-[#41505f]">TK-142</span><span class="text-[#41505f]">/</span><span class="text-[#d7e1ea] font-bold">retry.ts</span>
+            <span class="pill pill-amber">M</span><span class="pill"><span class="text-[#3fb950]">+3</span> <span class="text-[#f85149]">−0</span></span>
+            <button id="diff-modal-open" class="ml-auto pill">⤢ full view</button>
+            <button id="diff-modal-close" class="pill">esc close</button>
+          </div>
+          <div class="text-[11.5px] leading-[1.75]">
+            <div class="px-4 py-1 text-[9.5px] text-[#41505f] border-b border-[#1d2833] flex items-center gap-2"><span>@@ −40,7 +40,9 @@ withRetry</span><span class="ml-auto text-[#58a6ff]">＋ comment on this file</span></div>
+            <div class="px-4">
+              <div class="ctx hover-line"><span class="ln">41</span><span class="pl-1">export async function withRetry&lt;T&gt;(token: string): Promise&lt;T&gt; {</span></div>
+              <div class="ctx hover-line"><span class="ln">42</span><span class="pl-1">  const session = await getSession(token)</span></div>
+              <div class="del hover-line"><span class="ln">43</span><span class="pl-1">-  const res = await fetch(REFRESH_URL, { token })</span></div>
+              <div class="del hover-line"><span class="ln">44</span><span class="pl-1">-  if (res.status === 401) return retry(token)</span></div>
+              <div class="add hover-line"><span class="ln">43</span><span class="pl-1">+  const res = await refreshMutex.run(token, async () =&gt; {</span></div>
+              <div class="add hover-line"><span class="ln">44</span><span class="pl-1">+    return fetch(REFRESH_URL, { token })</span></div>
+              <div class="add relative hover-line"><span class="anchor-dot"></span><span class="ln">45</span><span class="pl-1">+  })</span></div>
+              <div class="ctx hover-line"><span class="ln">46</span><span class="pl-1">  if (!res.ok) throw new RetryError(res.status)</span></div>
+            </div>
+            <div class="mx-4 my-2 panel rounded-lg p-2.5 border-[#273445]">
+              <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#a78bfa]">K</span><span class="text-[#d7e1ea]">kyle</span><span>just now</span><span class="ml-auto pill pill-open">retry.ts:43</span></div>
+              <p class="mt-1.5 leading-5 text-[#c3d0dc]">will the mutex deadlock if the refresh endpoint itself returns 401?</p>
+              <div class="mt-1.5 flex gap-2 text-[9px] text-[#58a6ff]"><span>REPLY</span><span class="text-[#41505f]">·</span><span class="text-[#9fb0bf]">resolve</span></div>
+              <div class="mt-2 flex items-center gap-2 rounded-md border border-[#273445] bg-[#0b0f14] px-2.5 h-7 text-[10px] text-[#41505f]">reply… <span class="ml-auto text-[#58a6ff]">⌘⏎ send</span></div>
+            </div>
+            <div class="px-4 pb-2 text-[9.5px] text-[#41505f]">click any line to comment · file-level via ＋ · comments land in the task's one store with their location (R71 R72 R73)</div>
+          </div>
+          <div class="flex flex-wrap gap-x-4 gap-y-1 px-4 h-8 items-center border-t border-[#1d2833] text-[9.5px] text-[#7c8b99]">
+            <span><span class="kbd">c</span> comment on a line</span>
+            <span><span class="kbd">C</span> comment on the file</span>
+            <span><span class="kbd">esc</span> close</span>
+            <span class="ml-auto text-[#58a6ff]">⤢ full view — file · line · evidence</span>
+          </div>
+        </div>
+      </div>
+    </div>

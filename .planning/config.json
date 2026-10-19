@@ -15,7 +15,8 @@
     "create_tag": true,
     "phase_branch_template": "gsd/phase-{phase}-{slug}",
     "milestone_branch_template": "gsd/{milestone}-{slug}",
-    "quick_branch_template": null
+    "quick_branch_template": null,
+    "allow_default_branch_commits": true
   },
   "workflow": {
     "research": false,
@@ -47,7 +48,9 @@
     "post_planning_gaps": true,
     "security_enforcement": true,
     "security_asvs_level": 1,
-    "security_block_on": "high"
+    "security_block_on": "high",
+    "_auto_chain_active": true,
+    "use_worktrees": false
   },
   "ship": {
     "pr_body_sections": [
@@ -90,5 +93,6 @@
   },
   "resolve_model_ids": "omit",
   "mode": "yolo",
-  "granularity": "standard"
+  "granularity": "standard",
+  "response_language": "English"
 }

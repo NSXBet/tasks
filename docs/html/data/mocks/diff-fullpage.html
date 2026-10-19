@@ -1,0 +1,53 @@
+<!-- §3 · DIFF · FULL PAGE (TUI · hunk) (verbatim from task-to-review.html) -->
+<figure >
+    <div class="term overflow-hidden rounded-xl border-[#273445]">
+      <!-- menu bar -->
+      <div class="flex items-center gap-5 px-4 h-8 border-b border-[#1d2833] text-[10.5px] text-[#9fb0bf]">
+        <span class="text-[#3ddc97] font-bold">diff</span><span>File</span><span>View</span><span>Navigate</span><span>Commit</span><span>Help</span>
+        <span class="ml-auto pill pill-open">tk/TK-142 → main</span>
+      </div>
+      <div class="grid grid-cols-[240px_1fr]">
+        <!-- files pane -->
+        <div class="border-r border-[#1d2833] py-3 text-[11px]">
+          <div class="px-4 pb-2 text-[10px] tracking-widest text-[#7c8b99]">FILES · 3</div>
+          <div class="px-4 py-1.5 flex items-center gap-2"><span class="pill pill-amber">M</span><span class="text-[#3ddc97] truncate">src/uploader/retry.ts</span><span class="ml-auto whitespace-nowrap text-[9.5px]"><span class="text-[#3fb950]">+18</span> <span class="text-[#f85149]">−4</span></span></div>
+          <div class="px-4 py-1.5 flex items-center gap-2 bg-[#141b24] border-l-2 border-[#3ddc97]"><span class="pill pill-amber">M</span><span class="text-[#d7e1ea] truncate">src/middleware/auth.ts</span><span class="ml-auto whitespace-nowrap text-[9.5px]"><span class="text-[#3fb950]">+12</span> <span class="text-[#f85149]">−6</span></span></div>
+          <div class="px-4 py-1.5 flex items-center gap-2"><span class="pill pill-done">A</span><span class="text-[#9fb0bf] truncate">test/uploader/retry.test.ts</span><span class="ml-auto whitespace-nowrap text-[9.5px]"><span class="text-[#3fb950]">+8</span> <span class="text-[#f85149]">−0</span></span></div>
+          <div class="px-4 pt-4 text-[10px] leading-5 text-[#41505f]">watching worktree — re-derives as commits land <span class="text-[#3ddc97]">●</span></div>
+        </div>
+        <!-- diff pane -->
+        <div class="py-3 text-[11.5px] leading-[1.75] min-h-[330px]">
+          <div class="px-4 pb-1 flex items-center gap-2 text-[10px] text-[#7c8b99]">
+            <span class="text-[#d7e1ea] font-bold">src/uploader/retry.ts</span>
+            <span class="pill">unified</span><span class="text-[#41505f]">1 unified · 2 split</span>
+          </div>
+          <div class="px-4 py-1 text-[10.5px] text-[#a78bfa]">@@
+
+ -41,9 +41,11 @@ async function retry(token: string)</div>
+          <div class="ctx"><span class="ln">41</span><span class="ln">41</span><span class="pl-1">export async function withRetry&lt;T&gt;(token: string): Promise&lt;T&gt; {</span></div>
+          <div class="ctx"><span class="ln">42</span><span class="ln">42</span><span class="pl-1">  const session = await getSession(token)</span></div>
+          <div class="del"><span class="ln">43</span><span class="ln"></span><span class="pl-1">-  const res = await fetch(REFRESH_URL, { token })</span></div>
+          <div class="del"><span class="ln">44</span><span class="ln"></span><span class="pl-1">-  if (res.status === 401) return retry(token)</span></div>
+          <div class="add"><span class="ln"></span><span class="ln">43</span><span class="pl-1">+  const res = await refreshMutex.run(token, async () =&gt; {</span></div>
+          <div class="add"><span class="ln"></span><span class="ln">44</span><span class="pl-1">+    return fetch(REFRESH_URL, { token })</span></div>
+          <div class="add"><span class="ln"></span><span class="ln">45</span><span class="pl-1">+  })</span></div>
+          <div class="ctx"><span class="ln">45</span><span class="ln">46</span><span class="pl-1">  if (!res.ok) throw new RetryError(res.status)</span></div>
+          <!-- agent context note -->
+          <div class="mx-4 mt-3 panel rounded-lg border-[#273445] p-2.5 text-[10.5px] leading-5">
+            <span class="pill pill-run">a · agent notes</span>
+            <p class="mt-1.5 text-[#9fb0bf] italic">Rationale: the retry loop raced the refresh window — a 401 storm could hold a half-refreshed
+            token. Bounded mutex (MAX=5) with <code>RetryError</code> on timeout.</p>
+          </div>
+          <!-- review note -->
+          <div class="mx-4 mt-3 panel rounded-lg border-[#1f6b52] p-2.5 text-[10.5px] leading-5">
+            <div class="flex items-center gap-2 text-[10px] text-[#7c8b99]"><span class="avatar bg-[#a78bfa]">K</span><span class="text-[#d7e1ea]">kyle</span><span>on line 43</span>
+              <span class="ml-auto flex gap-2 text-[9px] text-[#58a6ff]"><span class="kbd">E</span><span>edit</span><span class="kbd">R</span><span>reply</span></span></div>
+            <p class="mt-1.5 text-[#c3d0dc]">will the mutex deadlock if the refresh endpoint itself returns 401?</p>
+          </div>
+        </div>
+      </div>
+      <!-- footer keys -->
+      <div class="flex flex-wrap gap-x-4 gap-y-1 px-4 h-8 items-center border-t border-[#1d2833] text-[9.5px] text-[#7c8b99]">
+        <span><span class="kbd">q</span> quit</span><span><span class="kbd">r</span> refresh</span><span><span class="kbd">c</span> note</span><span><span class="kbd">]</span>/<span class="kbd">[</span> hunk</span><span><span class="kbd">.</span>/<span class="kbd">,</span> file</span><span><span class="kbd">1</span>/<span class="kbd">2</span> layout</span><span><span class="kbd">s</span> files pane</span><span><span class="kbd">l</span> line numbers</span><span><span class="kbd">z</span> context</span><span><span class="kbd">/</span> search</span><span><span class="kbd">v</span> select</span><span><span class="kbd">y</span> copy</span><span><span class="kbd">a</span> notes</span><span><span class="kbd">t</span> theme</span><span><span class="kbd">?</span> help</span>
+      </div>
+    </div>

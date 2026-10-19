@@ -1,0 +1,22 @@
+version: '3'
+
+tasks:
+  install:
+    desc: Install docs dependencies
+    cmds:
+      - bun install
+
+  dev:
+    desc: Dev server
+    cmds:
+      - bun run dev
+
+  build:
+    desc: Static build with Pagefind full-text index
+    cmds:
+      - bun run build
+
+  run:
+    desc: Serve the built site
+    cmds:
+      - bun run preview
