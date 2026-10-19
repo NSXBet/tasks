@@ -45,6 +45,18 @@ describe("git adapter commands", () => {
     expect(runner.commands.every((command) => command[0] === "git")).toBe(true);
   });
 
+  it("gitDefaultBranch: keeps origin/HEAD when the remote is not behind the local default", async () => {
+    // Diverged (is-ancestor fails) → remote stays the integration anchor.
+    const diverged = fakeRunner({
+      "git symbolic-ref --quiet --short refs/remotes/origin/HEAD": "origin/main",
+      "git rev-parse --verify --quiet main": "sha1",
+    });
+    expect(await gitDefaultBranch("/repo", diverged)).toBe("origin/main");
+    // No remote HEAD → plain local candidate.
+    const localOnly = fakeRunner({ "git rev-parse --verify --quiet main": "sha1" });
+    expect(await gitDefaultBranch("/repo", localOnly)).toBe("main");
+  });
+
   it("surfaces non-zero exits as { code, stderr } verbatim instead of a success-shaped default", async () => {
     const runner: ProcessRunner = {
       async run() {
@@ -71,6 +83,21 @@ describe("git adapter commands", () => {
 });
 
 describe("git integration", () => {
+  it("anchors the default branch to the local line when origin/HEAD is stale (phase-02 UAT issue 2)", async () => {
+    const origin = repo();
+    const og = (...args: readonly string[]) => Bun.spawnSync(["git", ...args], { cwd: origin, stdout: "pipe", stderr: "pipe" });
+    og("init", "-q", "--initial-branch=main");
+    og("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--allow-empty", "-m", "init");
+    const clone = repo();
+    const cg = (...args: readonly string[]) => Bun.spawnSync(["git", ...args], { cwd: clone, stdout: "pipe", stderr: "pipe" });
+    expect(cg("clone", "--quiet", origin, clone).exitCode).toBe(0);
+    // In sync: origin/HEAD keeps precedence.
+    expect(await gitDefaultBranch(clone)).toBe("origin/main");
+    // Local commit left unpulled (the reweld scenario: origin/main behind local main).
+    expect(cg("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--allow-empty", "-m", "local ahead").exitCode).toBe(0);
+    expect(await gitDefaultBranch(clone)).toBe("main");
+  });
+
   it("creates, lists, and removes a worktree end to end", async () => {
     const dir = repo();
     const git = (...args: readonly string[]) => Bun.spawnSync(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });

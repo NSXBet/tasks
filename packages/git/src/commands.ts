@@ -22,12 +22,27 @@ export const gitToplevel = (cwd: string, runner: ProcessRunner = bunRunner): Pro
 
 export const gitCurrentBranch = (cwd: string, runner: ProcessRunner = bunRunner): Promise<string | null> => git(runner, cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
 
-/** Default integration branch: remote HEAD when configured, otherwise main/master. */
+/**
+ * Default integration branch: remote HEAD when configured, otherwise
+ * main/master. A local-first repo routinely outgrows its remote (rewelded
+ * history, unpushed work): when the local default tip descends from the
+ * remote tip, the remote is stale and must not anchor changeset bases —
+ * the local branch wins. In-sync, diverged, or remote-ahead cases keep
+ * origin/HEAD.
+ */
 export async function gitDefaultBranch(cwd: string, runner: ProcessRunner = bunRunner): Promise<string | null> {
   const remote = await git(runner, cwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
-  if (remote !== null) return remote;
-  for (const candidate of ["main", "master"]) if (await git(runner, cwd, ["rev-parse", "--verify", "--quiet", candidate])) return candidate;
-  return null;
+  for (const candidate of ["main", "master"]) {
+    if (!(await git(runner, cwd, ["rev-parse", "--verify", "--quiet", candidate]))) continue;
+    if (remote === null) return candidate;
+    // Strictly ahead only: equal tips (fresh clone, in sync) keep origin/HEAD,
+    // because --is-ancestor succeeds for identical refs in both directions.
+    const descends = (await runner.run(["git", "merge-base", "--is-ancestor", remote, candidate], cwd)).code === 0;
+    if (!descends) return remote;
+    const equal = (await runner.run(["git", "merge-base", "--is-ancestor", candidate, remote], cwd)).code === 0;
+    return equal ? remote : candidate;
+  }
+  return remote;
 }
 
 /** Merge base of two refs, or null when they have none (or a ref is missing). */
