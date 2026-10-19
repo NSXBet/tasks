@@ -3,6 +3,7 @@ import { createRoot, useKeyboard } from "@opentui/react";
 import { rootFrom } from "@tasks/surface";
 import { readWorkspaceConfig } from "@tasks/workspace";
 import { App } from "./app/App.js";
+import { bootSink, resolveTarget, type BootSlots } from "./app/routes.js";
 import { openTuiStore, parseImageSize, resolveImageSize, type ImageSize } from "./store.js";
 
 /**
@@ -27,6 +28,25 @@ if (flagIndex !== -1) {
     process.exit(2);
   }
   sizeFlag = parsed;
+}
+
+// Boot deep link: any argv value shaped `tk://…` is pulled out, resolved
+// before render, and handed to App as initial-state slots. An unknown route
+// fails loudly here — the UI never boots into a broken address. A resolvable
+// route naming an absent issue still boots (App toasts after first fetch).
+const linkIndex = args.findIndex((arg) => arg.startsWith("tk://"));
+let boot: BootSlots | null = null;
+if (linkIndex !== -1) {
+  const query = args.splice(linkIndex, 1)[0]!;
+  const resolved = resolveTarget(query);
+  if (resolved.ok) {
+    const { sink, slots } = bootSink();
+    resolved.target.apply(sink);
+    boot = slots;
+  } else {
+    process.stderr.write(`tk tui: ${resolved.error}\n`);
+    process.exit(2);
+  }
 }
 
 const rootArg = args[0];
@@ -60,7 +80,7 @@ try {
   createRoot(renderer).render(
     <>
       <GlobalKeys />
-      <App store={store} actor={actor} onQuit={quit} imageSize={imageSize} />
+      <App store={store} actor={actor} onQuit={quit} imageSize={imageSize} boot={boot} />
     </>,
   );
 } catch (cause) {

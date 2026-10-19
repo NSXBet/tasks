@@ -1,6 +1,7 @@
 import { useKeyboard } from "@opentui/react";
 import { useMemo } from "react";
 import { useApp } from "./context.js";
+import type { RouteEntry } from "./routes.js";
 import { colors, priorityLabel, statusColor } from "../theme.js";
 import { padStart, relativeAge, truncate } from "../format.js";
 import { chainLengths, criticalChain, detectCycles, graphDensity, isBlocked, isReady, unblockGains } from "../store.js";
@@ -139,3 +140,6 @@ const InsightPanel = ({ panel, active, selectedRow }: {
     )}
   </box>
 );
+
+/** Deep link `tk://insights`. */
+export const insightsRoute: RouteEntry = { kind: "insights", path: ["insights"], apply: (sink) => { sink.setView("insights"); } };

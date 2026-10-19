@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { UpdatePatch, WatchEvent } from "@tasks/surface";
-import { AppContext, useApp, type AppActions, type AppContextValue, type AppState, type ViewKind } from "./context.js";
+import { taskStoreCommentStore, type ReviewCommentStore } from "@tasks/review";
+import { hunkAnchorLine, resolveReviewSource } from "../review/source.js";
+import type { BootSlots } from "./routes.js";
+import { AppContext, useApp, type AppActions, type AppContextValue, type AppState, type ReviewState, type ViewKind } from "./context.js";
 import { Composer } from "./composer.js";
 import { HelpOverlay } from "./help.js";
 import { NavRail } from "./nav.js";
@@ -26,6 +29,8 @@ interface AppProps {
   readonly wipLimit?: number | null;
   /** Attachment-image cell size; resolved by main.tsx (flag > config > default). */
   readonly imageSize?: ImageSize;
+  /** Deep-link boot slots from main.tsx; null = plain launch. */
+  readonly boot?: BootSlots | null;
 }
 
 const clampPriority = (value: number): number => Math.min(4, Math.max(0, value));
@@ -39,26 +44,29 @@ const emptyBoard: Board = { issues: [], activeSprintId: null, counts: { open: 0,
  * here — the detail pane when open, else the focused row/card — so the same
  * key never hits two panes.
  */
-export const App = ({ store, actor, onQuit, wipLimit = null, imageSize = DEFAULT_IMAGE_SIZE }: AppProps) => {
+export const App = ({ store, actor, onQuit, wipLimit = null, imageSize = DEFAULT_IMAGE_SIZE, boot = null }: AppProps) => {
   const [board, setBoard] = useState(emptyBoard);
   const [stale, setStale] = useState(true);
-  const [view, setView] = useState<ViewKind>("list");
-  const [modalId, setModalId] = useState<string | null>(null);
-  const [helpOpen, setHelpOpen] = useState(false);
+  const [view, setView] = useState<ViewKind>(boot?.view ?? "list");
+  const [modalId, setModalId] = useState<string | null>(boot?.modalId ?? null);
+  const [helpOpen, setHelpOpen] = useState(boot?.helpOpen ?? false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [filter, setFilter] = useState<FilterKind>("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(0);
-  const [detailId, setDetailId] = useState<string | null>(null);
-  const [composer, setComposer] = useState<AppState["composer"]>({ mode: "closed", forId: null, initial: "", confirm: null });
+  const [detailId, setDetailId] = useState<string | null>(boot?.detailId ?? null);
+  const [composer, setComposer] = useState<AppState["composer"]>(boot?.composer ?? { mode: "closed", forId: null, initial: "", confirm: null, review: null });
   const [boardSel, setBoardSel] = useState({ col: 0, row: 0 });
-  const [graphId, setGraphId] = useState<string | null>(null);
+  const [graphId, setGraphId] = useState<string | null>(boot?.graphId ?? null);
   const [graphWalk, setGraphWalk] = useState(0);
-  const [diffOpen, setDiffOpen] = useState(false);
+  const [diffOpen, setDiffOpen] = useState(boot?.diffOpen ?? false);
+  const [reviewId, setReviewId] = useState<string | null>(boot?.reviewId ?? null);
+  const [review, setReview] = useState<ReviewState | null>(null);
+  const commentStoreRef = useRef<ReviewCommentStore | null>(null);
   const [insightsSel, setInsightsSel] = useState({ panel: 0, row: 0 });
   const [toast, setToast] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState<WatchEvent | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimer = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -80,13 +88,51 @@ export const App = ({ store, actor, onQuit, wipLimit = null, imageSize = DEFAULT
     return () => { stop(); };
   }, [store, refresh]);
 
-  useEffect(() => () => { if (toastTimer.current !== null) clearTimeout(toastTimer.current); }, []);
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   const notify = useCallback((message: string): void => {
     setToast(message);
-    if (toastTimer.current !== null) clearTimeout(toastTimer.current);
+    clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }, []);
+
+  // Lenient boot: a deep link naming an absent issue still boots; once the
+  // board is fetched (stale false) and proves the id missing, toast it.
+  useEffect(() => {
+    const targetId = boot?.targetId ?? null;
+    if (targetId === null || stale || board.issues.some((issue) => issue.id === targetId)) return;
+    notify(`unknown issue ${targetId}`);
+  }, [board, boot, stale, notify]);
+
+  // Live review session: resolve the diff source and threads for reviewId.
+  const reviewStore = useCallback((): ReviewCommentStore => {
+    if (commentStoreRef.current === null) commentStoreRef.current = taskStoreCommentStore(store.surface.store);
+    return commentStoreRef.current;
+  }, [store]);
+
+  useEffect(() => {
+    if (reviewId === null) { setReview(null); return; }
+    let cancelled = false;
+    setReview({ issueId: reviewId, source: null, threads: [], layout: "unified", fileIndex: 0, hunkIndex: null, threadIndex: 0, loading: true });
+    void (async () => {
+      const issue = board.issues.find((candidate) => candidate.id === reviewId) ?? null;
+      let threads: ReviewState["threads"] = [];
+      try {
+        threads = (await reviewStore().listThreads(reviewId)).threads;
+      } catch {
+        notify("review threads unavailable");
+      }
+      let source: ReviewState["source"];
+      if (issue === null) {
+        source = { issueId: reviewId, branch: null, cwd: store.surface.store.root, base: null, files: [], additions: 0, deletions: 0, error: `unknown issue ${reviewId}` };
+      } else {
+        source = await resolveReviewSource(issue, store.surface.store.root);
+      }
+      if (cancelled) return;
+      setReview((current) => (current === null || current.issueId !== reviewId ? current : { ...current, source, threads, loading: false }));
+    })();
+    return () => { cancelled = true; };
+  }, [reviewId, board, store, notify, reviewStore]);
 
   const reportError = useCallback((outcome: { ok: boolean; error?: { message: string } }, label: string): boolean => {
     if (outcome.ok) return true;
@@ -106,10 +152,10 @@ export const App = ({ store, actor, onQuit, wipLimit = null, imageSize = DEFAULT
     setSelected,
     openDetail: (id) => { setDetailId(id); setView("list"); },
     closeDetail: () => setDetailId(null),
-    openComposer: (mode, forId = null, initial = "") => setComposer({ mode, forId: forId ?? null, initial, confirm: null }),
+    openComposer: (mode, forId = null, initial = "") => setComposer({ mode, forId: forId ?? null, initial, confirm: null, review: null }),
     setBoardSel,
-    requestConfirm: (request) => setComposer({ mode: "confirm", forId: request.id, initial: "", confirm: request }),
-    closeComposer: () => setComposer({ mode: "closed", forId: null, initial: "", confirm: null }),
+    requestConfirm: (request) => setComposer({ mode: "confirm", forId: request.id, initial: "", confirm: request, review: null }),
+    closeComposer: () => setComposer({ mode: "closed", forId: null, initial: "", confirm: null, review: null }),
     setStatus: async (id, status) => {
       const outcome = await store.surface.status(id, { status });
       if (reportError(outcome, `status ${id}`)) notify(`${id} → ${status}`);
@@ -183,14 +229,79 @@ export const App = ({ store, actor, onQuit, wipLimit = null, imageSize = DEFAULT
     openGraph: (id) => { setGraphId(id); setView("graph"); setHelpOpen(false); },
     openDiffModal: () => setDiffOpen(true),
     closeDiffModal: () => setDiffOpen(false),
+    openReview: (id) => { setReviewId(id); setView("diff"); setHelpOpen(false); setPaletteOpen(false); },
+    ensureReview: (id) => setReviewId(id),
+    setReviewLayout: (layout) => setReview((current) => current === null ? null : { ...current, layout }),
+    setReviewFile: (index) => setReview((current) => current === null ? null : { ...current, fileIndex: Math.max(0, index), hunkIndex: null, threadIndex: 0 }),
+    setReviewHunk: (index) => setReview((current) => current === null ? null : { ...current, hunkIndex: index }),
+    setReviewThread: (index) => setReview((current) => current === null ? null : { ...current, threadIndex: Math.max(0, index) }),
+    openReviewComposer: (kind) => {
+      if (review === null) return;
+      const file = review.source?.files[review.fileIndex] ?? null;
+      const fileThreads = file === null ? review.threads : review.threads.filter((thread) => thread.filePath === file.path);
+      const thread = fileThreads[review.threadIndex] ?? null;
+      if (kind === "comment") {
+        if (file === null) return;
+        const anchor = review.hunkIndex === null ? null : hunkAnchorLine(file, review.hunkIndex);
+        setComposer({ mode: "review-comment", forId: review.issueId, initial: "", confirm: null, review: { filePath: file.path ?? "", line: anchor, threadId: null, commentId: null } });
+        return;
+      }
+      if (thread === null) return;
+      const comment = kind === "edit" ? thread.comments[thread.comments.length - 1] ?? null : null;
+      if (kind === "edit" && comment === null) return;
+      setComposer({
+        mode: kind === "reply" ? "review-reply" : "review-edit",
+        forId: review.issueId,
+        initial: comment?.body ?? "",
+        confirm: null,
+        review: { filePath: thread.filePath, line: thread.line ?? null, threadId: thread.id, commentId: comment?.id ?? null },
+      });
+    },
+    submitReview: async (body) => {
+      if (review === null || composer.review === null) return;
+      const api = reviewStore();
+      const placement = composer.review;
+      try {
+        if (composer.mode === "review-comment" && placement.filePath !== null) {
+          await api.createThread(review.issueId, placement.line === null ? { filePath: placement.filePath, body, author: actor } : { filePath: placement.filePath, line: placement.line, body, author: actor });
+          notify("thread created");
+        } else if (composer.mode === "review-reply" && placement.threadId !== null) {
+          await api.appendReply(review.issueId, placement.threadId, { body, author: actor });
+          notify("reply added");
+        } else if (composer.mode === "review-edit" && placement.threadId !== null && placement.commentId !== null) {
+          await api.editThreadComment(review.issueId, placement.threadId, placement.commentId, body);
+          notify("comment edited");
+        }
+        const threads = (await api.listThreads(review.issueId)).threads;
+        setReview((current) => current === null ? null : { ...current, threads });
+        setComposer({ mode: "closed", forId: null, initial: "", confirm: null, review: null });
+      } catch {
+        notify("review comment failed");
+      }
+    },
+    toggleReviewResolved: async () => {
+      if (review === null) return;
+      const file = review.source?.files[review.fileIndex] ?? null;
+      const fileThreads = file === null ? review.threads : review.threads.filter((thread) => thread.filePath === file.path);
+      const thread = fileThreads[review.threadIndex] ?? null;
+      if (thread === null) return;
+      try {
+        await reviewStore().setThreadResolved(review.issueId, thread.id, { resolved: !thread.resolved, actor });
+        const threads = (await reviewStore().listThreads(review.issueId)).threads;
+        setReview((current) => current === null ? null : { ...current, threads });
+        notify(thread.resolved ? "thread reopened" : "thread resolved");
+      } catch {
+        notify("resolve failed");
+      }
+    },
     notify,
     quit: onQuit,
-  }), [store, refresh, notify, reportError, onQuit]);
+  }), [store, refresh, notify, reportError, onQuit, review, composer, actor, reviewStore]);
 
   const state: AppState = useMemo(() => ({
     store, actor, imageSize, board, stale, view, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer,
-    boardSel: { ...boardSel }, graphId, graphWalk, diffOpen, insightsSel: { ...insightsSel }, wipLimit, toast,
-  }), [store, actor, imageSize, board, stale, view, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer, boardSel, graphId, graphWalk, diffOpen, insightsSel, wipLimit, toast]);
+    boardSel: { ...boardSel }, graphId, graphWalk, diffOpen, review, insightsSel: { ...insightsSel }, wipLimit, toast,
+  }), [store, actor, imageSize, board, stale, view, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer, boardSel, graphId, graphWalk, diffOpen, review, insightsSel, wipLimit, toast]);
 
   const value: AppContextValue = useMemo(() => ({ state, actions, lastEvent }), [state, actions, lastEvent]);
 

@@ -1,6 +1,7 @@
 import { useKeyboard } from "@opentui/react";
 import { useEffect, useRef } from "react";
 import { useApp } from "./context.js";
+import type { RouteEntry } from "./routes.js";
 import { colors, priorityLabel, statusGlyph, typeEmoji } from "../theme.js";
 import { padStart, relativeAge, truncate } from "../format.js";
 import { kanbanGroups, visibleIssues, type KanbanCard, type KanbanGroup } from "../store.js";
@@ -142,3 +143,6 @@ const CardRow = ({ card, selected, dim, onMouseDown }: {
     </box>
   );
 };
+
+/** Deep link `tk://board`. */
+export const boardRoute: RouteEntry = { kind: "board", path: ["board"], apply: (sink) => { sink.setView("board"); } };

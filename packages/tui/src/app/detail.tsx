@@ -1,6 +1,8 @@
 import { useMemo, useEffect, useRef, useState } from "react";
 import { NativeImage } from "@opentui/core";
+import { useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useApp } from "./context.js";
+import type { RouteEntry } from "./routes.js";
 import { colors, priorityColor, priorityLabel, statusColor } from "../theme.js";
 import { relativeAge, truncate } from "../format.js";
 import { dependencyTree, fittedImageCells } from "../store.js";
@@ -39,12 +41,22 @@ const mdLines = (source: string): readonly MdLine[] => {
  * grid of the fitted cell box, then rendered with `fit="fill"`: every native
  * blocks-protocol sample maps 1:1 onto a prescaled pixel, so downscaled
  * screenshots keep their structure (raw 1600×880 bytes point-sample to noise —
- * pixel-proven in .agents/tests/tui-test-tasks-5aof). Undecodable bytes fall
- * back to the raw-bytes render. Kitty/sixel stay pinned off: Ghostty 1.3.x
- * never paints their virtual placements.
+ * pixel-proven in .agents/tests/tui-test-tasks-5aof). The fitted box is clamped
+ * to the detail pane's live cell width (mirrored from App.tsx layout) so narrow
+ * terminals prescale down instead of clipping the image at the border.
+ * Undecodable bytes fall back to the raw-bytes render. When the terminal
+ * advertises kitty graphics (Ghostty 1.3.x paints direct-pixel f=24/32
+ * placements; its PNG f=100 transport is silently dropped), the original
+ * bytes go to `protocol="auto"` so the native kitty path down- or upscales
+ * into the fitted box itself — the blocks prescale (2 vertical px per cell)
+ * would waste that resolution.
  */
-const BlobImage = ({ issueId, refId }: { readonly issueId: string; readonly refId: string }) => {
+const BlobImage = ({ issueId, refId, maxCellWidth }: { readonly issueId: string; readonly refId: string; readonly maxCellWidth: number }) => {
   const { state } = useApp();
+  // Capabilities settle during createCliRenderer (before React renders), and
+  // detail-view images mount on navigation, long after detection. Not reactive:
+  // a capability change after mount wouldn't re-render this component.
+  const kitty = useRenderer().capabilities?.kitty_graphics === true;
   const [content, setContent] = useState<BlobContent | null | "loading">("loading");
   const [scaled, setScaled] = useState<NativeImage | null>(null);
   const [decodeFailed, setDecodeFailed] = useState(false);
@@ -67,7 +79,7 @@ const BlobImage = ({ issueId, refId }: { readonly issueId: string; readonly refI
     setDecodeFailed(false);
     try {
       const source = NativeImage.decode(content.bytes);
-      const cells = fittedImageCells(source.width, source.height, state.imageSize);
+      const cells = fittedImageCells(source.width, source.height, { width: Math.min(state.imageSize.width, maxCellWidth), height: state.imageSize.height });
       const resized = source.resize({ width: cells.width, height: cells.height * 2, kernel: "area" });
       source.dispose();
       owned.current = resized;
@@ -76,7 +88,7 @@ const BlobImage = ({ issueId, refId }: { readonly issueId: string; readonly refI
       setDecodeFailed(true);
       setScaled(null);
     }
-  }, [content, state.imageSize.width, state.imageSize.height]);
+  }, [content, state.imageSize.width, state.imageSize.height, maxCellWidth]);
   useEffect(() => () => { owned.current?.dispose(); owned.current = null; }, []);
 
   if (content === "loading") return <text fg={colors.dim} content={`   ▣ ${refId} …`} />;
@@ -87,15 +99,24 @@ const BlobImage = ({ issueId, refId }: { readonly issueId: string; readonly refI
   // fill + the exact fitted cell size keeps the pre-scaled source 1:1 (fill uses
   // the box size directly; fit would re-derive the grid from a cellAspectRatio).
   if (scaled !== null) {
+    if (kitty) {
+      // Native kitty path: hand it the full-resolution bytes; it decodes and
+      // samples into the fitted box itself.
+      return <image source={content.bytes} fit="fill" protocol="auto" style={{ width: scaled.width, height: scaled.height / 2, marginLeft: 2 }} />;
+    }
     return <image source={scaled} fit="fill" protocol="blocks" style={{ width: scaled.width, height: scaled.height / 2, marginLeft: 2 }} />;
   }
-  if (decodeFailed) return <image source={content.bytes} fit="fit" protocol="blocks" style={{ width: state.imageSize.width, height: state.imageSize.height, marginLeft: 2 }} />;
+  if (decodeFailed) return <image source={content.bytes} fit="fit" protocol="blocks" style={{ width: Math.min(state.imageSize.width, maxCellWidth), height: state.imageSize.height, marginLeft: 2 }} />;
   return null;
 };
 
 /** Right pane: full issue detail. Owns its scroll; closes with Escape. */
 export const IssueDetail = () => {
   const { state } = useApp();
+  const { width: termWidth } = useTerminalDimensions();
+  // Mirror of App.tsx layout: 18-col NavRail + 50% detail split, minus the pane's
+  // rounded border (2) and the image's marginLeft (2); floored with a floor guard.
+  const imageMaxCellWidth = Math.max(4, Math.floor((termWidth - 18) / 2) - 4);
   const issue = state.board.issues.find((candidate) => candidate.id === state.detailId) ?? null;
 
   const tree = useMemo(() => (issue === null ? [] : dependencyTree(state.board.issues, issue.id, "up", 2)), [issue, state.board.issues]);
@@ -133,7 +154,7 @@ export const IssueDetail = () => {
         {description.length > 0 ? (
           <box style={{ flexDirection: "column", marginBottom: 1 }}>
             {description.map((line, index) => {
-              if (line.kind === "img") return <BlobImage key={index} issueId={issue.id} refId={line.text} />;
+              if (line.kind === "img") return <BlobImage key={index} issueId={issue.id} refId={line.text} maxCellWidth={imageMaxCellWidth} />;
               if (line.kind === "blank") return <text key={index} content=" " />;
               if (line.kind === "h") return <text key={index} fg={colors.text}>{line.text}</text>;
               if (line.kind === "code") return <text key={index} fg={colors.cyan} content={`  ${line.text}`} />;
@@ -154,7 +175,7 @@ export const IssueDetail = () => {
                     <span fg={colors.cyan}>{` ${attachment.name}`}</span>
                     <span fg={colors.dim}>{` ${attachment.id} · ${attachment.kind} · ${(attachment.size / 1024).toFixed(1)} kB`}</span>
                   </text>
-                  {attachment.mime.startsWith("image/") ? <BlobImage issueId={issue.id} refId={attachment.id} /> : null}
+                  {attachment.mime.startsWith("image/") ? <BlobImage issueId={issue.id} refId={attachment.id} maxCellWidth={imageMaxCellWidth} /> : null}
                 </box>
               ) : (
                 <text key={attachment.path}>
@@ -183,7 +204,7 @@ export const IssueDetail = () => {
           <box key={comment.id} style={{ flexDirection: "column" }}>
             <text><span fg={colors.dim}>▎</span><span fg={colors.cyan}>{` ${comment.author}`}</span><span fg={colors.dim}>{` (${relativeAge(comment.createdAt, state.board.fetchedAt)} ago)`}</span></text>
             {comment.text.split(/(evidence:ev-[a-z0-9]{6})/).map((chunk, index) => {
-              if (EVIDENCE_CHUNK_RE.test(chunk)) return <BlobImage key={`${comment.id}:${index}`} issueId={issue.id} refId={chunk.slice("evidence:".length)} />;
+              if (EVIDENCE_CHUNK_RE.test(chunk)) return <BlobImage key={`${comment.id}:${index}`} issueId={issue.id} refId={chunk.slice("evidence:".length)} maxCellWidth={imageMaxCellWidth} />;
               if (chunk === "") return null;
               return chunk.split("\n").map((line, lineIndex) => (
                 <text key={`${comment.id}:${index}:${lineIndex}`}><span fg={colors.dim}>▎</span><span fg={colors.dim}>{` ${truncate(line, 96)}`}</span></text>
@@ -201,4 +222,14 @@ export const IssueDetail = () => {
       </box>
     </box>
   );
+};
+
+/** Deep link `tk://task/<id>` — the list view with this issue's detail pane open. */
+export const detailRoute: RouteEntry = {
+  kind: "detail",
+  path: ["task", ":id"],
+  apply: (sink, params) => {
+    const id = params["id"];
+    if (id !== undefined) sink.openDetail(id);
+  },
 };

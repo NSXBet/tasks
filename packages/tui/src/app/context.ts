@@ -1,6 +1,9 @@
 import { createContext, useContext } from "react";
 import type { UpdatePatch } from "@tasks/surface";
+import type { HunkDiffFile } from "@tasks/review/opentui";
+import type { ReviewThread } from "@tasks/review";
 import type { Board, FilterKind, ImageSize, TuiStore } from "../store.js";
+import type { ReviewSource } from "../review/source.js";
 import type { WatchEvent } from "@tasks/surface";
 
 export type ViewKind = "list" | "board" | "graph" | "insights" | "task" | "artifact" | "diff";
@@ -16,7 +19,10 @@ export type ComposerMode =
   | "dep-add"
   | "dep-remove"
   | "confirm"
-  | "search";
+  | "search"
+  | "review-comment"
+  | "review-reply"
+  | "review-edit";
 
 /** A destructive edit waiting on y/n. Rendered verbatim as `label — y/n`. */
 export interface ConfirmRequest {
@@ -26,12 +32,35 @@ export interface ConfirmRequest {
   readonly label: string;
 }
 
+/** Where a review composer writes: thread placement, reply target, or the comment being edited. */
+export interface ReviewComposerContext {
+  readonly filePath: string | null;
+  readonly line: number | null;
+  readonly threadId: string | null;
+  readonly commentId: string | null;
+}
+
 export interface ComposerState {
   readonly mode: ComposerMode;
   readonly forId: string | null;
   /** Prefill for edit modes (current title, current assignee, current search). */
   readonly initial: string;
   readonly confirm: ConfirmRequest | null;
+  /** Placement for the review composer modes; null everywhere else. */
+  readonly review: ReviewComposerContext | null;
+}
+
+/** Live review session: the resolved diff source plus thread state for one issue. */
+export interface ReviewState {
+  readonly issueId: string;
+  readonly source: ReviewSource | null;
+  readonly threads: readonly ReviewThread[];
+  readonly layout: "unified" | "split";
+  readonly fileIndex: number;
+  readonly hunkIndex: number | null;
+  /** Selected thread row within the active file's threads. */
+  readonly threadIndex: number;
+  readonly loading: boolean;
 }
 
 /**
@@ -70,6 +99,8 @@ export interface AppState {
   readonly wipLimit: number | null;
   /** Diff-modal visibility (diff view variant rendered as overlay). */
   readonly diffOpen: boolean;
+  /** Live review session for the diff/artifact/task views; null until opened. */
+  readonly review: ReviewState | null;
   readonly toast: string | null;
 }
 
@@ -108,6 +139,20 @@ export interface AppActions {
   readonly openGraph: (id: string) => void;
   readonly openDiffModal: () => void;
   readonly closeDiffModal: () => void;
+  /** Open (or re-target) the live review session for one issue. */
+  readonly openReview: (id: string | null) => void;
+  /** Load (or retarget) the review session without changing the view. */
+  readonly ensureReview: (id: string) => void;
+  readonly setReviewLayout: (layout: "unified" | "split") => void;
+  readonly setReviewFile: (index: number) => void;
+  readonly setReviewHunk: (index: number | null) => void;
+  readonly setReviewThread: (index: number) => void;
+  /** Open the review composer against the current hunk/thread selection. */
+  readonly openReviewComposer: (kind: "comment" | "reply" | "edit") => void;
+  /** Apply the open review composer: create thread, append reply, or edit comment. */
+  readonly submitReview: (body: string) => Promise<void>;
+  /** Flip the resolved state of the selected thread. */
+  readonly toggleReviewResolved: () => Promise<void>;
   readonly notify: (message: string) => void;
   readonly quit: () => void;
 }

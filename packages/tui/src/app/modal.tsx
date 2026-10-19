@@ -1,5 +1,6 @@
 import { useKeyboard } from "@opentui/react";
 import { useApp } from "./context.js";
+import type { RouteEntry } from "./routes.js";
 import { colors, priorityColor, priorityLabel, statusColor, statusGlyph, typeEmoji } from "../theme.js";
 import { relativeAge, truncate } from "../format.js";
 
@@ -92,4 +93,14 @@ export const TaskModal = () => {
       </box>
     </box>
   );
+};
+
+/** Deep link `tk://task-modal/<id>` — the in-place editor floating over the board. */
+export const taskModalRoute: RouteEntry = {
+  kind: "task-modal",
+  path: ["task-modal", ":id"],
+  apply: (sink, params) => {
+    const id = params["id"];
+    if (id !== undefined) sink.openModal(id);
+  },
 };

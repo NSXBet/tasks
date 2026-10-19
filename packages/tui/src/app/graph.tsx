@@ -1,6 +1,7 @@
 import { useKeyboard } from "@opentui/react";
 import { useMemo } from "react";
 import { useApp } from "./context.js";
+import type { RouteEntry } from "./routes.js";
 import { colors, statusColor } from "../theme.js";
 import { truncate } from "../format.js";
 import { chainLengths, dependencyTree, isBlocked, unblockGains } from "../store.js";
@@ -96,4 +97,15 @@ const GraphRow = ({ row, active }: { readonly row: TreeRow; readonly active: boo
       {row.reference ? <span fg={colors.dim}> (ref)</span> : null}
     </text>
   );
+};
+
+/** Deep link `tk://graph[/<id>]` — dependency graph, optionally centered on an issue. */
+export const graphRoute: RouteEntry = {
+  kind: "graph",
+  path: ["graph", ":id?"],
+  apply: (sink, params) => {
+    const id = params["id"];
+    if (id === undefined) sink.setView("graph");
+    else sink.openGraph(id);
+  },
 };

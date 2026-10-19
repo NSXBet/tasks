@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useApp } from "./context.js";
 import { colors } from "../theme.js";
 import { kanbanGroups, kanbanCardAt, visibleIssues } from "../store.js";
+import { appSink, resolveTarget } from "./routes.js";
 import type { ViewKind } from "./context.js";
 
 const clampPriority = (value: number): number => Math.min(4, Math.max(0, value));
@@ -95,11 +96,20 @@ export const CommandPalette = () => {
             (node as { focus?: () => void } | null)?.focus?.();
           }}
           focused={true}
-          placeholder="type a command… (view, status, edit, dep)"
+          placeholder="type a command… or a tk:// deep link"
           textColor={colors.text}
           backgroundColor={colors.panel}
           onInput={(value: string) => { setQuery(value); setCursor(0); }}
-          onSubmit={() => { if (selected !== null) { close(); selected.run(); } }}
+          onSubmit={() => {
+            const link = query.trim();
+            if (link.startsWith("tk://")) {
+              const resolved = resolveTarget(link);
+              if (resolved.ok) { close(); resolved.target.apply(appSink(state, actions)); }
+              else actions.notify(resolved.error);
+              return;
+            }
+            if (selected !== null) { close(); selected.run(); }
+          }}
         />
         <box style={{ flexDirection: "column", height: 10 }}>
           {filtered.slice(0, 10).map((command, index) => (

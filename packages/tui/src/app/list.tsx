@@ -1,6 +1,7 @@
 import { useKeyboard } from "@opentui/react";
 import { useMemo, useRef } from "react";
 import { useApp } from "./context.js";
+import type { RouteEntry } from "./routes.js";
 import { colors, priorityColor, priorityLabel, statusColor, statusGlyph } from "../theme.js";
 import { padStart, relativeAge, truncate, type ListRow } from "../format.js";
 import { isBlocked, visibleIssues, type FilterKind } from "../store.js";
@@ -110,3 +111,6 @@ const ListRowView = ({ row, selected, onMouseDown }: {
     </box>
   );
 };
+
+/** Deep link `tk://list`. */
+export const listRoute: RouteEntry = { kind: "list", path: ["list"], apply: (sink) => { sink.setView("list"); } };

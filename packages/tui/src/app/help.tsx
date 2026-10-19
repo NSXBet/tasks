@@ -1,4 +1,5 @@
 import { useApp } from "./context.js";
+import type { RouteEntry } from "./routes.js";
 import { colors } from "../theme.js";
 
 const sections: readonly { readonly title: string; readonly lines: readonly string[] }[] = [
@@ -39,3 +40,6 @@ export const HelpOverlay = () => {
     </box>
   );
 };
+
+/** Deep link `tk://help`. */
+export const helpRoute: RouteEntry = { kind: "help", path: ["help"], apply: (sink) => { sink.openHelp(); } };

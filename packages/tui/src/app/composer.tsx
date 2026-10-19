@@ -2,6 +2,7 @@ import { useKeyboard } from "@opentui/react";
 import { useMemo, useRef } from "react";
 import type { TextareaRenderable } from "@opentui/core";
 import { useApp } from "./context.js";
+import type { RouteEntry, RouteParams } from "./routes.js";
 import { colors } from "../theme.js";
 import { truncate } from "../format.js";
 import type { ComposerMode } from "./context.js";
@@ -17,6 +18,9 @@ const modeLabels: Record<Exclude<ComposerMode, "closed">, string> = {
   "dep-remove": "dep− pick edge",
   confirm: "confirm",
   search: "/ search",
+  "review-comment": "✎ review comment",
+  "review-reply": "↩ reply to thread",
+  "review-edit": "✎ edit comment",
 };
 
 /**
@@ -78,6 +82,10 @@ export const Composer = () => {
         break;
       }
       case "search": actions.setSearch(value.trim()); finish(); break;
+      case "review-comment": case "review-reply": case "review-edit":
+        if (body !== "") void actions.submitReview(body).then(finish);
+        else finish();
+        break;
       default: finish();
     }
   };
@@ -193,4 +201,25 @@ export const ComposerRow = ({ placeholder }: { placeholder: string }) => {
       </box>
     </box>
   );
+};
+
+/** Type guard: a URI mode segment is one of the open composer modes. */
+const isComposerMode = (value: string): value is Exclude<ComposerMode, "closed"> => value in modeLabels;
+
+/** The route's mode param, or null when absent or not a real composer mode. */
+const composerModeParam = (params: RouteParams): Exclude<ComposerMode, "closed"> | null => {
+  const mode = params["mode"];
+  return mode !== undefined && isComposerMode(mode) ? mode : null;
+};
+
+/** Deep link `tk://composer/<mode>` — composer in the given mode (create, comment, search, …). */
+export const composerRoute: RouteEntry = {
+  kind: "composer",
+  path: ["composer", ":mode"],
+  // Unknown modes reject the link entirely rather than booting a closed composer.
+  accepts: (params) => composerModeParam(params) !== null,
+  apply: (sink, params) => {
+    const mode = composerModeParam(params);
+    if (mode !== null) sink.openComposer(mode);
+  },
 };
