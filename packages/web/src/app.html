@@ -280,134 +280,47 @@
   .vfoot input::placeholder { color: rgb(255 255 255 / 45%); }
   .vfoot input:focus { border-color: rgb(255 255 255 / 45%); }
 
-  /* ---------- review mock views (phase 0) ---------- */
-  .rwrap { display: flex; gap: 14px; flex: 1; min-height: 0; padding: 14px 18px 18px; overflow: auto; align-items: flex-start; }
-  .rcol { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
-  .rside { width: 360px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
-  .rtasks { width: 210px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; }
-  .rtasks .rlhead { display: flex; align-items: center; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); padding: 4px 9px 8px; }
-  .rtasks .rtrow {
-    display: flex; gap: 8px; align-items: baseline; text-align: left; width: 100%;
-    padding: 7px 9px; border-radius: 8px; border: 1px solid transparent;
-    transition: background .12s, border-color .12s;
-  }
-  .rtasks .rtrow .rid { color: var(--faint); font-size: 11.5px; flex-shrink: 0; }
-  .rtasks .rtrow .rtt {
-    color: var(--dim); font-size: 12.5px; line-height: 1.3;
-    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  }
-  .rtasks .rtrow:hover { background: var(--panel2); }
-  .rtasks .rtrow.sel { background: var(--panel); border-color: var(--accent); }
-  .rtasks .rtrow.sel .rtt { color: var(--text); }
-  .rpanel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
-  .rpanel .rhead { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
-  .rpanel .rhead .cnt { margin-left: auto; color: var(--faint); font-weight: 500; font-size: 12px; }
-  .rtitle { font-size: 17px; font-weight: 650; line-height: 1.35; margin-top: 8px; }
-  .rdesc { color: var(--dim); font-size: 13.5px; white-space: pre-wrap; margin-top: 10px; }
-  .rmeta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
-  .srow, .frow {
-    display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px;
-    color: var(--dim); font-size: 13px; width: 100%; text-align: left;
-  }
-  .srow:hover, .frow:hover { background: var(--panel2); color: var(--text); }
-  .frow .fpath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .frow .plus { color: var(--closed); font-size: 12px; }
-  .frow .minus { color: var(--blocked); font-size: 12px; }
-  .frow .ccnt { color: var(--faint); font-size: 12px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  /* ---------- review island (real diff + threads) ---------- */
+  .rview { display: flex; flex: 1; min-height: 0; padding: 14px 18px 18px; overflow: hidden; }
   .agchip { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); border-radius: 5px; padding: 0 6px; font-weight: 600; margin-left: 6px; }
   .comment .reply { color: var(--faint); font-size: 11.5px; margin-top: 4px; }
   .comment .reply:hover { color: var(--accent); }
-  .comment .quote { display: block; border-left: 2px solid var(--border); padding-left: 8px; color: var(--faint); margin: 2px 0; }
-  .dfile { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; width: 100%; }
-  .dfile .dfhead { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; }
-  .dlines { padding: 8px 0; font-size: 12.5px; line-height: 1.55; overflow-x: auto; }
-  .dl { padding: 0 12px; white-space: pre; }
-  .dl.ctx { color: var(--dim); }
-  .dl.del { color: var(--blocked); background: rgba(229,101,94,.08); }
-  .dl.add { color: var(--closed); background: rgba(122,209,154,.08); }
-  .dl.hunk { color: var(--faint); }
-
-  /* ---------- hunk approximation (diff view + modal) ---------- */
   .dwrap { display: flex; flex-direction: column; gap: 0; width: 100%; min-width: 0; }
   .dmenu { display: flex; align-items: center; gap: 14px; padding: 7px 12px; background: var(--panel); border: 1px solid var(--border); border-bottom: none; border-radius: var(--radius) var(--radius) 0 0; font-size: 12.5px; color: var(--dim); flex-wrap: wrap; }
   .dmenu .brand { color: var(--text); font-weight: 650; }
-  .dmenu .mi { cursor: pointer; }
-  .dmenu .mi:hover { color: var(--text); }
   .dmenu .branch { margin-left: auto; display: flex; gap: 8px; align-items: center; }
   .dmain { display: flex; min-height: 0; border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius) var(--radius); overflow: hidden; background: var(--panel); }
-  .dfiles { width: 250px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 8px 0; }
+  .dfiles { width: 250px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 8px 0; overflow: auto; }
   .dfiles .flhead { display: flex; align-items: center; padding: 2px 12px 8px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
   .dfiles .flhead .cnt { margin-left: auto; }
-  .dfl { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 6px 12px; color: var(--dim); font-size: 12.5px; }
-  .dfl .mono { font-size: 12px; }
-  .dfl .st { font-weight: 700; width: 12px; text-align: center; }
-  .dfl .plus { color: var(--closed); }
-  .dfl .minus { color: var(--blocked); }
-  .dfl.sel { background: var(--accent-bg); color: var(--text); }
-  .dfl:hover { color: var(--text); }
   .dwatch { padding: 10px 12px 2px; color: var(--faint); font-size: 11.5px; }
   .dbody { flex: 1; min-width: 0; overflow: auto; padding: 10px 14px 14px; }
-  .dhunkband { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; margin-top: 10px; font-size: 11.5px; color: var(--faint); border-bottom: 1px solid var(--border); }
-  .dhunkband .hh { color: var(--accent); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
-  .dlines { margin-top: 4px; }
-  .dfold { color: var(--faint); font-size: 12px; padding: 4px 0 6px; cursor: pointer; }
-  .dnotes { margin: 14px 0 4px; padding: 10px 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: var(--dim); }
-  .dnotes .who { color: var(--accent); font-weight: 600; font-size: 12px; margin-right: 6px; }
-  .dlcomment { margin: 12px 0 0; padding: 8px 12px; border-left: 2px solid var(--accent); font-size: 13px; }
-  .dlcomment .who { color: var(--text); font-weight: 600; }
-  .dlcomment .on { color: var(--faint); font-size: 12px; margin-left: 6px; }
-  .dlcomment .lreply { margin: 8px 0 0; padding-left: 12px; border-left: 2px solid var(--border); color: var(--dim); }
-  .dfl .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .dkeys { display: flex; gap: 14px; align-items: center; padding: 7px 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--faint); flex-wrap: wrap; }
-  .dkeys kbd { border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; color: var(--dim); }
-  .dkeys .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .rvi-trow { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; padding: 6px 12px; color: var(--dim); font-size: 12.5px; }
+  .rvi-trow .st { font-weight: 700; width: 14px; text-align: center; flex-shrink: 0; }
+  .rvi-trow .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .rvi-trow .plus { color: var(--closed); }
+  .rvi-trow .minus { color: var(--blocked); }
+  .rvi-trow.sel, .rvi-trow:hover { background: var(--panel2); color: var(--text); }
+  .rvi-head { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; }
+  .rvi-loc { color: var(--faint); font-size: 11.5px; }
+  .rvi-thread { border-left: 2px solid var(--accent); padding: 6px 10px; margin: 6px 0; font-size: 13px; color: var(--dim); }
+  .rvi-thread.res { border-left-color: var(--closed); opacity: .75; }
+  .rvi-thread.draft { border-left-color: var(--run); }
+  .rvi-edit { background: none; border: none; color: var(--faint); font-size: 11px; cursor: pointer; padding: 0; }
+  .rvi-edit:hover { color: var(--text); }
+  .rvi-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+  .rvi-actions .at { color: var(--faint); font-size: 10.5px; }
+  .rvi-ann { margin: 10px 0; }
+  .rvi-empty { color: var(--faint); font-size: 13px; padding: 14px 4px; }
+  .dfl { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 6px 12px; color: var(--dim); font-size: 12.5px; }
+  .dfl .mono { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .dfl .st { font-weight: 700; width: 12px; text-align: center; }
+  .dfl.sel { background: var(--accent-bg); color: var(--text); }
+  .dfl:hover { color: var(--text); }
 
-  /* ---------- artifact view (breadcrumb + resolve pills) ---------- */
-  .abar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; font-size: 12px; color: var(--faint); border-bottom: 1px solid var(--border); width: 100%; }
-  .abar .crumb { color: var(--text); font-weight: 650; }
-  .abar .spacer { flex: 1; }
-  .abar .btn { padding: 2px 9px; font-size: 11px; }
   .pill { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-hi); border-radius: 999px; padding: 1px 9px; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); white-space: nowrap; flex-shrink: 0; }
   .pill.open { color: var(--open); border-color: var(--open); }
   .pill.res { color: var(--closed); border-color: var(--closed); }
-  .pill.hot { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); }
-  .pill.tab { cursor: pointer; color: var(--faint); border-color: var(--border); }
-  .pill.tab:hover { color: var(--text); border-color: var(--border-hi); }
-  .apane { width: 100%; min-width: 0; }
-  .apane .akind { padding: 2px 12px 8px; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
-  .apane .alines { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12.5px; line-height: 1.65; overflow-x: auto; }
-  .apane .alines .aln { display: flex; gap: 12px; padding: 0 12px; white-space: pre; }
-  .apane .alines .aln .ln { color: var(--faint); width: 3ch; text-align: right; flex-shrink: 0; user-select: none; }
-  .apane .adoc { font-size: 13.5px; line-height: 1.6; color: var(--dim); padding: 2px 4px; }
-  .apane .adoc h2 { font-size: 14.5px; font-weight: 650; color: var(--text); margin: 12px 0 4px; }
-  .apane .adoc p { margin: 4px 0 8px; }
-  .apane .adoc code { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: .9em; background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
-  .ahead2 { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
-  .comment .respill { margin-top: 4px; display: inline-flex; }
-
-  /* ---------- Session table (task view) ---------- */
-  .stable { width: 100%; font-size: 12.5px; }
-  .stable .tr { display: flex; gap: 10px; align-items: center; padding: 5px 2px; border-bottom: 1px solid var(--border); }
-  .stable .tr:last-child { border-bottom: none; }
-  .stable .th { color: var(--faint); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; border-bottom-color: var(--border); }
-  .stable .c-st { width: 72px; flex-shrink: 0; }
-  .stable .c-agent { width: 64px; flex-shrink: 0; }
-  .stable .c-id { width: 88px; flex-shrink: 0; }
-  .stable .c-kind { width: 90px; flex-shrink: 0; }
-  .stable .c-topic { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-  .stable .c-dur { color: var(--faint); width: 44px; text-align: right; flex-shrink: 0; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; flex-shrink: 0; }
-
-  /* ---------- diff modal ---------- */
-  #doverlay { z-index: 60; align-items: center; }
-  .dmodal {
-    width: min(1000px, 100%); height: 86vh; background: var(--panel2);
-    border: 1px solid var(--border-hi); border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,.6);
-    display: flex; flex-direction: column; overflow: hidden; padding: 0;
-  }
-  .dmodal .dwrap { padding: 10px; height: 100%; }
-  .dmodal .dmain { flex: 1; min-height: 0; }
 </style>
 </head>
 <body>
@@ -430,10 +343,8 @@
       <button class="navitem" data-view="board"><span class="ico">▦</span><span class="name">Board</span><span class="count" data-count="board"></span></button>
       <button class="navitem" data-view="graph"><span class="ico">⟐</span><span class="name">Graph</span><span class="count" data-count="graph"></span></button>
       <button class="navitem" data-view="insights"><span class="ico">◎</span><span class="name">Insights</span><span class="count"></span></button>
-      <div class="label">Review · mock</div>
-      <button class="navitem" data-view="task"><span class="ico">◈</span><span class="name">Task</span><span class="count"></span></button>
-      <button class="navitem" data-view="artifact"><span class="ico">≣</span><span class="name">Artifact</span><span class="count"></span></button>
-      <button class="navitem" data-view="diff"><span class="ico">±</span><span class="name">Diff</span><span class="count"></span></button>
+      <div class="label">Review</div>
+      <button class="navitem" data-view="review"><span class="ico">±</span><span class="name">Review</span><span class="count"></span></button>
       <div class="spacer"></div>
       <div class="actor">actor <b id="actorName">—</b></div>
     </aside>
@@ -444,9 +355,7 @@
         <div class="list" id="listView" style="display:none"></div>
         <div class="pane" id="graphView" style="display:none"></div>
         <div class="pane" id="insightsView" style="display:none"></div>
-        <div class="rwrap" id="taskView" style="display:none"></div>
-        <div class="rwrap" id="artifactView" style="display:none"></div>
-        <div class="rwrap" id="diffView" style="display:none"></div>
+        <div class="rview" id="reviewView" style="display:none"></div>
       </div>
     </main>
   </div>
@@ -454,11 +363,6 @@
   <!-- task modal -->
   <div class="overlay" id="modalOverlay">
     <div class="modal" id="taskModal"></div>
-  </div>
-
-  <!-- diff modal (hunk approximation) -->
-  <div class="overlay" id="doverlay">
-    <div class="dmodal" id="dmodal"></div>
   </div>
 
   <!-- new issue modal -->
@@ -525,12 +429,13 @@
       <button class="vbtn" id="vCommentBtn">Comment</button>
     </div>
   </div>
+<script type="module" src="/assets/review-island.js"></script>
 <script type="module">
   const $ = (id) => document.getElementById(id);
   const state = {
     view: "board", issues: [], actor: "—", selected: null, query: "",
     filter: "all", pal: { rows: [], cursor: 0 }, newStatus: "open",
-    activeSprint: null, mockArt: 0,
+    activeSprint: null, reviewKey: "",
   };
   const STATUS_COLOR = { open: "var(--open)", in_progress: "var(--run)", "ready-to-review": "var(--review)", closed: "var(--closed)", archived: "var(--dim)" };
   const STATUS_NAME = { open: "Open", in_progress: "In progress", "ready-to-review": "Review", closed: "Closed", archived: "Icebox" };
@@ -697,327 +602,26 @@
     });
   };
 
-  /* ---------- review mock (phase 0): hard-coded canonical scenario ---------- */
-  const MOCK_VIEWS = ["task", "artifact", "diff"];
-  const MOCK = {
-    id: "tk-142",
-    title: "Fix flaky retry logic in uploader",
-    description: "Retries in uploader race the refresh mutex; two concurrent refreshes deadlock under load. Serialize refreshes and drop the retry storm.",
-    status: "ready-to-review", priority: 2,
-    branch: "tk/tk-142", base: "main @ 9f13ee4", worktree: "../platform-api-tk-142",
-    sessions: [
-      { id: "sess-7f3k", agent: "omp", state: "done", kind: "Research", label: "research patterns", dur: "10m" },
-      { id: "sess-k2q9", agent: "omp", state: "running", kind: "Design", label: "design discussion", dur: "2m" },
-      { id: "sess-q5x1", agent: "omp", state: "idle", kind: "Structure", label: "structure outline", dur: "—" },
-    ],
-    note: "refresh went through a raw fetch; every caller raced the mutex window. Serialized refreshes, moved the token check inside the run block, and capped backoff growth — p99 dropped 70% in the bench.",
-    lineComments: [
-      { author: "kyle", agent: false, line: 14, text: "does doFetch propagate 429s back to the retry loop?", reply: { author: "agent", agent: true, text: "yes — RetryError(status) rethrows and the loop caps at six attempts." } },
-      { author: "sarah", agent: false, line: 50, text: "is Math.random seeded? the bench needs determinism." },
-    ],
-    artifacts: [
-      { path: "src/uploader/retry.ts", kind: "code", plus: 38, minus: 12, comments: 5, lines: [
-        { k: "ctx", n: 12, t: "  async function refresh(token: string) {" },
-        { k: "ctx", n: 13, t: "    if (!token) return null;" },
-        { k: "ctx", n: 14, t: "  const res = await refreshMutex.run(token, async () => {" },
-        { k: "ctx", n: 15, t: "    return doFetch(REFRESH_URL, token);" },
-        { k: "ctx", n: 16, t: "  });" },
-        { k: "ctx", n: 17, t: "  if (!res.ok) throw new RetryError(res.status);" },
-        { k: "ctx", n: 18, t: "  return res.json();" },
-        { k: "ctx", n: 19, t: "}" },
-        { k: "ctx", n: 20, t: "" },
-        { k: "ctx", n: 21, t: "export const retryBackoff = (attempt: number): number =>" },
-        { k: "ctx", n: 22, t: "  Math.min(60000, 250 * 2 ** attempt) + jitter(attempt);" },
-      ] },
-      { path: "src/uploader/refresh-mutex.ts", kind: "code", plus: 24, minus: 0, comments: 2, lines: [
-        { k: "ctx", n: 1, t: "export class RefreshMutex {" },
-        { k: "ctx", n: 2, t: "  private chain: Promise<void> = Promise.resolve();" },
-        { k: "ctx", n: 3, t: "  async run<T>(token: string, task: () => Promise<T>): Promise<T> {" },
-        { k: "ctx", n: 4, t: "    const next = this.chain.then(() => task());" },
-        { k: "ctx", n: 5, t: "    this.chain = next.finally(() => this.release(token));" },
-        { k: "ctx", n: 6, t: "    return next;" },
-        { k: "ctx", n: 7, t: "  }" },
-        { k: "ctx", n: 8, t: "}" },
-      ] },
-      { path: "docs/sidebar-consolidation.md", kind: "doc", plus: 12, minus: 3, comments: 1,
-        summary: "One sidebar schema wins over three configs; legacy ordering flags drop.",
-        sections: [
-          { tag: "h2", t: "Summary" },
-          { tag: "p", t: "Consolidates the three sidebar configs into one schema. `cmux.json` wins over `sidebars/*.json`; ordering flags and duplicate panes are dropped." },
-          { tag: "h2", t: "Migration" },
-          { tag: "p", t: "A one-time read migration folds sidebars into the main config. Unrecognized keys are reported, not copied." },
-          { tag: "h2", t: "Open questions" },
-          { tag: "p", t: "Whether custom sidebars keep their separate drawer after the fold." },
-        ] },
-      { path: "bench/retry-bench.txt", kind: "code", plus: 9, minus: 2, comments: 1, lines: [
-        { k: "ctx", n: 1, t: "bench: retry p99 before 4.1s → after 1.2s (−70%)" },
-        { k: "ctx", n: 2, t: "runs: 200 · concurrency: 50 · seeded jitter" },
-      ] },
-    ],
-    comments: [
-      { author: "kyle", agent: false, quote: null, text: "will the mutex deadlock under concurrent upload?", resolved: true },
-      { author: "agent", agent: true, quote: "will the mutex deadlock under concurrent upload?", text: "serialized refresh via refreshMutex.run — no shared state", resolved: true },
-      { author: "sarah", agent: false, quote: null, text: "prefer channel-based retry", resolved: false },
-    ],
-    diffFiles: [
-      {
-        path: "src/uploader/retry.ts", status: "M", plus: 38, minus: 12,
-        hunks: [
-          {
-            fold: 11, header: "@@ -12,3 +12,10 @@", context: "async function refresh(token)",
-            lines: [
-              { k: "ctx", n: 12, t: "  async function refresh(token: string) {" },
-              { k: "ctx", n: 13, t: "    if (!token) return null;" },
-              { k: "del", n: null, t: "-  const res = await fetch(REFRESH_URL, {" },
-              { k: "add", n: 14, t: "+  const res = await refreshMutex.run(token, async () => {" },
-              { k: "add", n: 15, t: "+    return doFetch(REFRESH_URL, token);" },
-              { k: "add", n: 16, t: "+  });" },
-              { k: "ctx", n: 17, t: "    if (!res.ok) throw new RetryError(res.status);" },
-              { k: "ctx", n: 18, t: "    return res.json();" },
-            ],
-          },
-          {
-            fold: 24, header: "@@ -41,4 +48,7 @@", context: "export const retryBackoff",
-            lines: [
-              { k: "ctx", n: 48, t: "export const retryBackoff = (attempt: number): number =>" },
-              { k: "del", n: null, t: "-  Math.min(60000, 250 * 2 ** attempt);" },
-              { k: "add", n: 49, t: "  Math.min(60000, 250 * 2 ** attempt) + jitter(attempt);" },
-              { k: "add", n: 50, t: "const jitter = (attempt: number): number =>" },
-              { k: "add", n: 51, t: "  Math.floor(Math.random() * 250 * 2 ** attempt);" },
-            ],
-          },
-        ],
-      },
-      {
-        path: "src/uploader/refresh-mutex.ts", status: "A", plus: 24, minus: 0,
-        hunks: [
-          {
-            fold: 0, header: "@@ -0,0 +1,8 @@", context: "new file — refresh serialization",
-            lines: [
-              { k: "add", n: 1, t: "export class RefreshMutex {" },
-              { k: "add", n: 2, t: "  private chain: Promise<void> = Promise.resolve();" },
-              { k: "add", n: 5, t: "    const next = this.chain.then(() => task());" },
-              { k: "add", n: 6, t: "    this.chain = next.finally(() => this.release(token));" },
-              { k: "add", n: 7, t: "    return next;" },
-              { k: "add", n: 8, t: "  }" },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-  const mockBuilt = new Set();
-
-  const artifactRow = (a, nav) => `
-    <button class="frow" data-nav="${nav}">
-      <span class="ico" style="width:16px;text-align:center;color:var(--faint)">≣</span>
-      <span class="fpath mono">${esc(a.path)}</span>
-      <span class="plus">+${a.plus}</span>
-      <span class="minus">−${a.minus}</span>
-      <span class="ccnt">💬 ${a.comments}</span>
-    </button>`;
-
-  const mockComment = (c) => `
-    <div class="comment">
-      <span class="who">${esc(c.author)}</span>${c.agent ? `<span class="agchip">agent</span>` : ""}<span class="at">mock</span><br>
-      ${c.quote ? `<span class="quote">↳ ${esc(c.quote)}</span>` : ""}${esc(c.text)}
-      <br>${c.resolved
-        ? `<span class="pill res respill">✓ resolved</span> <button class="reply" data-wip>reply</button>`
-        : `<button class="reply" data-wip>resolve</button> · <button class="reply" data-wip>reply</button>`}
-    </div>`;
-
-  const wireWip = (view) => view.querySelectorAll("[data-wip]").forEach((el) =>
-    el.addEventListener("click", () => toast("WIP")));
-  const wireNav = (view) => view.querySelectorAll("[data-nav]").forEach((el) =>
-    el.addEventListener("click", () => { state.view = el.dataset.nav; render(); }));
-
-  const lineComment = (c) => `
-    <div class="dlcomment">
-      <span class="who">${esc(c.author)}</span>${c.agent ? `<span class="agchip">agent</span>` : ""}<span class="on">on line ${c.line}</span><br>
-      ${esc(c.text)}
-      ${c.reply ? `<div class="lreply"><span class="who">${esc(c.reply.author)}</span>${c.reply.agent ? `<span class="agchip">agent</span>` : ""} ${esc(c.reply.text)}</div>` : ""}
-      <div style="margin-top:6px"><button class="reply" data-wip>E edit</button> <button class="reply" data-wip>R reply</button></div>
-    </div>`;
-
-  const sessionTable = (m) => `
-    <div class="stable">
-      <div class="tr th"><span class="c-st">Status</span><span class="c-agent">Agent</span><span class="c-id">Session</span><span class="c-kind">Kind</span><span class="c-topic">Topic</span><span class="c-dur">Upd</span></div>
-      ${m.sessions.map((s) => `
-        <button class="tr" data-wip>
-          <span class="c-st" style="color:${s.state === "running" ? "var(--run)" : s.state === "idle" ? "var(--faint)" : "var(--closed)"};text-transform:uppercase;font-size:11px;letter-spacing:.08em">${esc(s.state)}</span>
-          <span class="c-agent">${esc(s.agent)}</span>
-          <span class="c-id mono" style="font-size:11.5px">${esc(s.id)}</span>
-          <span class="c-kind" style="color:var(--dim)">${esc(s.kind)}</span>
-          <span class="c-topic">${esc(s.label)}</span>
-          <span class="c-dur">${esc(s.dur)}</span>
-        </button>`).join("")}
-    </div>`;
-
-  const hunkHtml = (h) => `
-    ${h.fold ? `<div class="dfold">▾ ${h.fold} unchanged lines</div>` : ""}
-    <div class="dhunkband"><span class="hh">${esc(h.header)}</span><span>${esc(h.context)}</span></div>
-    <div class="dlines mono">${h.lines.map((l) => `<div class="dl ${l.k}">${esc(l.t)}</div>`).join("")}</div>`;
-
-  /** Hunk approximation shared by the diff page and the diff modal (opts.modal). */
-  const diffShell = (m, opts) => {
-    const f0 = m.diffFiles[0];
-    const body = f0.hunks.map((h, hi) => {
-      const cs = m.lineComments.filter((c) => h.lines.some((l) => l.n === c.line));
-      const note = hi === 0 ? `<div class="dnotes"><span class="who">a · agent</span>notes<br>${esc(m.note)}</div>` : "";
-      return hunkHtml(h) + note + cs.map(lineComment).join("");
-    }).join("");
-    return `
-      <div class="dwrap">
-        <div class="dmenu">
-          <span class="brand">diff</span>
-          <span class="mi">File</span><span class="mi">View</span><span class="mi">Navigate</span><span class="mi">Commit</span><span class="mi">Help</span>
-          <span class="branch">
-            <span class="fchip2 mono">tk/tk-142 → main</span>
-            <span class="fchip2">unified</span>
-            ${opts.modal ? `<button class="btn" data-dpage>⛶ full page</button><button class="btn" data-dclose>esc close</button>` : `<button class="btn" data-dopen>⛶ modal</button>`}
-          </span>
-        </div>
-        <div class="dmain">
-          <div class="dfiles">
-            <div class="flhead">Files<span class="cnt">· ${m.diffFiles.length}</span></div>
-            ${m.diffFiles.map((f, i) => `
-              <button class="dfl ${i === 0 ? "sel" : ""}" data-wip>
-                <span class="st" style="color:${f.status === "M" ? "var(--run)" : "var(--closed)"}">${f.status}</span>
-                <span class="mono">${esc(f.path)}</span>
-                <span style="margin-left:auto;flex-shrink:0"><span class="plus">+${f.plus}</span> <span class="minus">−${f.minus}</span></span>
-              </button>`).join("")}
-            <div class="dwatch">watching worktree — re-derives as commits land ●</div>
-          </div>
-          <div class="dbody">${body}</div>
-        </div>
-        <div class="dkeys">
-          <span><kbd>c</kbd> note</span><span><kbd>j</kbd>/<kbd>k</kbd> hunk</span><span><kbd>1</kbd>/<kbd>2</kbd> layout</span><span><kbd>?</kbd> help</span>
-          <span class="right"><span class="plus">+${f0.plus}</span> <span class="minus">−${f0.minus}</span></span>
-        </div>
-      </div>`;
-  };
-
-  const renderTask = () => {
-    // TUI parity: center detail tracks the selected issue; rails stay fixtures.
-    const active = state.issues.find((i) => i.id === state.selected) ?? state.issues[0];
-    const m = active ? { ...MOCK, id: active.id, title: active.title, description: active.description ?? "", status: active.status, priority: active.priority } : MOCK;
-    const view = $("taskView");
-    view.innerHTML = `
-      <div class="rtasks">
-        <div class="rlhead">Tasks</div>
-        ${state.issues.map((i) => `
-          <button class="rtrow ${i.id === m.id ? "sel" : ""}" data-tsel="${esc(i.id)}">
-            <span class="rid mono">${esc(i.id)}</span>
-            <span class="rtt">${esc(i.title)}</span>
-          </button>`).join("")}
-      </div>
-      <div class="rcol">
-        <div class="rpanel">
-          <div class="rhead">
-            <span class="mono" style="color:var(--faint);font-size:12.5px">${esc(m.id)}</span>
-            ${statchip(m)}${pchip(m)}
-          </div>
-          <div class="rtitle">${esc(m.title)}</div>
-          <div class="rmeta">
-            <span class="fchip2">branch <b class="mono">${esc(m.branch)}</b></span>
-            <span class="fchip2">base <b class="mono">${esc(m.base)}</b></span>
-            <span class="fchip2">worktree <b class="mono">${esc(m.worktree)}</b></span>
-          </div>
-          <div class="rdesc">${esc(m.description)}</div>
-          <div class="rmeta">
-            <button class="btn" data-wip>create session</button>
-            <button class="btn" data-wip>design discussion</button>
-            <button class="btn" data-nav="diff">open diff</button>
-            <button class="btn" data-wip>edit</button>
-          </div>
-        </div>
-        <div class="rpanel">
-          <div class="rhead">Sessions<span class="cnt">${m.sessions.length}</span></div>
-          ${sessionTable(m)}
-        </div>
-        <div class="rpanel">
-          <div class="rhead">Comments<span class="cnt">${m.comments.length}</span></div>
-          <div class="comments">${m.comments.map(mockComment).join("")}</div>
-          <div class="cbox" style="margin-bottom:0"><input placeholder="Add a comment…"><button class="btn" data-wip>Comment</button></div>
-        </div>
-      </div>
-      <div class="rside">
-        <div class="rpanel">
-          <div class="rhead">Changed files<span class="cnt">${m.artifacts.length}</span></div>
-          ${m.artifacts.map((a) => artifactRow(a, "artifact")).join("")}
-        </div>
-        <div class="rpanel">
-          <div class="rhead">Review notes<span class="cnt">${m.lineComments.length}</span></div>
-          ${m.lineComments.map(lineComment).join("")}
-        </div>
-      </div>`;
-    view.querySelectorAll("[data-tsel]").forEach((el) => el.addEventListener("click", () => selectIssue(el.dataset.tsel)));
-    wireWip(view);
-    wireNav(view);
-  };
-
-  const artifactBody = (a) => {
-    if (a.kind === "doc") {
-      const md = (s) => s.tag === "h2" ? `<h2>${esc(s.t)}</h2>` : `<p>${esc(s.t).replace(/`([^`]+)`/g, "<code>$1</code>")}</p>`;
-      return `<div class="apane"><div class="akind">${esc(a.path)} — rendered as markdown</div><div class="adoc">${a.sections.map(md).join("")}</div></div>`;
+  /* ---------- review (real island) ---------- */
+  const renderReview = () => {
+    const issues = state.issues.filter((i) => i.metadata?.changeset?.base && i.branch);
+    if (issues.length === 0) {
+      $("reviewView").innerHTML = `<div class="iempty">no reviewable issues — an issue needs a branch and a changeset base (set via \`tk work\` or the CLI)</div>`;
+      return;
     }
-    return `<div class="apane"><div class="akind">${esc(a.path)} — file content</div><div class="alines">${a.lines.map((l) => `<div class="aln ${l.k}"><span class="ln">${l.n ?? ""}</span><span>${esc(l.t)}</span></div>`).join("")}</div></div>`;
-  };
-
-  const renderArtifact = () => {
-    const m = MOCK;
-    const a = m.artifacts[state.mockArt] ?? m.artifacts[0];
-    const open = m.comments.filter((c) => !c.resolved).length;
-    const res = m.comments.length - open;
-    const head = `COMMENTS · ${open ? `${open} OPEN` : "all resolved"}${res ? ` · ${res} ✓` : ""}`;
-    const tabs = a.kind === "doc"
-      ? `<span class="pill tab hot" data-wip>summary</span><span class="pill tab" data-wip>auto</span>`
-      : `<span class="pill tab hot" data-wip>file</span>`;
-    const view = $("artifactView");
-    view.innerHTML = `
-      <div class="rpanel" style="flex:1;display:flex;flex-direction:column;min-width:0">
-        <div class="abar">
-          <span class="mono" style="text-transform:uppercase">${esc(m.id)}</span>
-          <span>/</span>
-          <span class="crumb">${esc(a.path.split("/").pop())}</span>
-          <span class="pill ${open ? "open" : "res"}">${open} open</span>
-          <span class="pill res">${res} ✓</span>
-          <span class="spacer"></span>
-          ${tabs}
-        </div>
-        ${artifactBody(a)}
-        <div class="rmeta" style="margin-top:auto">
-          ${m.artifacts.map((x, ix) => `<button class="fchip2 link ${x.path === a.path ? "on" : ""}" data-aset="${ix}" style="${x.path === a.path ? "border-color:var(--accent);color:var(--text)" : ""}"><b class="mono" style="font-size:11px">${esc(x.path.split("/").pop())}</b> · 💬 ${x.comments}</button>`).join("")}
-          <button class="btn" data-nav="diff">Open diff</button>
-        </div>
-      </div>
-      <div class="rside">
-        <div class="rpanel">
-          <div class="ahead2">${head}<span class="cnt" style="margin-left:auto">${m.comments.length}</span></div>
-          <div class="comments">${m.comments.map(mockComment).join("")}</div>
-          <div class="cbox" style="margin-bottom:0"><input placeholder="Reply or comment…"><button class="btn" data-wip>Comment</button></div>
-        </div>
-      </div>`;
-    view.querySelectorAll("[data-aset]").forEach((el) => el.addEventListener("click", () => { state.mockArt = Number(el.dataset.aset); renderArtifact(); }));
-    wireWip(view);
-    wireNav(view);
-  };
-
-  const renderDiff = () => {
-    const view = $("diffView");
-    view.innerHTML = diffShell(MOCK, { modal: false });
-    wireWip(view);
-    wireNav(view);
-    view.querySelectorAll("[data-dopen]").forEach((el) => el.addEventListener("click", openDiffModal));
-  };
-
-  const renderMock = (view) => {
-    if (view === "task") { renderTask(); return; } // selection-driven; rebuilds each render
-    if (view === "artifact") { renderArtifact(); return; } // artifact-selection-driven
-    if (mockBuilt.has(view)) return;
-    mockBuilt.add(view);
-    if (view === "artifact") renderArtifact();
-    else renderDiff();
+    if (state.selected === null || !issues.some((i) => i.id === state.selected)) state.selected = issues[0].id;
+    const issue = issues.find((i) => i.id === state.selected);
+    const key = issue.id;
+    const remount = state.reviewKey !== key;
+    if (remount) {
+      state.reviewKey = key;
+      window.ReviewIsland?.unmount();
+      window.ReviewIsland?.mount($("reviewView"), {
+        issueId: issue.id,
+        actor: state.actor,
+        onError: (message) => toast(message, true),
+      });
+    }
   };
 
   /* ---------- frame ---------- */
@@ -1048,7 +652,7 @@
     } else {
       $("filterbar").style.display = "none";
     }
-    for (const v of ["board", "list", "graph", "insights", "task", "artifact", "diff"]) {
+    for (const v of ["board", "list", "graph", "insights", "review"]) {
       $(v + "View").style.display = state.view === v ? "flex" : "none";
       if (v === "list" || v === "graph" || v === "insights") $(v + "View").style.display = state.view === v ? "block" : "none";
     }
@@ -1056,7 +660,7 @@
     if (state.view === "list") renderList(issues);
     if (state.view === "graph") renderGraph();
     if (state.view === "insights") renderInsights(issues);
-    if (MOCK_VIEWS.includes(state.view)) renderMock(state.view);
+    if (state.view === "review") renderReview();
     document.querySelectorAll(".navitem[data-view]").forEach((el) => {
       el.classList.toggle("active", el.dataset.view === state.view);
     });
@@ -1298,17 +902,6 @@
   };
   const closeModal = () => { $("modalOverlay").classList.remove("show"); modalIssue = null; };
 
-  const openDiffModal = () => {
-    const v = $("dmodal");
-    v.innerHTML = diffShell(MOCK, { modal: true });
-    wireWip(v);
-    wireNav(v);
-    v.querySelectorAll("[data-dclose]").forEach((el) => el.addEventListener("click", closeDiffModal));
-    v.querySelectorAll("[data-dpage]").forEach((el) => el.addEventListener("click", () => { closeDiffModal(); state.view = "diff"; render(); }));
-    $("doverlay").classList.add("show");
-  };
-  const closeDiffModal = () => $("doverlay").classList.remove("show");
-
   const saveIssue = async (patch) => {
     await run(() => api(`/api/issue/${encodeURIComponent(modalIssue.id)}`, patch));
     const saved = $("mSaved");
@@ -1411,7 +1004,7 @@
     const inField = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
     if (e.key === "Escape") {
       if (viewerOpen()) { closeViewer(); return; }
-      closePalette(); closeNew(); closeModal(); closeDiffModal();
+      closePalette(); closeNew(); closeModal();
       if (inField) document.activeElement.blur();
       return;
     }

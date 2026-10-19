@@ -47,6 +47,32 @@ const json = (data: unknown, status = 200): Response =>
 const shellPath = (): string => join(import.meta.dir, "app.html");
 
 /**
+ * The review island ships as a single browser bundle built from its React
+ * entrypoint. The bundle is cached outside dev; dev rebuilds per request so
+ * edits show up with the shell's own reload workflow.
+ */
+let islandBundle: string | null = null;
+const islandBundleFor = async (dev: boolean): Promise<string | null> => {
+  if (!dev && islandBundle !== null) return islandBundle;
+  try {
+    const build = await Bun.build({
+      entrypoints: [join(import.meta.dir, "client", "review-island.tsx")],
+      target: "browser",
+      minify: !dev,
+    });
+    if (!build.success) {
+      for (const message of build.logs) console.error(message);
+      return null;
+    }
+    islandBundle = await build.outputs[0]!.text();
+    return islandBundle;
+  } catch (cause) {
+    console.error(`review island build failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    return null;
+  }
+};
+
+/**
  * Thrown when the requested port is taken. Carries the running tk web server's
  * identity when one answered the probe, so the CLI can tell the user exactly
  * what to stop or how to dodge the port.
@@ -179,6 +205,11 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         const shell = await readFile(shellPath(), "utf8");
         return new Response(shell, { headers: { "content-type": "text/html; charset=utf-8" } });
       }
+      if (request.method === "GET" && url.pathname === "/assets/review-island.js") {
+        const bundle = await islandBundleFor(dev);
+        if (bundle === null) return json({ error: { kind: "runtime", message: "review island bundle failed to build" } }, 500);
+        return new Response(bundle, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
+      }
       if (request.method === "GET" && url.pathname === "/events") {
         let generation = shellGeneration;
         const stream = new ReadableStream<Uint8Array>({
@@ -216,7 +247,7 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         if (!outcome.ok) return json({ error: outcome.error }, 500);
         const content = outcome.value;
         if (content === null) return json({ error: { kind: "runtime", message: `no stored blob for ${ref}` } }, 404);
-        return new Response(content.bytes, { headers: { "content-type": content.meta.mime, "cache-control": "no-store" } });
+        return new Response(content.bytes as unknown as BodyInit, { headers: { "content-type": content.meta.mime, "cache-control": "no-store" } });
       }
       const body = async (): Promise<Record<string, unknown>> => {
         try {

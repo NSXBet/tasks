@@ -39,7 +39,7 @@ describe("tk web server", () => {
     }
   });
 
-  it("serves the phase-0 review mock views in the shell", async () => {
+  it("serves the review island in the shell and as a bundle", async () => {
     const root = workspace();
     await init(root);
     const server = await startWebServer({ root, randomPort: true });
@@ -47,12 +47,15 @@ describe("tk web server", () => {
       const shell = await fetch(`${server.url}/`);
       expect(shell.status).toBe(200);
       const body = new TextDecoder().decode(await shell.arrayBuffer());
-      expect(body).toContain('id="taskView"');
-      expect(body).toContain('id="artifactView"');
-      expect(body).toContain('id="diffView"');
-      expect(body).toContain("tk-142");
-      expect(body).toContain("Fix flaky retry logic in uploader");
-      expect(body).toContain('toast("WIP")');
+      expect(body).toContain('id="reviewView"');
+      expect(body).toContain("/assets/review-island.js");
+      expect(body).not.toContain("tk-142");
+
+      const bundle = await fetch(`${server.url}/assets/review-island.js`);
+      expect(bundle.status).toBe(200);
+      expect(bundle.headers.get("content-type")).toContain("text/javascript");
+      const js = new TextDecoder().decode(await bundle.arrayBuffer());
+      expect(js).toContain("ReviewIsland");
     } finally {
       await server.close();
     }
