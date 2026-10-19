@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
+import { waitForFramePredicate, waitForFrameText, waitForFrameWithout } from "./wait.js";
 import { App } from "../src/app/App.js";
 import { openTuiStore } from "../src/store.js";
 import type { BootSlots } from "../src/app/routes.js";
@@ -39,10 +40,10 @@ describe("deep-link boot", () => {
     const store = await openTuiStore(root);
     const setup = await testRender(
       <App store={store} actor="tester" onQuit={() => {}} boot={slotsFor({ view: "board" })} />,
-      { width: 100, height: 24 },
+      { width: 100, height: 24, useThread: false },
     );
     try {
-      const frame = await setup.waitForFrame((value) => value.includes("Open ("), { maxPasses: 40 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("Open ("));
       expect(frame).toContain("Review (");
       expect(frame).toContain("Closed");
     } finally {
@@ -58,10 +59,10 @@ describe("deep-link boot", () => {
     if (!created.ok) throw created.error;
     const setup = await testRender(
       <App store={store} actor="tester" onQuit={() => {}} boot={slotsFor({ view: "list", detailId: created.value.id, targetId: created.value.id })} />,
-      { width: 100, height: 24 },
+      { width: 100, height: 24, useThread: false },
     );
     try {
-      const frame = await setup.waitForFrame((value) => value.includes("linked issue"), { maxPasses: 40 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("linked issue"));
       expect(frame).toContain(created.value.id);
     } finally {
       setup.renderer.destroy();
@@ -74,10 +75,10 @@ describe("deep-link boot", () => {
     const store = await openTuiStore(root);
     const setup = await testRender(
       <App store={store} actor="tester" onQuit={() => {}} boot={slotsFor({ view: "list", detailId: "tasks-zzz", targetId: "tasks-zzz" })} />,
-      { width: 100, height: 24 },
+      { width: 100, height: 24, useThread: false },
     );
     try {
-      const frame = await setup.waitForFrame((value) => value.includes("unknown issue tasks-zzz"), { maxPasses: 40 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("unknown issue tasks-zzz"));
       expect(frame).toContain("tasks-zzz");
     } finally {
       setup.renderer.destroy();

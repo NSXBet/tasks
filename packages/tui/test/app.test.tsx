@@ -3,9 +3,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
+import { waitForFramePredicate, waitForFrameText, waitForFrameWithout } from "./wait.js";
 import { App } from "../src/app/App.js";
 import { openTuiStore } from "../src/store.js";
 import { attachEvidenceUow } from "@tasks/surface";
+import type { BootSlots } from "../src/app/routes.js";
+
+/** Plain-launch defaults with per-test overrides, matching App's boot contract. */
+const slotsFor = (overrides: Partial<BootSlots>): BootSlots => ({
+  view: "list",
+  detailId: null,
+  helpOpen: false,
+  modalId: null,
+  diffOpen: false,
+  reviewId: null,
+  graphId: null,
+  composer: { mode: "closed", forId: null, initial: "", confirm: null, review: null },
+  targetId: null,
+  ...overrides,
+});
 
 const workspaces: string[] = [];
 const workspace = (): string => {
@@ -24,9 +40,9 @@ describe("tui app", () => {
   test("renders empty board with statusbar counters", async () => {
     const root = workspace();
     const store = await openTuiStore(root);
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24 });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24, useThread: false });
     try {
-      const frame = await setup.waitForFrame((value) => value.includes("open 0"), { maxPasses: 40 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("open 0"));
       expect(frame).toContain("done 0");
     } finally {
       setup.renderer.destroy();
@@ -39,9 +55,9 @@ describe("tui app", () => {
     const store = await openTuiStore(root);
     const created = await store.surface.create({ title: "first board", priority: 1, labels: ["tui"] });
     if (!created.ok) throw created.error;
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24 });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24, useThread: false });
     try {
-      const frame = await setup.waitForFrame((value) => value.includes("first board"), { maxPasses: 40 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("first board"));
       expect(frame).toContain(created.value.id);
     } finally {
       setup.renderer.destroy();
@@ -54,11 +70,11 @@ describe("tui app", () => {
     const store = await openTuiStore(root);
     const first = await store.surface.create({ title: "alpha", priority: 1 });
     if (!first.ok) throw first.error;
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24 });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24, useThread: false });
     try {
-      await setup.waitForFrame((value) => value.includes("alpha"), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("alpha"));
       await setup.mockInput.pressKey("2");
-      const frame = await setup.waitForFrame((value) => value.includes("Open (") && value.includes("Closed"), { maxPasses: 40 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("Open (") && value.includes("Closed"));
       expect(frame).toContain("alpha");
     } finally {
       setup.renderer.destroy();
@@ -74,11 +90,11 @@ describe("tui app", () => {
     if (!blocker.ok || !blocked.ok) throw new Error("create failed");
     const dep = await store.surface.depAdd(blocked.value.id, blocker.value.id);
     if (!dep.ok) throw dep.error;
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24 });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24, useThread: false });
     try {
-      await setup.waitForFrame((value) => value.includes("alpha"), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("alpha"));
       await setup.mockInput.pressKey("3");
-      const frame = await setup.waitForFrame((value) => value.includes("blocked by") || value.includes("blocks ("), { maxPasses: 40 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("blocked by") || value.includes("blocks ("));
       expect(frame).toContain(blocker.value.id);
       expect(frame).toContain(blocked.value.id);
     } finally {
@@ -92,11 +108,11 @@ describe("tui app", () => {
     const store = await openTuiStore(root);
     const issue = await store.surface.create({ title: "gamma", priority: 0 });
     if (!issue.ok) throw issue.error;
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24 });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24, useThread: false });
     try {
-      await setup.waitForFrame((value) => value.includes("gamma"), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("gamma"));
       await setup.mockInput.pressKey("4");
-      const frame = await setup.waitForFrame((value) => value.includes("ready now"), { maxPasses: 40 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("ready now"));
       expect(frame).toContain(issue.value.id);
     } finally {
       setup.renderer.destroy();
@@ -107,14 +123,14 @@ describe("tui app", () => {
   test("composer creates an issue from the n prompt", async () => {
     const root = workspace();
     const store = await openTuiStore(root);
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24 });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24, useThread: false });
     try {
-      await setup.waitForFrame((value) => value.includes("open 0"), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("open 0"));
       await setup.mockInput.pressKey("n");
-      await setup.waitForFrame((value) => value.includes("new issue title"), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("new issue title"));
       await setup.mockInput.pressKeys(["m", "a", "d", "e"]);
       await setup.mockInput.pressKey("\r");
-      const frame = await setup.waitForFrame((value) => value.includes("made"), { maxPasses: 60 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("made"));
       expect(frame).toContain("made");
     } finally {
       setup.renderer.destroy();
@@ -127,9 +143,9 @@ describe("tui app", () => {
     const store = await openTuiStore(root);
     const first = await store.surface.create({ title: "rail item", priority: 1 });
     if (!first.ok) throw first.error;
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24 });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24, useThread: false });
     try {
-      const frame = await setup.waitForFrame((value) => value.includes("VIEWS"), { maxPasses: 40 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("VIEWS"));
       expect(frame).toContain("List");
       expect(frame).toContain("Board");
       expect(frame).toContain("Insights");
@@ -146,15 +162,15 @@ describe("tui app", () => {
     const store = await openTuiStore(root);
     const issue = await store.surface.create({ title: "palette target", priority: 1 });
     if (!issue.ok) throw issue.error;
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24 });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24, useThread: false });
     try {
-      await setup.waitForFrame((value) => value.includes("palette target"), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("palette target"));
       await setup.mockInput.pressKey(":");
-      const frame = await setup.waitForFrame((value) => value.includes("go to Board"), { maxPasses: 40 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("go to Board"));
       expect(frame).toContain("go to Insights");
       expect(frame).toContain("close");
       await setup.mockInput.pressKeys(["s", "t", "a"]);
-      const filtered = await setup.waitForFrame((value) => !value.includes("go to Board"), { maxPasses: 40 });
+      const filtered = await waitForFramePredicate(setup, (value) => !value.includes("go to Board"));
       expect(filtered).toContain("start (in progress)");
       expect(filtered).toContain("[s]");
       await setup.mockInput.pressKey("escape");
@@ -169,13 +185,13 @@ describe("tui app", () => {
     const store = await openTuiStore(root);
     const first = await store.surface.create({ title: "modal issue", priority: 0 });
     if (!first.ok) throw first.error;
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24 });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24, useThread: false });
     try {
-      await setup.waitForFrame((value) => value.includes("modal issue"), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("modal issue"));
       await setup.mockInput.pressKey("2");
-      await setup.waitForFrame((value) => value.includes("Open ("), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("Open ("));
       await setup.mockInput.pressKey("\r");
-      const frame = await setup.waitForFrame((value) => value.includes("updated"), { maxPasses: 40 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("updated"));
       expect(frame).toContain("modal issue");
       expect(frame).toContain(first.value.id);
       expect(frame).toContain("Open (");
@@ -191,15 +207,15 @@ describe("tui app", () => {
     const store = await openTuiStore(root);
     const first = await store.surface.create({ title: "modal verb", priority: 1 });
     if (!first.ok) throw first.error;
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24 });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24, useThread: false });
     try {
-      await setup.waitForFrame((value) => value.includes("modal verb"), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("modal verb"));
       await setup.mockInput.pressKey("2");
-      await setup.waitForFrame((value) => value.includes("Open ("), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("Open ("));
       await setup.mockInput.pressKey("\r");
-      await setup.waitForFrame((value) => value.includes("modal verb"), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("modal verb"));
       await setup.mockInput.pressKey("s");
-      const frame = await setup.waitForFrame((value) => value.includes("in_progress"), { maxPasses: 60 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("in_progress"));
       expect(frame).toContain("modal verb");
     } finally {
       setup.renderer.destroy();
@@ -212,18 +228,18 @@ describe("tui app", () => {
     const store = await openTuiStore(root);
     const first = await store.surface.create({ title: "confirm target", priority: 1 });
     if (!first.ok) throw first.error;
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24 });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 24, useThread: false });
     try {
-      await setup.waitForFrame((value) => value.includes("confirm target"), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("confirm target"));
       await setup.mockInput.pressKey("2");
-      await setup.waitForFrame((value) => value.includes("Open ("), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("Open ("));
       await setup.mockInput.pressKey("\r");
-      await setup.waitForFrame((value) => value.includes("esc ✕"), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("esc ✕"));
       await setup.mockInput.pressKey("d");
-      const prompt = await setup.waitForFrame((value) => value.includes("↵/y · n"), { maxPasses: 40 });
+      const prompt = await waitForFramePredicate(setup, (value) => value.includes("↵/y · n"));
       expect(prompt).toContain("close tk-");
       await setup.mockInput.pressKey("\r");
-      const frame = await setup.waitForFrame((value) => value.includes("done 1"), { maxPasses: 60 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("done 1"));
       expect(frame).not.toContain("✎ title");
     } finally {
       setup.renderer.destroy();
@@ -231,62 +247,47 @@ describe("tui app", () => {
     }
   });
 
-  test("task view renders the TK-142 fixture record with branch and comments", async () => {
+  test("task view renders the live record meta, description, and review rail", async () => {
     const root = workspace();
     const store = await openTuiStore(root);
     const anchor = await store.surface.create({ title: "Fix flaky retry logic in uploader", priority: 1 });
     if (!anchor.ok) throw anchor.error;
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 120, height: 80 });
+    const id = anchor.value.id;
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} boot={slotsFor({ view: "task", detailId: id, targetId: id })} />, { width: 120, height: 80, useThread: false });
     try {
-      await setup.waitForFrame((value) => value.includes("open 0"), { maxPasses: 40 });
-      await setup.mockInput.pressKey("5");
-      const frame = await setup.waitForFrame((value) => value.includes("tk/tk-142"), { maxPasses: 40 });
-      expect(frame).toContain("Fix flaky retry logic");
-      expect(frame).toContain("COMMENTS");
-      expect(frame).toContain("SESSIONS");
-      expect(frame).toContain("ARTIFACTS");
-    } finally {
-      setup.renderer.destroy();
-      await store.close();
-    }
-  });
-
-  test("artifact view shows typed rail and resolve chips", async () => {
-    const root = workspace();
-    const store = await openTuiStore(root);
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 120, height: 80 });
-    try {
-      await setup.waitForFrame((value) => value.includes("open 0"), { maxPasses: 40 });
-      await setup.mockInput.pressKey("6");
-      const frame = await setup.waitForFrame((value) => value.includes("ARTIFACTS tk-142"), { maxPasses: 40 });
-      expect(frame).toContain("src/uploader/retry.ts");
-      expect(frame).toContain("resolved by reply");
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("Fix flaky retry logic"));
+      expect(frame).toContain(id);
       expect(frame).toContain("open");
+      expect(frame).toContain("v open diff · V diff modal · c comment");
+      // No work record yet: the rail still resolves its null form.
+      expect(frame).toContain("branch —");
+      expect(frame).toContain("base HEAD");
+      expect(frame).toContain("THREADS 0 open");
     } finally {
       setup.renderer.destroy();
       await store.close();
     }
   });
 
-  test("diff view renders unified shell with file list and line comments", async () => {
+  test("artifact view boots the review workbench with its escape hint", async () => {
     const root = workspace();
     const store = await openTuiStore(root);
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 120, height: 80 });
+    const created = await store.surface.create({ title: "artifact probe", priority: 2 });
+    if (!created.ok) throw created.error;
+    const id = created.value.id;
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} boot={slotsFor({ view: "artifact", detailId: id, targetId: id })} />, { width: 120, height: 80, useThread: false });
     try {
-      await setup.waitForFrame((value) => value.includes("open 0"), { maxPasses: 40 });
-      await setup.mockInput.pressKey("7");
-      const frame = await setup.waitForFrame((value) => value.includes("DIFF tk-142"), { maxPasses: 40 });
-      expect(frame).toContain("src/uploader/retry.ts");
-      // Canonical web scenario: both line comments are open threads (kyle's
-      // has the agent reply), no resolved state exists to render.
-      expect(frame).toContain("does doFetch propagate 429s");
-      expect(frame).toContain("yes — RetryError(status)");
-      expect(frame).toContain("0/2 resolved");
+      // Same live review session chrome as the diff view, framed on one file.
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("esc back to task"));
+      expect(frame).toContain("c comment · r reply");
     } finally {
       setup.renderer.destroy();
       await store.close();
     }
   });
+
+  // The diff view shares the artifact view's Workbench chrome (covered above)
+  // and its live rendering is exercised end-to-end by `tk review` in the smoke.
 
   test("detail shows attachments with image blobs rendered", async () => {
     const root = workspace();
@@ -302,13 +303,13 @@ describe("tui app", () => {
     if (!pathAttached.ok) throw pathAttached.error;
     const blobId = attached.value.attachments.find((attachment) => "kind" in attachment)?.id;
     if (blobId === undefined) throw new Error("evidence attachment missing");
-    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 48 });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 100, height: 48, useThread: false });
     try {
-      await setup.waitForFrame((value) => value.includes("with blobs"), { maxPasses: 40 });
+      await waitForFramePredicate(setup, (value) => value.includes("with blobs"));
       await setup.mockInput.pressKey("\r");
       // Canonical web detail has a single attachments row (app.html attrow):
       // path chips + inline image blobs. No separate "evidences" heading.
-      const frame = await setup.waitForFrame((value) => value.includes("attachments"), { maxPasses: 40 });
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("attachments"));
       expect(frame).toContain("docs/log.txt");
       expect(frame).toContain(`dot.png`);
       expect(frame).toContain(blobId);
