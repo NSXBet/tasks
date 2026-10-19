@@ -21,6 +21,8 @@
     "react": "^19.2.0",
     "@tasks/application": "workspace:*",
     "@tasks/domain": "workspace:*",
+    "@tasks/git": "workspace:*",
+    "@tasks/review": "workspace:*",
     "@tasks/surface": "workspace:*",
     "@tasks/workspace": "workspace:*"
   },
