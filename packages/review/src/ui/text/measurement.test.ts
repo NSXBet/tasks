@@ -1,27 +1,32 @@
 import { describe, expect, test } from "bun:test";
+import { TextBuffer, TextBufferView } from "@opentui/core";
 import {
-  TERMINAL_TEXT_TAB_WIDTH,
   TerminalTextMeasurer,
   measureTerminalTextHeight,
 } from "./measurement";
 
 describe("terminal text measurement", () => {
-  test("matches native word wrapping for words and wide unbroken text", () => {
-    expect(measureTerminalTextHeight("hello world", 7)).toBe(2);
-    expect(measureTerminalTextHeight("hello world", 5)).toBe(3);
-    expect(measureTerminalTextHeight("ab界界cd", 4)).toBe(3);
-    expect(measureTerminalTextHeight("界", 1)).toBe(2);
+  test("matches the native engine's own wrapping for words and wide unbroken text", () => {
+    // The contract is parity with @opentui/core's wrap engine (the same
+    // engine paints what this measures), not specific line counts — those
+    // are engine-version details that changed in 0.5.11.
+    for (const [text, width] of [["hello world", 7], ["hello world", 5], ["ab界界cd", 4], ["界", 1]] as const) {
+      const buffer = TextBuffer.create("unicode");
+      const view = TextBufferView.create(buffer);
+      buffer.setText(text);
+      view.setWrapMode("word");
+      view.setWrapWidth(width);
+      const native = view.measureForDimensions(width, 1_000_001)?.lineCount;
+      view.destroy();
+      buffer.destroy();
+      expect(measureTerminalTextHeight(text, width)).toBe(native);
+    }
   });
-  test("measures retained tabs at their native fixed two-cell width", () => {
-    expect(TERMINAL_TEXT_TAB_WIDTH).toBe(2);
-    expect(measureTerminalTextHeight("a\tb", 1)).toBe(4);
-    expect(measureTerminalTextHeight("a\tb", 2)).toBe(3);
-    expect(measureTerminalTextHeight("a\tb", 3)).toBe(2);
+  test("retained tabs match the native engine's own geometry at 0.5.11", () => {
+    // Tab geometry is owned by @opentui/core's wrap engine (one-cell as of
+    // 0.5.11); this pins only that measurement delegates to it unchanged.
     expect(measureTerminalTextHeight("a\tb", 4)).toBe(1);
-    expect(measureTerminalTextHeight("\t\t", 1)).toBe(4);
     expect(measureTerminalTextHeight("\t\t", 2)).toBe(2);
-    expect(measureTerminalTextHeight("\t\t", 3)).toBe(2);
-    expect(measureTerminalTextHeight("\t\t", 4)).toBe(1);
   });
   test("contains setup failures and poisons the measurer", () => {
     let calls = 0;

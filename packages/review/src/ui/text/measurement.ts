@@ -1,7 +1,11 @@
 import { TextBuffer, TextBufferView } from "@opentui/core";
 
-/** OpenTUI renders each retained tab at a fixed two-cell width. */
-export const TERMINAL_TEXT_TAB_WIDTH = 2;
+/**
+ * Retained tabs are measured by the same native engine that paints them, so
+ * measurement and painting stay identical by construction — the engine owns
+ * tab geometry, and it changed in @opentui 0.5.11 (two-cell → one-cell, with
+ * non-linear wrap behavior). Do not re-derive tab widths here.
+ */
 const TEXT_MEASUREMENT_ERROR = "terminal text measurement unavailable";
 
 interface NativeTextBuffer {
