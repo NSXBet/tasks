@@ -1,5 +1,5 @@
 ---
-status: testing
+status: complete
 phase: 02-changeset-derivation-completion-contract
 source: [02-01-SUMMARY.md, 02-02-SUMMARY.md]
 started: 2026-10-19T00:27:18Z
@@ -86,14 +86,16 @@ skipped: 0
 ## Issues
 
 ### Issue 1: `tk work` default worktree placement is sibling, not `.worktrees/`
+resolution: fixed — `18c1151` resolver default flipped to the in-repo `.worktrees` pool (per-task override and `worktree.dir` config precedence unchanged); tests updated (resolver, concurrency, work).
 test: 3 (setup)
 description: User reports the worktree should have been created under `.worktrees/` — that is the expected default. Actual: `resolveWorktreePath` defaults to sibling placement (`<repo>-<id>` beside the repo; observed `tasks-tasks-j4e`, prunable), pinned by `packages/git/test/resolver.test.ts` ("defaults to sibling placement"). `.worktrees/` placement is reachable only via `.tasks/config.json` `worktree.dir` or per-task `worktree_dir` metadata override. Product decision needed: change the code default to `.worktrees/{name}` (phase 1 scope, touches resolver + tests) or configure workspace placement.
 reported: 2026-10-19
 
 ### Issue 2: Base pin anchors to stale origin/HEAD — changeset spans the entire local line
+resolution: fixed — `366e015` `gitDefaultBranch` anchors to the local default line when origin/HEAD is stale (reweld-aware: local ahead of origin → local wins); pinned by a real-git adapter test. — FIXED 2026-10-19
 `tk work tasks-etqk` pinned BASE = 97ab249d ("test(tui): add tests for image size") instead of main's tip 879d0ad, so the derived changeset covers all 34+ commits since the repo root — including other tasks' and planning commits.
 Root cause chain (code-verified): `gitDefaultBranch` (packages/git/src/commands.ts:26) prefers `origin/HEAD` over local main/master when configured; origin/main here is stale at 97ab249d (local main was welded/rewritten to 879d0ad and not pushed); `tk work` (packages/cli/src/tk.ts:~660) pins base = `gitMergeBase(branch, defaultBranch)` = the stale remote tip. `git rev-parse origin/HEAD origin/main` → 97ab249d; `main` → 879d0ad.
-Fix direction: prefer the LOCAL default branch tip (or resolve origin/HEAD only after `fetch origin`), or treat a base older than main's tip as suspect. Reported: 2026-10-19
+Fix: `gitDefaultBranch` now prefers the LOCAL default tip when it is strictly ahead of origin/HEAD (remote is ancestor of local but not vice versa); in-sync, diverged, and remote-ahead cases keep origin/HEAD. Regression test: "git integration > anchors the default branch to the local line when origin/HEAD is stale" (packages/git/test/adapter.test.ts) covers in-sync → origin/main and local-ahead → main. Verified: git 25/25, cli+surface 168/168.
 
 ## Gaps
 
