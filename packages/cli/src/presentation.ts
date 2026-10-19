@@ -192,27 +192,10 @@ export function formatAttachments(attachments: readonly IssueAttachment[], image
   return lines.join("\n");
 }
 
-/**
- * Phase-0 mock surface: the free-form metadata bag (`metadata.review`) carries
- * the review-scenario data (base/worktree, agent sessions, changed-file
- * artifacts, diff hunks, agent comment authors) until real sources land.
- */
-export interface ReviewSession { readonly id: string; readonly agent: string; readonly status: string; readonly topic: string; readonly duration: string; }
-export interface ReviewArtifact { readonly path: string; readonly added: number; readonly removed: number; readonly comments: number; }
-export interface ReviewDiffLine { readonly kind: "add" | "del"; readonly text: string; }
-export interface ReviewDiffFile { readonly file: string; readonly lines: readonly ReviewDiffLine[]; }
-export interface ReviewMeta { readonly base?: string; readonly worktree?: string; readonly sessions?: readonly ReviewSession[]; readonly artifacts?: readonly ReviewArtifact[]; readonly diff?: readonly ReviewDiffFile[]; readonly agentAuthors?: readonly string[]; }
-export const reviewMeta = (issue: Issue): ReviewMeta => {
-  const review = issue.metadata["review"];
-  return review !== null && typeof review === "object" && !Array.isArray(review) ? review as ReviewMeta : {};
-};
-
 export function formatShow(issue: Issue, images: ReadonlyMap<string, BlobContent> = new Map(), changeset: ChangesetPayload | null = null): string {
   const head = `${statusColored(issue.status)} ${cyan(issue.id)} · ${bold(issue.title)}   [${priorityBadge(issue.priority)} · ${statusLabel(issue.status)}]`;
   const meta = [issue.owner === null ? null : `Owner: ${issue.owner}`, issue.assignee === null ? null : `Assignee: ${issue.assignee}`, `Type: ${issue.type}`, issue.estimate === null ? null : `Estimate: ${issue.estimate}m`].filter(Boolean).join(" · ");
   const dates = [field("Created:", date(issue.createdAt)), issue.startedAt === null ? null : field("Started:", date(issue.startedAt)), field("Updated:", date(issue.updatedAt)), issue.closedAt === null ? null : field("Closed:", date(issue.closedAt)), issue.dueAt === null ? null : field("Due:", date(issue.dueAt)), issue.deferUntil === null ? null : field("Deferred:", date(issue.deferUntil))].filter(Boolean).join("  ");
-  const review = reviewMeta(issue);
-  const agentAuthors: Record<string, true> = Object.fromEntries((review.agentAuthors ?? []).map((author) => [author, true as const]));
   const sections: string[] = [head, dim(meta), dim(dates)];
   sections.push(formatSection("DESCRIPTION", issue.description.trim() === "" ? dim("(none)") : issue.description.trimEnd()));
   if (issue.labels.length > 0) sections.push(`${bold("LABELS:")} ${issue.labels.map((label) => magenta(`#${label}`)).join(" ")}`);
@@ -223,34 +206,17 @@ export function formatShow(issue: Issue, images: ReadonlyMap<string, BlobContent
     const recordedWorktree = typeof issue.metadata["worktree"] === "string" ? issue.metadata["worktree"] : null;
     const recordedChangeset = issue.metadata["changeset"];
     const recordedBase = recordedChangeset !== null && typeof recordedChangeset === "object" && !Array.isArray(recordedChangeset) && typeof (recordedChangeset as Record<string, unknown>)["base"] === "string" ? (recordedChangeset as Record<string, unknown>)["base"] as string : null;
-    // Recorded `tk work` evidence wins; the Phase-0 review mock's base/worktree is the fallback.
-    const shownBase = recordedBase ?? review.base ?? null;
-    const shownWorktree = recordedWorktree ?? review.worktree ?? null;
+    const shownBase = recordedBase;
+    const shownWorktree = recordedWorktree;
     sections.push([`${bold("BRANCH:")} ${cyan(issue.branch)}`, shownBase === null ? dim(field("BASE:", "(unpinned)")) : `${field("BASE:", shownBase)}`, shownWorktree === null ? dim(field("WORKTREE:", "(none)")) : `${field("WORKTREE:", shownWorktree)}`].filter(Boolean).join("\n"));
     if (changeset !== null && changeset.commits.length > 0) sections.push(formatSection(`COMMITS (${changeset.commits.length})`, changeset.commits.map((commit) => `${cyan(commit.sha)} ${commit.subject}`).join("\n")));
     if (changeset !== null && changeset.files.length > 0) sections.push(formatSection(`FILES (${changeset.files.length})`, changeset.files.map((file) => `${file.status === "A" ? green("A") : file.status === "D" ? red("D") : file.status.startsWith("R") ? magenta("R") : yellow(file.status)} ${file.path}`).join("\n")));
   }
-  if (review.artifacts !== undefined && review.artifacts.length > 0) sections.push(formatSection(`ARTIFACTS (${review.artifacts.length})`, review.artifacts.map((artifact) => `${cyan(artifact.path)}  ${green(`+${artifact.added}`)}${red(`−${artifact.removed}`)}  ${dim(`${artifact.comments} comment(s)`)}`).join("\n")));
-  if (review.sessions !== undefined && review.sessions.length > 0) sections.push(formatSection(`SESSIONS (${review.sessions.length})`, review.sessions.map((session) => `${session.status === "running" ? green("▸") : dim("·")} ${cyan(session.id)}  ${session.agent}  ${session.status}  ${dim(`${session.topic} · ${session.duration}`)}`).join("\n")));
   if (issue.attachments.length > 0) sections.push(formatAttachments(issue.attachments, images));
   if (issue.dependencies.length > 0) sections.push(formatSection("DEPENDENCIES", issue.dependencies.map((edge) => `→ ${cyan(edge.target)} (${edge.type})`).join("\n")));
   if (issue.parentId !== null) sections.push(`${bold("PARENT:")} ${cyan(issue.parentId)}`);
-  if (issue.comments.length > 0) sections.push(formatSection(`COMMENTS (${issue.comments.length})`, issue.comments.map((comment) => `${dim(datetime(comment.createdAt))} ${green(comment.author)}${agentAuthors[comment.author] === true ? cyan("  [agent]") : ""}\n${indent(comment.text.trimEnd())}`).join("\n\n")));
+  if (issue.comments.length > 0) sections.push(formatSection(`COMMENTS (${issue.comments.length})`, issue.comments.map((comment) => `${dim(datetime(comment.createdAt))} ${green(comment.author)}\n${indent(comment.text.trimEnd())}`).join("\n\n")));
   return sections.join("\n\n");
-}
-
-/** `tk review` mock: shows diff hunks from metadata; edit/comment actions are WIP stubs. */
-export function formatReview(issue: Issue): string {
-  const head = `${statusColored(issue.status)} ${cyan(issue.id)} · ${bold(issue.title)}   [${priorityBadge(issue.priority)} · ${statusLabel(issue.status)}]`;
-  const diff = reviewMeta(issue).diff ?? [];
-  const lines: string[] = [head];
-  if (diff.length === 0) lines.push(dim("(no diff)"));
-  for (const file of diff) {
-    lines.push(bold(file.file));
-    for (const line of file.lines) lines.push(line.kind === "add" ? green(`+ ${line.text}`) : red(`- ${line.text}`));
-  }
-  lines.push(`${bold("ACTIONS:")} edit → WIP · comment → WIP`);
-  return lines.join("\n");
 }
 
 export function formatComments(issue: Issue): string {
