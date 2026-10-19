@@ -91,6 +91,27 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-18T20:35:00.000Z
-Stopped at: Phase 02 executed (plans 02-01 + 02-02); ready for phase verification
-Resume file: .planning/phases/02-changeset-derivation-completion-contract/02-02-SUMMARY.md
+Last session: 2026-10-19T05:40:00.000Z
+Stopped at: Phase 02 verified (UAT 11/11); task→review plan steps 7–12 executed directly
+Resume file: .agents/plans/2026-10-08-task-to-review.md
+
+## task→review Plan Execution (2026-10-19, direct — outside the GSD loop, user-directed "finish this, no iteration")
+
+Phases 3–5 scope delivered by executing the master plan (.agents/plans/2026-10-08-task-to-review.md) steps 7–12 in one session; formal GSD phase planning/verification for 03–05 was skipped by explicit user instruction. Steps 1–6 were already covered by Phases 1–2 + earlier mock work.
+
+| Step | Commit(s) | Scope |
+|---|---|---|
+| 7 vendor hunk slice | `403f7a3` (+`a49e9c7` lockfile) | `packages/review` (268 files, 1066 tests) |
+| 8 storage swap | `ca22e66` | ReviewCommentStore → task store, resolve state |
+| 9 real TUI | `30d33ab` `35ff0c7` `c9c4be9` | three views live, `tk review <id>` → `tk://diff/<id>` |
+| 10 real web | `c9c58ea` `664bc22` | review island on @pierre/diffs, `/api/review/:id`, SSE, write endpoints |
+| 11 worktree lifecycle | `0166abe` | prune engine, `tk worktree clean`, lifecycle hooks (192 tests) |
+| 12 injection | `b695ebe` | ONBOARD/prime/SKILL.md/AGENTS.md |
+| UAT issue 1 | `18c1151` | default worktree placement → `.worktrees/` pool |
+| UAT issue 2 | `366e015` | default branch anchors to local line when origin/HEAD stale |
+| hygiene | `d1ba1cc` | pi-extention imports `@tasks/surface` (plan phase-7 rider) |
+| measurement drift | `93c35a3` | vendored text-measurement pins aligned to @opentui 0.5.11 |
+
+Smoke (scratch repo, all live): `tk work` → `.worktrees/<repo>-<id>`; commit → `tk show` COMMITS/FILES re-derive; `tk review` boots vendored review TUI; `tk web` serves shell 200 + `/api/review/:id` live changeset; web comment POST → task store → `tk show`.
+
+Closed: tasks-71yd, tasks-etqk (close-path prune/freeze exercised; tasks-etqk fired the WR-02 unfrozen-snapshot warning as designed).
