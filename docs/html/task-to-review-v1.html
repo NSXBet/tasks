@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Task → review — v1 verified against live</title>
+<script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+<script src="data/task-to-review-v1-data.js"></script>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#10151c; --panel2:#0d1117; --border:#1d2833; --border2:#273445;
+    --text:#d7e1ea; --muted:#7c8b99; --accent:#3ddc97; --blue:#58a6ff; --red:#f85149; --green:#3fb950; --amber:#d29922; --purple:#a78bfa;
+  }
+  body{background:var(--bg); color:var(--text); font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .panel{background:var(--panel); border:1px solid var(--border);}
+  .pill{border:1px solid var(--border2); border-radius:9999px; padding:1px 8px; font-size:10px; letter-spacing:.08em;}
+  .pill-done{color:var(--green); border-color:rgba(63,185,80,.4);}
+  .pill-open{color:var(--accent); border-color:rgba(61,220,151,.4);}
+  .pill-idle{color:var(--muted);}
+  .pill-amber{color:var(--amber); border-color:rgba(210,153,34,.4);}
+  .term{background:var(--panel2); border:1px solid var(--border); border-radius:12px;}
+  .term .bar{display:flex;gap:6px;padding:10px 12px;border-bottom:1px solid var(--border);}
+  .term .dot{width:9px;height:9px;border-radius:9999px;}
+  .term pre{margin:0;padding:12px 14px;overflow-x:auto;font-size:10px;line-height:1.45;color:#c3d0dc;}
+  .term pre.json{color:#9fe8cd;white-space:pre;}
+  a{color:var(--blue);}
+  ::selection{background:rgba(61,220,151,.3);}
+  .section-num{color:var(--muted); font-size:11px; letter-spacing:.2em;}
+  figure{margin-bottom:3.5rem;}
+  figcaption{margin-bottom:.75rem;font-size:11px;letter-spacing:.1em;color:#7c8b99;}
+</style>
+</head>
+<body class="antialiased">
+
+<!-- ================= NAV ================= -->
+<header class="sticky top-0 z-40 backdrop-blur bg-[#0b0f14]/85 border-b border-[#1d2833]">
+  <div class="max-w-[1180px] mx-auto px-5 h-12 flex items-center gap-5 text-[11px] tracking-wide">
+    <span class="text-[#3ddc97] font-bold">tk</span><span class="text-[#7c8b99]">/</span><span>task → review</span><span class="pill pill-open">v1 verified</span>
+    <nav class="ml-auto flex gap-4 text-[#7c8b99]">
+      <a href="task-to-review.html">spec</a><a href="#verdicts">verdicts</a><a href="#prints">prints</a><a href="#api">web api</a><a href="#divergences">divergences</a>
+    </nav>
+  </div>
+</header>
+
+<main class="max-w-[1180px] mx-auto px-5 pb-24">
+
+  <!-- ================= HERO ================= -->
+  <section class="pt-14 pb-10">
+    <div class="text-[11px] tracking-[.25em] text-[#7c8b99]">SPEC vs LIVE · <span id="meta-date"></span> · NSXBet/tasks</div>
+    <h1 class="mt-4 text-4xl font-bold tracking-tight">Task <span class="text-[#3ddc97]">→</span> review <span class="text-[#7c8b99]">— v1 against the mocks</span></h1>
+    <p class="mt-4 max-w-[780px] text-[13px] leading-6 text-[#9fb0bf]">
+      Every mock in <a href="task-to-review.html">task-to-review.html</a> checked against the running implementation.
+      Each print below is captured verbatim from a live TUI session and a live web server —
+      not restaged, not mocked. The spec mock stays the reference; the print is the delivered behavior.
+    </p>
+    <div class="mt-5 flex flex-wrap gap-2 text-[10px]" id="meta-pills"></div>
+  </section>
+
+  <!-- ================= VERDICT MATRIX ================= -->
+  <section id="verdicts" class="mb-14">
+    <div class="section-num">§1 · VERDICT MATRIX</div>
+    <h2 class="mt-2 text-xl font-bold">7 surfaces, 7 prints, 3 designed divergences</h2>
+    <div class="panel rounded-xl mt-4 overflow-x-auto">
+      <table class="w-full text-[11.5px] leading-5">
+        <thead>
+          <tr class="border-b border-[#273445] text-left text-[9.5px] tracking-[.2em] text-[#7c8b99]">
+            <th class="p-2.5 font-normal">#</th><th class="p-2.5 font-normal">MOCK SURFACE</th><th class="p-2.5 font-normal">PRINT</th><th class="p-2.5 font-normal">VERDICT</th><th class="p-2.5 font-normal">EVIDENCE</th>
+          </tr>
+        </thead>
+        <tbody id="verdict-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= PRINTS ================= -->
+  <section id="prints" class="mb-6">
+    <div class="section-num">§2 · THE PRINTS — SPEC MOCK → LIVE CAPTURE</div>
+    <h2 class="mt-2 mb-6 text-xl font-bold">Mock on top of the same facts</h2>
+    <div id="print-list"></div>
+  </section>
+
+  <!-- ================= WEB API ================= -->
+  <section id="api" class="mb-14">
+    <div class="section-num">§3 · WEB REVIEW API — THE CONTRACT, LIVE</div>
+    <h2 class="mt-2 text-xl font-bold">GET /api/review/:id — branch-scoped, gracefully degrading</h2>
+    <p class="mt-3 max-w-[780px] text-[12px] leading-6 text-[#9fb0bf]">
+      The web island consumes one JSON shape: frozen <span class="text-[#d7e1ea]">branch / worktree / base / head</span>,
+      derived <span class="text-[#d7e1ea]">commits / files / counts / patch</span>, and a typed
+      <span class="text-[#d7e1ea]">patchError</span> instead of an HTTP error when derivation cannot run.
+      Two real responses, captured from the live server:
+    </p>
+    <div id="api-list" class="mt-5 space-y-8"></div>
+  </section>
+
+  <!-- ================= DIVERGENCES ================= -->
+  <section id="divergences" class="mb-14">
+    <div class="section-num">§4 · DIVERGENCES — WHERE LIVE DIFFERS FROM THE MOCK</div>
+    <h2 class="mt-2 text-xl font-bold">Three, all deliberate or designed-for</h2>
+    <div id="div-list" class="mt-4 space-y-3"></div>
+  </section>
+
+  <!-- ================= FOOTER ================= -->
+  <footer class="panel rounded-xl p-4 border-[#273445] text-[11px] leading-6 text-[#7c8b99]">
+    <span class="text-[#d7e1ea]">Sources.</span>
+    Prints: <code class="text-[#3ddc97]" id="meta-prints"></code> · TUI: <code class="text-[#3ddc97]">packages/tui/src</code> ·
+    web: <code class="text-[#3ddc97]">packages/web/src/review.ts</code> (reviewPayloadFor) ·
+    spec: <a href="task-to-review.html">task-to-review.html</a> · references: <a href="task-to-review-references.html">task-to-review-references.html</a>
+  </footer>
+
+</main>
+
+<script>
+  const D = window.DATA.taskAsPrV1;
+  const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+  // hero
+  document.getElementById("meta-date").textContent = D.meta.date;
+  document.getElementById("meta-prints").textContent = D.meta.prints;
+  document.getElementById("meta-pills").innerHTML = [
+    `<span class="pill">tui · ${esc(D.meta.tui)}</span>`,
+    `<span class="pill">web · ${esc(D.meta.web)}</span>`,
+    `<span class="pill pill-idle">${esc(D.meta.workspace)}</span>`,
+  ].join("");
+
+  // verdict matrix
+  document.getElementById("verdict-rows").innerHTML = D.prints.map((p,i) => `
+    <tr class="border-t border-[#1d2833] align-top">
+      <td class="p-2.5 text-[#3ddc97] font-bold">${i+1}</td>
+      <td class="p-2.5 text-[#c3d0dc]">${esc(p.surface)}${p.spec ? `<div class="text-[10px] text-[#7c8b99] mt-0.5">mock: ${esc(p.spec)}${p.refs ? ` <span class="text-[#41505f]">${esc(p.refs)}</span>` : ""}</div>` : ""}</td>
+      <td class="p-2.5"><a href="#print-${esc(p.id)}" class="text-[#58a6ff]">${esc(p.file)}</a></td>
+      <td class="p-2.5"><span class="pill pill-done">MATCH</span></td>
+      <td class="p-2.5 text-[#9fb0bf] max-w-[420px]">${esc(p.note)}</td>
+    </tr>`).join("") + `
+    <tr class="border-t border-[#1d2833] align-top">
+      <td class="p-2.5 text-[#3ddc97] font-bold">8</td>
+      <td class="p-2.5 text-[#c3d0dc]">Web diff island<span class="text-[10px] text-[#7c8b99] mt-0.5">mock: full-page web diff · location-tagged comments <span class="text-[#41505f]">R72 R73 R74</span></span></td>
+      <td class="p-2.5"><a href="#api" class="text-[#58a6ff]">§3 api</a></td>
+      <td class="p-2.5"><span class="pill pill-amber">DIVERGES</span></td>
+      <td class="p-2.5 text-[#9fb0bf] max-w-[420px]">Changeset contract is branch-scoped — see §4·1. Island renders threads + resolve + reply on top of it.</td>
+    </tr>`;
+
+  // prints — spec caption above, verbatim capture below
+  document.getElementById("print-list").innerHTML = D.prints.map(p => `
+    <figure id="print-${esc(p.id)}">
+      <figcaption>
+        <span class="text-[#3ddc97]">SPEC</span> · ${esc(p.spec)}${p.refs ? ` <span class="text-[#41505f]">${esc(p.refs)}</span>` : ""}
+        <span class="mx-2 text-[#41505f]">→</span>
+        <span class="text-[#3ddc97]">ACTUAL</span> · ${esc(p.file)} · ${esc(p.where)}
+        <span class="pill pill-done ml-2">MATCH</span>
+        <div class="mt-1 tracking-normal text-[11px] text-[#9fb0bf]">${esc(p.note)}</div>
+      </figcaption>
+      <div class="term max-w-full">
+        <div class="bar"><span class="dot bg-[#f85149]"></span><span class="dot bg-[#d29922]"></span><span class="dot bg-[#3fb950]"></span><span class="ml-3 text-[10px] text-[#7c8b99]">${esc(p.file)} — captured ${esc(D.meta.date)} · ${esc(p.where)}</span></div>
+        <pre>${esc(p.body)}</pre>
+      </div>
+    </figure>`).join("");
+
+  // web api payloads
+  document.getElementById("api-list").innerHTML = [D.api.etqk, D.api.t71yd].map(a => `
+    <figure>
+      <figcaption>${esc(a.label)}</figcaption>
+      <div class="term max-w-[880px]">
+        <div class="bar"><span class="dot bg-[#f85149]"></span><span class="dot bg-[#d29922]"></span><span class="dot bg-[#3fb950]"></span><span class="ml-3 text-[10px] text-[#7c8b99]">${esc(a.id)}</span></div>
+        <pre class="json">${esc(JSON.stringify(a.value, null, 2))}</pre>
+      </div>
+    </figure>`).join("");
+
+  // divergences
+  document.getElementById("div-list").innerHTML = D.divergences.map(d => `
+    <div class="panel rounded-xl p-4 border-[#273445] flex items-start gap-4">
+      <span class="pill pill-amber mt-0.5 shrink-0">${d.n}</span>
+      <div>
+        <div class="text-[12.5px] font-bold text-[#d7e1ea]">${esc(d.title)}</div>
+        <p class="mt-1.5 text-[11.5px] leading-6 text-[#9fb0bf]">${esc(d.text)}</p>
+      </div>
+    </div>`).join("");
+</script>
+</body>
+</html>

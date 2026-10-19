@@ -1,0 +1,40 @@
+┌────────────────┐ id tasks-1                                                               REVIEW
+│VIEWS           │ status open           hello                                              branch —
+│  1 ≡ List    92│ assignee yuri         (no description)                                   base HEAD
+│  2 ▦ Board   66│ priority P2                                                              diff +6273 −104
+│  3 ⟐ Graph   28│ labels —                                                                 FILES 58
+│  4 ◎ Insights  │ deps —                                                                     .agents/plans/2026-10-18-
+│▎ 5 ❐ Task      │                                                                          tui-…
+│  6 ▤ Artifacts3│                                                                            .agents/skills/tasks/
+│  7 ± Diff     1│                                                                          SKILL.md
+│                │                                                                            .gitignore
+│ACTIONS         │                                                                            .planning/.omp-checkpoint
+│ n ✎ new        │                                                                          json
+│ / ⌕ search     │                                                                            .planning/.omp-next-
+│: ≡ commands    │                                                                          action.js…
+│ ? ⎇ keys       │                                                                            .planning/config.json
+│                │                                                                            .planning/milestone.lock
+│                │                                                                            .planning/state.json
+│                │                                                                            .tasks/config.json
+│                │                                                                            CHANGELOG.md
+│                │                                                                            README.md
+│                │                                                                            Taskfile.yml
+│                │                                                                          THREADS 0 open
+│                │
+│                │
+│                │
+│                │
+│                │
+│                │
+│                │
+│                │
+│                │
+│                │
+│                │
+│                │
+│                │
+│                │
+│                │
+│                │
+│yuri            │                       v open diff · V diff modal · c comment
+└────────────────┘  open 51 · wip 6 · rev 9 · blk 21 · done 26                         1-4 views · : commands · ? keys

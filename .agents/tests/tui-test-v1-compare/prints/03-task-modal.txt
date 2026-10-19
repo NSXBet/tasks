@@ -1,0 +1,40 @@
+┌────────────────┐╭─ Open (51) ⛔18 ──────╮ ╭─ In Progress (6) ────╮ ╭─ Review (9) ⛔3 ──────╮ ╭─ Closed (26) ⛔2 ────╮
+│VIEWS           ││  ╭───────────────────────────────────────────────────────────────────────────╮  ✓ tasks-acz P1    ▀
+│  1 ≡ List    92││ B│  tasks-ti3g · 📋 · updated 8m ago                                         │omain: blob-backed
+│▎ 2 ▦ Board   66││ a│   Example Tern plugin tk-board: board block, event refresh, dogfood in    │videnc…
+│  3 ⟐ Graph   28││ 1│  Tern                                                                     │4d ago · #attachmen
+│  4 ◎ Insights  ││ #│                                                                           │
+│  5 ❐ Task      ││  │    ⛔  open    P2    @—                                                   │
+│  6 ▤ Artifacts3││  │    ⛔ blocked by tasks-cs9n                                               │  ✓ tasks-jj6 P1
+│  7 ± Diff     1││ E│                                                                           │2e smoke issue
+│                ││ t│     tern-lua  · 1 deps · 0 comments                                       │6d ago
+│ACTIONS         ││ 8│                                                                           │
+│ n ✎ new        ││  │  ┌─────────────────────────────────────────────────────────────────────┐  │  ✓ tasks-jbf P1
+│ / ⌕ search     ││  │  │  packages/lua/examples/tk-board/: plugin.toml + host.luau using     │  │tatus-driven agent
+│: ≡ commands    ││  │  └─────────────────────────────────────────────────────────────────────┘  │xecuti…
+│ ? ⎇ keys       ││ G│    ↵ title · s/r/o status · +/- prio · a claim · E desc · @ , D X edits   │6d ago
+│                ││ d│  · esc ✕                                                                  │
+│                ││ 8╰───────────────────────────────────────────────────────────────────────────╯  ✓ tasks-pmj P1
+│                ││ ⛔                    │ │ Luau codegen:        │ │ tui deep links:      █│ │ Run lifecycle CLI
+│                ││                       │ │ generator emi…       │ │ grammar + r…         █│ │ 26d ago
+│                ││ 📋 ⛔ tasks-cosq P2   │ │ 7m ago · #tern-lua   │ │ 16h ago · 💬1        █│ │
+│                ││ Integration: bun      │ │                      │ │                       │ │ 📋 ✓ tasks-kvv P1
+│                ││ boots tk w…           │ │ 📋 · tasks-861t P2   │ │ 📋 👀 tasks-xskm P2   │ │ tk agent CLI
+│                ││ 8m ago · #tern-lua ·  │ │ Events ring buffer + │ │ task→review step 3:   │ │ subcommands
+│                ││ ⛔                    │ │ GET /a…              │ │ mock CL…              │ │ 26d ago
+│                ││                       │ │ 7m ago · #tern-lua   │ │ 8d ago · #task-to-    │ │
+│                ││ 📋 ⛔ tasks-sktb P2   │ │                      │ │ review · 💬1          │ │ 📋 ✓ tasks-11p P1
+│                ││ Luau decode fixture   │ │ 📋 · tasks-wwjc P2   │ │                       │ │ Agent domain schema
+│                ││ tests u…              │ │ HTTP RPC route: POST │ │ 📋 👀 tasks-tnc P2    │ │ and bd …
+│                ││ 8m ago · #tern-lua ·  │ │ api/r…               │ │ task→review step 2:   │ │ 26d ago
+│                ││ ⛔                    │ │ 7m ago · #tern-lua   │ │ mock we…              │ │
+│                ││                       │ │                      │ │ 8d ago · #task-to-    │ │ 📋 ✓ tasks-xml P1
+│                ││ 📋 ⛔ tasks-frux P2   │ │                      │ │ review · 💬1          │ │ Run domain schema an
+│                ││ Luau events.luau:     │ │                      │ │                       │ │ persi…
+│                ││ subscribe…            │ │                      │ │ 📋 👀 tasks-foo P2    │ │ 26d ago
+│                ││ 8m ago · #tern-lua ·  │ │                      │ │ task→review step 1:   │ │
+│                ││ ⛔                    │ │                      │ │ mock TU…              │ │ 📋 ✓ tasks-dwu P1
+│                ││                       │ │                      │ │ 8d ago · #task-to-    │ │ Agent persistence
+│                ││ 📋 ⛔ tasks-wx9v P2   │ │                      │ │ review · 💬1          │ │ across st…
+│yuri            │╰───────────────────────╯ ╰──────────────────────╯ ╰───────────────────────╯ ╰──────────────────────╯
+└────────────────┘  open 51 · wip 6 · rev 9 · blk 21 · done 26                            modal tasks-ti3g · esc close

@@ -1,0 +1,40 @@
+┌────────────────┐ ⌄ .agents/                                  (no branch) ← HEAD · +6273 −104             no threads —
+│VIEWS           │   ⌄ plans/                                  ▌@@ -0,0 +1,138 @@                        ▀ press c on a
+│  1 ≡ List    92│▌    A 2026-10-18-tui-d…     +138            ▌                                      ▌    hunk to star
+│  2 ▦ Board   66│   ⌄ skills/                                 ▌                                      ▌    one
+│  3 ⟐ Graph   28│     ⌄ tasks/                                ▌                                      ▌
+│  4 ◎ Insights  │       M SKILL.md              +1            ▌                                      ▌
+│  5 ❐ Task      │ M .gitignore                 +17            ▌                                      ▌
+│  6 ▤ Artifacts3│ ⌄ .planning/                                ▌                                      ▌
+│▎ 7 ± Diff     1│   A .omp-checkpoint.js…       +8            ▌                                      ▌
+│                │   A .omp-next-action.j…       +6            ▌                                      ▌
+│ACTIONS         │   M config.json            +7 -3            ▌                                      ▌
+│ n ✎ new        │   A milestone.lock            +6            ▌                                      ▌ 1
+│ / ⌕ search     │   A state.json               +43            ▌                                      ▌ 1
+│: ≡ commands    │ ⌄ .tasks/                                   ▌                                      ▌ 1
+│ ? ⎇ keys       │   M config.json            +4 -1            ▌                                      ▌ 1
+│                │ M CHANGELOG.md               +47            ▌                                      ▌ 1
+│                │ M README.md                +1 -1            ▌                                      ▌ 1
+│                │ A Taskfile.yml                +6            ▌                                      ▌ 1
+│                │ M bun.lock                   +10            ▌                                      ▌ 1
+│                │ ⌄ docs/                                     ▌                                      ▌ 1
+│                │   A .npmrc                    +1            ▌                                      ▌ 1
+│                │   A README.md                +23            ▌                                      ▌ 2
+│                │   A Taskfile.yml             +22            ▌                                      ▌ 2
+│                │   A astro.config.mjs          +7            ▌                                      ▌ 2
+│                │   A bun.lock                +798            ▌                                      ▌ 2
+│                │   A package.json             +14            ▌                                      ▌ 2
+│                │   ⌄ src/                                    ▌                                      ▌ 2
+│                │     A content.config.ts      +12            ▌                                      ▌ 2
+│                │     ⌄ content/                              ▌                                      ▌ 2
+│                │       ⌄ docs/                               ▌                                      ▌ 2
+│                │         A architecture…     +271            ▌                                      ▌ 2
+│                │         A concerns.md       +189            ▌                                      ▌ 3
+│                │         A conventions.…     +122            ▌                                      ▌ 3
+│                │         A integrations…     +104            ▌                                      ▌ 3
+│                │         A overview.md       +488            ▌                                      ▌ 3
+│                │         A rpc.md            +196            ▌                                      ▌ 3
+│                │╭────────────────────────────────────────────────────────────────────────────────────────╮
+│                ││ c comments·rrcreplym· e edit2·7x resolve · u unified · p split · ] [ file · j k hunk · │ [ Comment
+│yuri            │╰────────────────────────────────────────────────────────────────────────────────────────╯
+└────────────────┘     ⌄ layouts/                                                      1-4 views · : commands · ? keys

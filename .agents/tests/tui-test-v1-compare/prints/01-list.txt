@@ -1,0 +1,40 @@
+┌────────────────┐ all            wip
+│VIEWS           │⚡ P2 open tasks-1 hello 18h                      ▀
+│▎ 1 ≡ List    92│✓ P1 closed tasks-11p Agent domain schema a… 26d
+│  2 ▦ Board   66│⛔ P2 open tasks-1zjy task→review step 12: … 8d
+│  3 ⟐ Graph   28│👀 P2 ready… tasks-2 hello 2 1mo
+│  4 ◎ Insights  │👀 P2 ready… tasks-27e root-plugin-quick-pro… 1mo
+│  5 ❐ Task      │· P2 in_pr… tasks-2n9g Luau codegen: generat… 7m
+│  6 ▤ Artifacts3│✓ P2 closed tasks-2ou hy 14d
+│  7 ± Diff     1│✓ P2 closed tasks-2ud Add first-class sprin… 26d
+│                │⚡ P3 open tasks-34rm Tasks — draft tasks, … 3d
+│ACTIONS         │⚡ P2 open tasks-5aj typebox-import-probe 1mo 💬1
+│ n ✎ new        │✓ P2 closed tasks-5aof TUI dev loop PoC — re… 1d
+│ / ⌕ search     │⚡ P2 open tasks-5e0 surface-import-probe 1mo
+│: ≡ commands    │✓ P2 closed tasks-5so x 1mo
+│ ? ⎇ keys       │⚡ P3 open tasks-6zif Team / cloud — access… 3d
+│                │✓ P2 closed tasks-71yd task→review step 4: p… 6h
+│                │⚡ P2 open tasks-75gw Decide default worktr… 7h
+│                │⛔ P2 ready… tasks-7twa tui deep links: route…
+│                │· P2 in_pr… tasks-861t Events ring buffer + … 7m
+│                │⚡ P2 open tasks-8ib session bridge probe 1mo
+│                │⛔ P2 open tasks-8is CLI evidence surface:… 14d
+│                │⚡ P2 open tasks-9f6 hello 3 1mo
+│                │⚡ P2 open tasks-9vx hy2 1mo
+│                │✓ P1 closed tasks-acz Domain: blob-backed e… 14d
+│                │⚡ P2 open tasks-b2g cutover smoke test 1mo
+│                │· P2 in_pr… tasks-c7ct Tern Lua bridge: Luau… 7m
+│                │⚡ P2 open tasks-caf cutover smoke test 1mo
+│                │⛔ P2 ready… tasks-cc41 tui deep links: boot …
+│                │⛔ P2 open tasks-cosq Integration: bun boot… 8m
+│                │⚡ P2 open tasks-cpi post-fix quick probe 1mo
+│                │⛔ P2 open tasks-cs9n Gate: full bun test +… 8m
+│                │⚡ P2 open tasks-cth the child 1mo
+│                │⚡ P3 open tasks-d0rq Review machinery — re… 3d
+│                │✓ P1 closed tasks-dwu Agent persistence acr… 26d
+│                │⛔ P2 open tasks-e0kg task→review step 10: … 8d
+│                │✓ P2 closed tasks-etqk task→review step 5: l… 6h
+│                │👀 P2 ready… tasks-foo task→review step 1: m… 8d
+│                │⛔ P2 open tasks-frux Luau events.luau: sub… 8m
+│yuri            │⛔ P2 ready… tasks-gqwr tui deep links: palet…
+└────────────────┘  open 51 · wip 6 · rev 9 · blk 21 · done 26                         1-4 views · : commands · ? keys
