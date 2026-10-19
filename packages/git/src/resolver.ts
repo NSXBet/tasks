@@ -12,7 +12,7 @@
  *   2. `worktree.dir` from `.tasks/config.json` (workspace-wide placement) —
  *      a directory pool: `{name}` expands per worktree, otherwise the name is
  *      appended; relative paths resolve against the repo root.
- *   3. sibling default: `<parent-of-repo-root>/<name>`.
+ *   3. in-repo pool default: `<repo-root>/.worktrees/<name>` (gitignored).
  *
  * Names with spaces or path separators pass through unchanged — validating
  * them is the caller's responsibility.
@@ -44,5 +44,5 @@ export function resolveWorktreePath(input: WorktreeResolverInput): WorktreeResol
     const path = isAbsolute(expanded) ? resolve(expanded) : resolve(input.repoRoot, expanded);
     return { path, source };
   }
-  return { path: resolve(join(input.repoRoot, "..", input.name)), source };
+  return { path: resolve(input.repoRoot, ".worktrees", input.name), source };
 }

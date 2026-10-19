@@ -4,9 +4,9 @@ import { describe, expect, it } from "vitest";
 import { resolveWorktreePath } from "../src/index.js";
 
 describe("worktree resolver", () => {
-  it("defaults to sibling placement", () => {
+  it("defaults to the in-repo .worktrees pool", () => {
     expect(resolveWorktreePath({ repoRoot: "/code/app", name: "demo" })).toEqual({
-      path: "/code/demo",
+      path: "/code/app/.worktrees/demo",
       source: "default",
     });
   });
@@ -16,7 +16,7 @@ describe("worktree resolver", () => {
     const input = { repoRoot: "/code/app", name: "demo", dir: "/srv/wt", override: "/tmp/task-dir" };
     expect(resolveWorktreePath(input)).toEqual({ path: "/tmp/task-dir", source: "override" });
     expect(resolveWorktreePath({ ...input, override: null })).toEqual({ path: "/srv/wt/demo", source: "config" });
-    expect(resolveWorktreePath({ ...input, override: null, dir: null })).toEqual({ path: "/code/demo", source: "default" });
+    expect(resolveWorktreePath({ ...input, override: null, dir: null })).toEqual({ path: "/code/app/.worktrees/demo", source: "default" });
   });
 
   it("expands {name} and resolves relative config dirs against the repo root", () => {

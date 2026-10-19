@@ -18,7 +18,7 @@ describe("concurrent resolveWorktreePath with same name and options", () => {
     ]);
     expect(first).toEqual(second);
     expect(second).toEqual(third);
-    expect(first.path).toBe(join(dir, "..", "raced"));
+    expect(first.path).toBe(join(dir, ".worktrees", "raced"));
     expect(first.source).toBe("default");
   });
 });

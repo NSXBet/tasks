@@ -53,14 +53,6 @@ export const gitToplevel = (cwd: string, runner: ProcessRunner = nodeRunner): Pr
 
 export const gitCurrentBranch = (cwd: string, runner: ProcessRunner = nodeRunner): Promise<string | null> => git(runner, cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
 
-/** Default integration branch: remote HEAD when configured, otherwise main/master. */
-export async function gitDefaultBranch(cwd: string, runner: ProcessRunner = nodeRunner): Promise<string | null> {
-  const remote = await git(runner, cwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
-  if (remote !== null) return remote;
-  for (const candidate of ["main", "master"]) if (await git(runner, cwd, ["rev-parse", "--verify", "--quiet", candidate])) return candidate;
-  return null;
-}
-
 export interface WorktreeEntry { readonly path: string; readonly branch: string | null; readonly bare: boolean; readonly locked: boolean }
 
 /** Parses `git worktree list --porcelain`; the main worktree is always first. */

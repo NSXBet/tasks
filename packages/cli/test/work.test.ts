@@ -25,7 +25,7 @@ describe("tk work entry", () => {
     const { repo, id } = repoWorkspace();
     const result = json<{ id: string; path: string; branch: string; base: string; created: boolean }>(repo, ["work", id]);
     expect(result).toMatchObject({ id, branch: `tk/${id}`, created: true });
-    expect(result.path).toBe(join(repo, "..", `${repo.split("/").pop()}-${id}`));
+    expect(result.path).toBe(join(repo, ".worktrees", `${repo.split("/").pop()}-${id}`));
     expect(existsSync(result.path)).toBe(true);
     expect(result.base).toMatch(/^[0-9a-f]{40}$/);
     // Evidence rides the task record and both show surfaces.
@@ -83,7 +83,7 @@ describe("tk work edge handling", () => {
     const { repo, id } = repoWorkspace();
     // Pre-create a non-empty directory at the placement git would use; an
     // existing *empty* directory is accepted by git, a dirty one is not.
-    const blocked = join(repo, "..", `${repo.split("/").pop()}-${id}`);
+    const blocked = join(repo, ".worktrees", `${repo.split("/").pop()}-${id}`);
     mkdirSync(blocked, { recursive: true });
     writeFileSync(join(blocked, "occupied"), "");
     const result = run(repo, ["work", id, "--json"]);
