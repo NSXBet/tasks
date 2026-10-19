@@ -1,16 +1,21 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
+    "module": "ESNext",
     "rootDir": "src",
     "outDir": "dist",
     "lib": ["ES2024"],
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "moduleResolution": "bundler",
+    "exactOptionalPropertyTypes": false,
+    "noPropertyAccessFromIndexSignature": false
   },
   "include": ["src"],
   "references": [
     { "path": "../domain" },
     { "path": "../application" },
     { "path": "../workspace" },
-    { "path": "../surface" }
+    { "path": "../surface" },
+    { "path": "../rpc" }
   ]
 }

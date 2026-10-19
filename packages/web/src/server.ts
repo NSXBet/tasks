@@ -11,11 +11,18 @@
  */
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { watch, type FSWatcher } from "chokidar";
+import {
+  readWorktreeFile, reviewPayloadFor, reviewThreads, threadInputFrom,
+  worktreeOf, writeWorktreeFile, type ReviewIssueLike,
+} from "./review.js";
+import { ReviewCommentStoreError } from "@tasks/review";
 import {
   createSurface, pidAlive, probeWebServer, readRuntimeRegistry,
   registerRuntime, unregisterRuntime, WEB_DEFAULT_PORT, WEB_RUNTIME_ID,
   type SurfaceError, type TasksSurface, type WebRuntimeRow, type WebServerStatus,
 } from "@tasks/surface";
+import { dispatchRpc, PROTOCOL_VERSION, type RpcOutcome, type SurfaceLease } from "@tasks/rpc";
 
 export interface WebServerOptions {
   readonly root: string;
@@ -23,6 +30,8 @@ export interface WebServerOptions {
   readonly dev?: boolean;
   /** Bind an ephemeral port instead of the default, bypassing the single-instance check. */
   readonly randomPort?: boolean;
+  /** Inject an existing surface (daemon hosting): reused verbatim, never closed by the server. */
+  readonly surface?: TasksSurface;
 }
 
 export interface WebServer {
@@ -31,9 +40,6 @@ export interface WebServer {
   readonly status: () => WebServerStatus;
   readonly close: () => Promise<void>;
 }
-
-const asError = (cause: unknown): SurfaceError =>
-  cause instanceof Error ? { kind: "runtime", message: cause.message } : { kind: "runtime", message: String(cause) };
 
 const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
@@ -61,8 +67,23 @@ export class PortBusyError extends Error {
 }
 
 export const startWebServer = async (options: WebServerOptions): Promise<WebServer> => {
-  const surface: TasksSurface = await createSurface({ root: options.root });
+  // Injected surface (daemon hosting) is reused verbatim and never closed here;
+  // its owner controls the lifecycle.
+  const surface = options.surface ?? await createSurface({ root: options.root });
   const actor = process.env["USER"] ?? "unknown";
+  // Server-lifetime lease: one surface, closed in stopServer. Every JSON route
+  // is a verb-table skin — dispatch, param validation, and error kinds stay
+  // single-sourced in @tasks/rpc; this server only maps outcomes to HTTP.
+  const provide = async (): Promise<SurfaceLease> => ({ surface, dispose: async () => {} });
+  const call = async (method: string, params: Record<string, unknown> = {}): Promise<RpcOutcome> =>
+    dispatchRpc({ v: PROTOCOL_VERSION, method, root: options.root, params }, provide, { actor });
+  const errorStatus = (kind: string): number => (kind === "internal" ? 500 : 400);
+  const threads = reviewThreads(surface.store);
+  const issueWire = async (id: string): Promise<ReviewIssueLike | null> => {
+    const outcome = await call("issue.show", { id });
+    if (!outcome.ok || typeof outcome.value !== "object" || outcome.value === null) return null;
+    return outcome.value as ReviewIssueLike;
+  };
   const dev = options.dev ?? false;
   const startedAt = new Date().toISOString();
   // The single-instance slot is WEB_DEFAULT_PORT; `--port N` moves it, `--random-port` bypasses it.
@@ -79,7 +100,8 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
 
   let shellGeneration = 0;
   let reloadWaiters: Array<((chunk: string) => void) | null> = [];
-  let stopWatching: (() => void) | null = null;
+  const stopWatches: Array<() => void> = [];
+  const stopWatching = (): void => { for (const stop of stopWatches) stop(); };
   if (dev) {
     // mtime polling rather than fs.watch: one file, no watcher-type variance across runtimes.
     let lastMtime = 0;
@@ -92,8 +114,51 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         } catch { /* shell gone; keep last generation */ }
       })();
     }, 400);
-    stopWatching = () => clearInterval(ticker);
+    stopWatches.push(() => clearInterval(ticker));
   }
+  // Worktree watch (step 10): live-reload open pages when any task's worktree
+  // changes on disk. The watched set is re-derived from the board every few
+  // seconds, so `tk work`-created worktrees join without a server restart.
+  const watchedWorktrees = new Map<string, FSWatcher>();
+  const broadcastReload = (): void => {
+    for (const waiter of reloadWaiters) waiter?.(`data: reload\n\n`);
+  };
+  const syncWorktreeWatch = async (): Promise<void> => {
+    const board = await call("board.get");
+    if (!board.ok || typeof board.value !== "object" || board.value === null || !("issues" in board.value)) return;
+    const rows = board.value.issues;
+    if (!Array.isArray(rows)) return;
+    const wanted = new Set<string>();
+    for (const row of rows) {
+      const worktree = worktreeOf(row);
+      if (worktree !== null) wanted.add(worktree);
+    }
+    for (const [path, watcher] of watchedWorktrees) {
+      if (!wanted.has(path)) {
+        watchedWorktrees.delete(path);
+        void watcher.close();
+      }
+    }
+    for (const path of wanted) {
+      if (watchedWorktrees.has(path)) continue;
+      try {
+        const watcher = watch(path, { ignoreInitial: true, depth: 6 });
+        let debounce: ReturnType<typeof setTimeout> | undefined;
+        watcher.on("all", () => {
+          clearTimeout(debounce);
+          debounce = setTimeout(() => { debounce = undefined; broadcastReload(); }, 250);
+        });
+        watchedWorktrees.set(path, watcher);
+      } catch { /* worktree vanished between scan and watch; joins on a later pass */ }
+    }
+  };
+  const worktreeScan = setInterval(() => { void syncWorktreeWatch(); }, 5_000);
+  stopWatches.push(() => {
+    clearInterval(worktreeScan);
+    for (const watcher of watchedWorktrees.values()) void watcher.close();
+    watchedWorktrees.clear();
+  });
+  void syncWorktreeWatch();
   // Bind last: a squatted port (any non-tk process) must surface as PortBusyError,
   // not a raw bind crash that leaves the surface store open.
   let server: Bun.Server<never>;
@@ -139,11 +204,9 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
       }
       if (request.method === "GET" && url.pathname === "/api/board") {
-        const page = await surface.all();
-        if (!page.ok) return json({ error: page.error }, 500);
-        const sprints = await surface.sprintList();
-        const activeSprint = sprints.ok ? sprints.value.find((sprint) => sprint.status === "active") ?? null : null;
-        return json({ issues: page.value, actor, now: new Date().toISOString(), sprints: sprints.ok ? sprints.value : [], activeSprint });
+        const board = await call("board.get");
+        if (!board.ok) return json({ error: board.error }, errorStatus(board.error.kind));
+        return json(board.value);
       }
       const blobMatch = /^\/api\/issue\/([^/]+)\/blob\/([^/]+)$/.exec(url.pathname);
       if (request.method === "GET" && blobMatch !== null) {
@@ -169,41 +232,101 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         const action = issueMatch[2] ?? "";
         const input = await body();
         const text = (key: string): string | undefined => { const value = input[key]; return typeof value === "string" ? value : undefined; };
-        const outcome: { ok: true; value: unknown } | { ok: false; error: SurfaceError } = await (async (): Promise<{ ok: true; value: unknown } | { ok: false; error: SurfaceError }> => {
-          if (action === "/comment") return surface.comment(id, text("text") ?? "");
-          if (action === "/detach-blob") return surface.detachBlob(id, text("ref") ?? "");
-          if (action === "/claim") return surface.claim(id);
-          if (action === "/archive") return surface.archive(id);
-          if (action === "/unarchive") return surface.unarchive(id);
-          if (action === "/sprint-add") return surface.sprintAdd(id);
-          if (action === "/sprint-remove") return surface.sprintRemove(id);
+        const outcome = await (async (): Promise<RpcOutcome> => {
+          if (action === "/comment") return call("issue.comment", { id, body: text("text") ?? "" });
+          if (action === "/detach-blob") return call("issue.detachBlob", { id, ref: text("ref") ?? "" });
+          if (action === "/claim") return call("issue.claim", { id });
+          if (action === "/archive") return call("issue.archive", { id });
+          if (action === "/unarchive") return call("issue.unarchive", { id });
+          if (action === "/sprint-add") return call("sprint.add", { id });
+          if (action === "/sprint-remove") return call("sprint.remove", { id });
           const patch: Record<string, unknown> = {};
           if (input["title"] !== undefined) patch["title"] = text("title");
           if (input["description"] !== undefined) patch["description"] = text("description");
           if (input["status"] !== undefined) patch["status"] = text("status");
           if (input["priority"] !== undefined) patch["priority"] = Number(input["priority"]);
           if (input["assignee"] !== undefined) patch["assignee"] = input["assignee"] === null ? null : text("assignee");
-          return surface.update(id, patch);
+          return call("issue.update", { id, ...patch });
         })();
-        if (!outcome.ok) return json({ error: outcome.error }, 400);
+        if (!outcome.ok) return json({ error: outcome.error }, errorStatus(outcome.error.kind));
         return json({ ok: true });
       }
       if (request.method === "POST" && url.pathname === "/api/sprint/start") {
         const input = await body();
-        const started = await surface.sprintStart(typeof input["name"] === "string" ? input["name"] : "", { carry: input["carry"] === true });
-        if (!started.ok) return json({ error: started.error }, 400);
-        return json({ ok: true, sprint: started.value.sprint, moved: started.value.moved });
+        const started = await call("sprint.start", { name: typeof input["name"] === "string" ? input["name"] : "", carry: input["carry"] === true });
+        if (!started.ok) return json({ error: started.error }, errorStatus(started.error.kind));
+        const value = started.value as { sprint: unknown; moved: unknown };
+        return json({ ok: true, sprint: value.sprint, moved: value.moved });
       }
       if (request.method === "POST" && url.pathname === "/api/sprint/close") {
-        const closed = await surface.sprintClose();
-        if (!closed.ok) return json({ error: closed.error }, 400);
-        return json({ ok: true, sprint: closed.value.sprint, moved: closed.value.moved });
+        const closed = await call("sprint.close");
+        if (!closed.ok) return json({ error: closed.error }, errorStatus(closed.error.kind));
+        const value = closed.value as { sprint: unknown; moved: unknown };
+        return json({ ok: true, sprint: value.sprint, moved: value.moved });
+      }
+      const reviewParts = url.pathname.startsWith("/api/review/")
+        ? url.pathname.split("/").filter((part) => part !== "")
+        : null;
+      if (reviewParts !== null) {
+        const rid = decodeURIComponent(reviewParts[2] ?? "");
+        const sub = reviewParts[3] ?? "";
+        try {
+          const issue = await issueWire(rid);
+          if (issue === null) return json({ error: { kind: "runtime", message: `no issue ${rid}` } }, 404);
+          if (sub === "" && request.method === "GET") return json(await reviewPayloadFor(options.root, issue));
+          if (sub === "file" && (request.method === "GET" || request.method === "PUT")) {
+            const relativePath = url.searchParams.get("path") ?? "";
+            if (request.method === "GET") {
+              const read = await readWorktreeFile(options.root, issue, relativePath);
+              if (!read.ok) return json({ error: read.error }, read.error.kind === "missing" ? 404 : 400);
+              return json(read.value);
+            }
+            const input = await body();
+            const contents = input["contents"];
+            if (typeof contents !== "string") return json({ error: { kind: "runtime", message: "contents must be a string" } }, 400);
+            const written = await writeWorktreeFile(options.root, issue, relativePath, contents);
+            if (!written.ok) return json({ error: written.error }, written.error.kind === "missing" ? 404 : 400);
+            return json({ ok: true });
+          }
+          if (sub === "threads") {
+            const threadId = reviewParts[4] === undefined ? null : decodeURIComponent(reviewParts[4]);
+            const tail = reviewParts[5] === undefined ? null : decodeURIComponent(reviewParts[5]);
+            if (request.method === "GET") return json(await threads.list(rid));
+            if (threadId === null) {
+              if (request.method !== "POST") return json({ error: { kind: "runtime", message: "unsupported method" } }, 405);
+              const created = threadInputFrom(await body());
+              if (created === null) return json({ error: { kind: "runtime", message: "filePath and body are required" } }, 400);
+              return json(await threads.create(rid, created));
+            }
+            const input = await body();
+            const text = (key: string): string | undefined => { const value = input[key]; return typeof value === "string" ? value : undefined; };
+            if (request.method === "POST" && tail === null) {
+              const replyBody = text("body");
+              if (replyBody === undefined) return json({ error: { kind: "runtime", message: "body is required" } }, 400);
+              return json(await threads.reply(rid, threadId, { body: replyBody }));
+            }
+            if (request.method === "POST" && tail === "resolve") {
+              return json(await threads.setResolved(rid, threadId, { resolved: input["resolved"] === true }));
+            }
+            if (request.method === "PUT" && tail !== null) {
+              const editBody = text("body");
+              if (editBody === undefined) return json({ error: { kind: "runtime", message: "body is required" } }, 400);
+              return json(await threads.editComment(rid, threadId, tail, editBody));
+            }
+            return json({ error: { kind: "runtime", message: "unsupported method" } }, 405);
+          }
+          return json({ error: { kind: "runtime", message: `unknown review route ${sub}` } }, 404);
+        } catch (cause) {
+          if (cause instanceof ReviewCommentStoreError) return json({ error: { kind: "runtime", message: cause.message } }, 404);
+          throw cause;
+        }
       }
       if (request.method === "POST" && url.pathname === "/api/issue") {
         const input = await body();
-        const created = await surface.create({ title: typeof input["title"] === "string" ? input["title"] : "", priority: typeof input["priority"] === "number" ? input["priority"] : 2 });
-        if (!created.ok) return json({ error: created.error }, 400);
-        return json({ ok: true, id: created.value.id });
+        const created = await call("issue.create", { title: typeof input["title"] === "string" ? input["title"] : "", priority: typeof input["priority"] === "number" ? input["priority"] : 2 });
+        if (!created.ok) return json({ error: created.error }, errorStatus(created.error.kind));
+        const value = created.value as { id: string };
+        return json({ ok: true, id: value.id });
       }
       return json({ error: { kind: "not_found", message: `no route: ${request.method} ${url.pathname}` } }, 404);
       },
@@ -243,7 +366,7 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
     stopWatching?.();
     await server.stop(true);
     await unregisterRuntime(tasksDir, WEB_RUNTIME_ID);
-    await surface.store.close();
+    if (options.surface === undefined) await surface.store.close();
     throw new PortBusyError(port, owned);
   }
 
@@ -252,7 +375,7 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
     reloadWaiters = [];
     await server.stop(true);
     await unregisterRuntime(tasksDir, WEB_RUNTIME_ID);
-    await surface.store.close();
+    if (options.surface === undefined) await surface.store.close();
   };
   return {
     port: server.port ?? 0,
@@ -263,4 +386,9 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
 };
 
 export type { SurfaceError };
-export { asError };
+
+/** Opens `url` in the default browser (macOS `open`; silently absent elsewhere). */
+export const launchBrowser = (url: string): void => {
+  try { Bun.spawn(["open", url], { stdout: "ignore", stderr: "ignore" }); }
+  catch { /* non-macOS: user opens the URL themselves */ }
+};

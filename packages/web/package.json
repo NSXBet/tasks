@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/server.ts"
+    ".": {
+      "bun": "./src/server.ts",
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    }
   },
   "scripts": {
     "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/workspace build && bun run --filter @tasks/surface build && tsc -p tsconfig.json",
@@ -12,10 +16,20 @@
     "test": "bun run build && cd ../.. && bun test --timeout 15000 packages/web/test"
   },
   "dependencies": {
+    "@pierre/diffs": "1.3.5",
     "@tasks/application": "workspace:*",
     "@tasks/domain": "workspace:*",
+    "@tasks/git": "workspace:*",
+    "@tasks/review": "workspace:*",
+    "@tasks/rpc": "workspace:*",
     "@tasks/surface": "workspace:*",
-    "@tasks/workspace": "workspace:*"
+    "@tasks/workspace": "workspace:*",
+    "chokidar": "^4.0.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0"
+  }
 }

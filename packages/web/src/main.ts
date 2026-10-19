@@ -1,7 +1,7 @@
 import { readRuntimeRegistry, resolveWebPort, rootFrom } from "@tasks/surface";
 import { readWorkspaceConfig } from "@tasks/workspace";
 import { join } from "node:path";
-import { PortBusyError, startWebServer, type WebServer } from "./server.js";
+import { launchBrowser, PortBusyError, startWebServer, type WebServer } from "./server.js";
 
 /**
  * tk web entry: serves the web UI over the resolved workspace.
@@ -122,12 +122,7 @@ try {
 }
 console.log(`tk web → ${server.url}${dev ? "  (dev: live reload on)" : ""}${interactive ? "  (press d to daemonize, w to open, Ctrl-C to quit)" : ""}`);
 
-const openBrowser = (): void => {
-  // Absent only inside the daemon handoff window; nothing to open then.
-  if (server === undefined) return;
-  try { Bun.spawn(["open", server.url], { stdout: "ignore", stderr: "ignore" }); }
-  catch { /* non-macOS: user opens the URL themselves */ }
-};
+const openBrowser = (): void => { if (server !== undefined) launchBrowser(server.url); };
 if (autoOpen) openBrowser();
 
 // Clean shutdown unregisters the runtime row; a hard kill is covered by the

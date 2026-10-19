@@ -199,11 +199,21 @@
       "name": "@tasks/web",
       "version": "0.1.0",
       "dependencies": {
+        "@pierre/diffs": "1.3.5",
         "@tasks/application": "workspace:*",
         "@tasks/domain": "workspace:*",
+        "@tasks/git": "workspace:*",
+        "@tasks/review": "workspace:*",
         "@tasks/rpc": "workspace:*",
         "@tasks/surface": "workspace:*",
         "@tasks/workspace": "workspace:*",
+        "chokidar": "^4.0.3",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+      },
+      "devDependencies": {
+        "@types/react": "^19.2.0",
+        "@types/react-dom": "^19.2.0",
       },
     },
     "packages/workspace": {
@@ -357,6 +367,8 @@
     "@types/pg": ["@types/pg@8.23.1", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@types/pg/-/pg-8.23.1.tgz", { "dependencies": { "@types/node": "26.2.0", "pg-protocol": "1.16.0", "pg-types": "2.2.0" } }, "sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A=="],
 
     "@types/react": ["@types/react@19.2.18", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@types/react/-/react-19.2.18.tgz", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w=="],
+
+    "@types/react-dom": ["@types/react-dom@19.3.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@types/react-dom/-/react-dom-19.3.0.tgz", { "peerDependencies": { "@types/react": "^19.3.0" } }, "sha512-ZI7bU42mZXXKHn/qNLEw2IrbiINU7X5+vfgdixBHkCNpYWXjKgfQ/P+uyGb5CjOLB9UcnTeg3rylQtV2hym44Q=="],
 
     "@types/unist": ["@types/unist@3.0.3", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@types/unist/-/unist-3.0.3.tgz", {}, "sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q=="],
 
@@ -530,7 +542,7 @@
 
     "rolldown": ["rolldown@1.2.5", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/rolldown/-/rolldown-1.2.5.tgz", { "dependencies": { "@oxc-project/types": "0.146.0", "@rolldown/pluginutils": "1.0.1" }, "optionalDependencies": { "@rolldown/binding-android-arm-eabi": "1.2.5", "@rolldown/binding-android-arm64": "1.2.5", "@rolldown/binding-darwin-arm64": "1.2.5", "@rolldown/binding-darwin-x64": "1.2.5", "@rolldown/binding-freebsd-x64": "1.2.5", "@rolldown/binding-linux-arm-gnueabihf": "1.2.5", "@rolldown/binding-linux-arm64-gnu": "1.2.5", "@rolldown/binding-linux-arm64-musl": "1.2.5", "@rolldown/binding-linux-ppc64-gnu": "1.2.5", "@rolldown/binding-linux-s390x-gnu": "1.2.5", "@rolldown/binding-linux-x64-gnu": "1.2.5", "@rolldown/binding-linux-x64-musl": "1.2.5", "@rolldown/binding-openharmony-arm64": "1.2.5", "@rolldown/binding-win32-arm64-msvc": "1.2.5", "@rolldown/binding-win32-x64-msvc": "1.2.5" }, "bin": { "rolldown": "./bin/cli.mjs" } }, "sha512-VD2IE5PUG4Oj8zz2VGykiYd5wbnjdIiSsNQb8Qu5B+noEp+A78mu2iVvpp27g8es14Tk9rofNs5Tku9iQCS4fA=="],
 
-    "scheduler": ["scheduler@0.27.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/scheduler/-/scheduler-0.27.0.tgz", {}, "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=="],
+    "scheduler": ["scheduler@0.28.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/scheduler/-/scheduler-0.28.0.tgz", {}, "sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw=="],
 
     "shell-quote": ["shell-quote@1.10.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/shell-quote/-/shell-quote-1.10.0.tgz", {}, "sha512-w1aiOKwKuRgtwAReIIj89puqg+I7GvX4IbLrvmhXbzQsj1+Zwi4VO3+fa6ZF91TWSjIxoEkKnMeHcLEODK5ZXA=="],
 
@@ -610,7 +622,7 @@
 
     "react-devtools-core/ws": ["ws@7.5.13", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/ws/-/ws-7.5.13.tgz", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": "^5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-rsKI6xDBFVf4r/x8XyChGK04QR/XHroxs/jUcoWvtEZM8TPU/X/uIY9B1CsSzYws9ZJb/6bbBu7dPhFW00CAoA=="],
 
-    "react-dom/scheduler": ["scheduler@0.28.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/scheduler/-/scheduler-0.28.0.tgz", {}, "sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw=="],
+    "react-reconciler/scheduler": ["scheduler@0.27.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/scheduler/-/scheduler-0.27.0.tgz", {}, "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=="],
 
     "vite/@types/node": ["@types/node@26.2.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@types/node/-/node-26.2.0.tgz", { "dependencies": { "undici-types": "8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
 
