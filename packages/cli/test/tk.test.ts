@@ -761,7 +761,7 @@ describe("tk executable", () => {
   });
 });
 
-describe("tk review mock surface (Phase 0)", () => {
+describe("tk review record rendering", () => {
   // Canonical Phase-0 scenario per .agents/plans/2026-10-08-task-to-review.md.
   const reviewIssue = () => ({
     _type: "issue",
@@ -774,23 +774,9 @@ describe("tk review mock surface (Phase 0)", () => {
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     metadata: {
-      review: {
-        base: "main @ 9f13ee4",
-        worktree: "../platform-api-tk-142",
-        sessions: [
-          { id: "sess-7f3k", agent: "omp", status: "done", topic: "research patterns", duration: "10m" },
-          { id: "sess-k2q9", agent: "omp", status: "running", topic: "design discussion", duration: "2m" },
-        ],
-        artifacts: [
-          { path: "src/uploader/retry.ts", added: 38, removed: 12, comments: 5 },
-          { path: "src/uploader/refresh-mutex.ts", added: 24, removed: 0, comments: 2 },
-          { path: "bench/retry-bench.txt", added: 9, removed: 2, comments: 1 },
-        ],
-        diff: [{ file: "src/uploader/retry.ts", lines: [
-          { kind: "del", text: "const res = await fetch(REFRESH_URL, {" },
-          { kind: "add", text: "const res = await refreshMutex.run(token, async () => {" },
-        ] }],
-        agentAuthors: ["agent"],
+      worktree: "../platform-api-tk-142",
+      changeset: {
+        base: "9f13ee4d4b22c3fe41c71935e39f3d439170f2db",
       },
     },
     comments: [
@@ -808,19 +794,11 @@ describe("tk review mock surface (Phase 0)", () => {
     json(directory, ["import"], JSON.stringify(reviewIssue()));
     const shown = run(directory, ["show", "tk-142"]);
     expect(shown.status, shown.stderr).toBe(0);
-    for (const fragment of ["Fix flaky retry logic in uploader", "tk/tk-142", "main @ 9f13ee4", "../platform-api-tk-142", "src/uploader/retry.ts", "+38", "−12", "bench/retry-bench.txt", "sess-7f3k", "sess-k2q9", "research patterns", "design discussion", "will the mutex deadlock under concurrent upload?", "serialized refresh via refreshMutex.run", "channel-based retry", "ordering guarantees", "bench shows −70% p99; LGTM", "[agent]"]) {
+    // Branch, pinned base, and worktree render from the changeset work record;
+    // comments render below. The changeset sections themselves derive live
+    // from git and decay to null when the branch is absent (fixture has none).
+    for (const fragment of ["Fix flaky retry logic in uploader", "tk/tk-142", "../platform-api-tk-142", "9f13ee4d4b22c3fe41c71935e39f3d439170f2db", "will the mutex deadlock under concurrent upload?", "serialized refresh via refreshMutex.run", "channel-based retry", "ordering guarantees", "bench shows −70% p99; LGTM"]) {
       expect(shown.stdout, fragment).toContain(fragment);
-    }
-  });
-
-  it("tk review shows diff hunks and WIP actions", () => {
-    const directory = workspace();
-    json(directory, ["init", "--prefix", "tk"]);
-    json(directory, ["import"], JSON.stringify(reviewIssue()));
-    const result = run(directory, ["review", "tk-142"]);
-    expect(result.status, result.stderr).toBe(0);
-    for (const fragment of ["src/uploader/retry.ts", "- const res = await fetch(REFRESH_URL, {", "+ const res = await refreshMutex.run(token, async () => {", "WIP"]) {
-      expect(result.stdout, fragment).toContain(fragment);
     }
   });
 
@@ -828,7 +806,7 @@ describe("tk review mock surface (Phase 0)", () => {
     const directory = workspace();
     json(directory, ["init", "--prefix", "tk"]);
     json(directory, ["import"], JSON.stringify(reviewIssue()));
-    const record = json<readonly { metadata: { review?: { base?: string } } }[]>(directory, ["show", "tk-142"])[0]!;
-    expect(record.metadata.review?.base).toBe("main @ 9f13ee4");
+    const record = json<readonly { metadata: { changeset?: { base?: string } } }[]>(directory, ["show", "tk-142"])[0]!;
+    expect(record.metadata.changeset?.base).toBe("9f13ee4d4b22c3fe41c71935e39f3d439170f2db");
   });
 });
