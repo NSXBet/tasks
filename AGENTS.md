@@ -35,6 +35,25 @@ cp -rf source dest          # NOT: cp -r source dest
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
+## Documentation
+
+The repo ships docs (`docs/` — Astro site, source in `docs/src/content/docs/`). **Update docs in the same change as the code** — every behavioral or API change to a documented area must land with its doc edit:
+
+| doc | covers |
+|---|---|
+| `overview.md` | what tk is, CLI quick start |
+| `architecture.md` | layers, packages, data flow |
+| `structure.md` | repo layout |
+| `stack.md` | toolchain, dependencies |
+| `conventions.md` | code conventions |
+| `testing.md` | test practices |
+| `integrations.md` | external integrations (beads, pi/omp, hooks) |
+| `rpc.md` | wire protocol, verb table, daemon (`@tasks/rpc`, `@tasks/daemon`) |
+
+- `rpc.md` is generated-by-hand from `packages/rpc/src/verbs.ts` (the single source of truth) — when adding/changing a verb, error code, or protocol version, update it and bump `VERBS_VERSION`/`PROTOCOL_VERSION` per `packages/rpc/src/protocol.ts`.
+- Validate doc changes: `cd docs && bun run build` must complete.
+- New public surface (command, verb, flag, config key) with no doc home yet → add a section to the closest doc, don't defer.
+
 ## Tasks Issue Tracker
 
 This project uses **tk (tasks)** for issue tracking. Run `tk prime` to see full workflow context and commands.
@@ -108,3 +127,35 @@ tk prime                # Refresh Tasks context
 - Use `tk` for all task tracking; do not create markdown TODO lists.
 - Run `tk prime` when Tasks context is missing or stale. Codex 0.129.0+ can load Tasks context automatically through native hooks; use `/hooks` to inspect or toggle them.
 - Keep persistent project memory in Tasks via `tk remember`; do not create ad hoc memory files.
+
+<!-- BEGIN TK INTEGRATION v:1 hash:40af0fb6 -->
+## Tasks Issue Tracker
+
+This project uses **tk (Tasks)** for ALL task tracking — do NOT use markdown TODO lists, TodoWrite, or other trackers. Run `tk prime` for full workflow context.
+
+### The loop — task → review
+
+| status | who moves it | how |
+|---|---|---|
+| open | creator | `tk create "Change bg to blue"` — the title seeds the branch name |
+| in-progress | agent | `tk work <id>` — claims, opens the work env (worktree + branch), and records both on the task |
+| ready-to-review | agent | `tk finish <id> --session <sid>` — the single completion path into review |
+| approved → closed | reviewer | `tk close <id> --reason "<report>"` |
+| rejected | reviewer | comments land on the record; the loop restarts at `tk work <id>` |
+
+**The contract: work in `tk work <id>`; finish with `tk finish <id> --session <id>`; never mark done — the recorded worktree, branch, and derived diff are the evidence; review with `tk review <id>`.**
+
+1. **Create** the task first: `tk create "title"` (or `tk q "title"` to capture and print only the id). One issue per deliverable; `--parent` for subtasks of an epic, `tk dep add <id> <blocker>` for blockers.
+2. **Claim, then isolate.** `tk work <id>` claims the task and opens a worktree + branch (shared `.tasks/` workspace); the worktree path, branch, and pinned changeset base are recorded on the task as the evidence of work. Post progress with `tk note <id> "…"` as you go.
+3. **Keep it updated with proof.** Attach the before state, then after-shots as you implement: `tk attach <id> --evidence <file>` (screenshots, logs, outputs survive file moves; reference them from comments as `evidence:<id>`).
+4. **Hand over on the record.** `tk finish <id> --session <sid>` (or `TK_SESSION` env) stamps the session and finish time, derives the changeset from the recorded worktree/branch/base, and moves the task to `ready-to-review` — the single completion path. Never mark done by hand.
+5. **Report on close.** Review with `tk review <id>` — reviewer comments and verdicts land on the task. Approved → `tk close <id> --reason "<what changed, where, evidence ids>"`; rejected → `tk work <id>` again, fix, `tk finish`, re-hand over. "Done" is a report on the record, not a chat message. Never close an issue whose acceptance criteria are not visibly met.
+
+### End of session — print the work done
+
+Before ending, update every touched task (status, notes, evidence), file follow-ups with `tk q`, then print a work-done summary: tasks touched with final status, what changed and where, the validation you ran, and evidence ids. The print mirrors the record; the record persists.
+
+**Critical rules:**
+- Explicit user or orchestrator instructions override this Tasks block.
+- Don't gate the loop on chat: status changes and comments are the handoff; the record is the memory.
+<!-- END TK INTEGRATION -->

@@ -350,6 +350,8 @@ export function formatRuntimeList(rows: readonly RuntimeRow[]): string {
   if (rows.length === 0) return dim("No live runtimes.");
   const line = (row: RuntimeRow): string => row.kind === "web"
     ? `  ${green("●")} ${cyan(row.id)}  web  ${bold(row.workspace)}  ${dim(`pid ${row.pid} · up ${relAge(row.startedAt)} · ${row.url}`)}`
+    : row.kind === "tkd"
+    ? `  ${green("●")} ${cyan(row.id)}  tkd  ${bold(row.workspace)}  ${dim(`pid ${row.pid} · up ${relAge(row.startedAt)} · ${row.socketPath}`)}`
     : `  ${green("●")} ${cyan(row.id)}  watch  ${row.label === null || row.label === "" ? dim("(no label)") : bold(row.label)}  ${dim(`pid ${row.pid} · up ${relAge(row.startedAt)} · heartbeat ${relAge(row.heartbeatAt)} · ${row.subscriptions.length === 0 ? "all" : row.subscriptions.join(", ")}`)}`;
   return [bold("Runtimes:"), ...rows.map(line)].join("\n");
 }
@@ -702,9 +704,9 @@ export const PRIME = `# tk workflow context
 - Issues live in ${cyan(".tasks/")}; the storage backend (file/sqlite/postgres) is set once in ${cyan(".tasks/config.json")} and every mutating command writes through one transaction.
 - Use ${cyan("--json")} for machine-readable output; omit it for colored human output.
 - IDs are short random hashes (${cyan("<prefix>-xyz")}), not sequential — never assume ordering.
-- Typical loop: ${cyan("tk ready")} → ${cyan("tk show <id>")} → ${cyan("tk update <id> --status in_progress")} → ${cyan("tk comment <id> ...")} → ${cyan("tk close <id>")}.
+- Typical loop: ${cyan("tk ready")} → ${cyan("tk work <id>")} (worktree + branch, recorded on the task) → ${cyan("tk finish <id> --session <sid>")} (hand over to review) → review → ${cyan("tk close <id>")}.
 - Use ${cyan("tk dep add <id> <blocker>")} to record blockers; ${cyan("tk tree")} renders the tree; ${cyan("tk stale")}/${cyan("tk orphans")}/${cyan("tk duplicates")}/${cyan("tk lint")} for hygiene.
-- Review changes with Hunk: link its branch via ${cyan("tk update <id> --branch <name>")}, open the review with ${cyan("tk hunk <id>")}, pull reviewer comments back with ${cyan("tk hunk <id> sync")}.
+- Review rides the record: ${cyan("tk review <id>")} reviews the recorded worktree, branch, and derived diff; reviewer comments land on the task. Never mark done — only \`tk finish <id> --session <sid>\` moves work to ${cyan("ready-to-review")}; the recorded evidence is the proof of work.
 - File references attach to issues: ${cyan("tk attach <id> <path>")} (paths are stored workspace-relative; bare name = repo root). ${cyan("tk attach <id> --evidence <file>...")} ingests bytes instead — the blob lands under ${cyan(".tasks/attachments/")} (mime-sniffed, deduped by name, re-attach replaces), referenced from comments as ${cyan("evidence:<id>")}. ${cyan("tk detach <id> <path|name|id>")} removes either kind (evidence bytes go with it). ${cyan("--plan <path>")} on create/update sets the issue's plan through the same system (replaces prior plan). ${cyan("tk skill")} prints the full agent skill.
 - Run ${cyan("tk help")} for the full command list; ${cyan("tk <cmd> -h")} for a single command's flags.
 `;
@@ -715,10 +717,13 @@ This project uses tk for issue tracking. Run \`tk prime\` for workflow context b
 
 \`\`\`
 tk ready              # Find available work
-tk show <id>          # View issue details
-tk update <id> --status in_progress
-tk close <id>         # Complete work
+tk work <id>          # Open the work env (worktree + branch, recorded on the task)
+tk finish <id> --session <sid>   # Hand over: status → ready-to-review
+tk review <id>        # Review the recorded worktree/branch/diff
+tk close <id>         # Close after approval
 \`\`\`
+
+**The loop — task → review:** work in \`tk work <id>\`; finish with \`tk finish <id> --session <id>\`; never mark done — the recorded worktree, branch, and derived diff are the evidence; review with \`tk review <id>\`. Reviewer comments land on the task record; rejected work loops back to \`tk work <id>\`.
 `;
 
 /** `bd human`: the ~15 commands people actually type, no agent noise. */

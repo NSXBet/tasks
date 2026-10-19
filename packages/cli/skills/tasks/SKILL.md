@@ -18,20 +18,20 @@ Work runs as one loop over the issue's status. Each action emits an event (`task
 | status | who moves it | how |
 |---|---|---|
 | open | creator | `tk create "Change bg to blue"` — the title seeds the branch name |
-| in-progress | agent | `tk update <id> --claim` — assigns you and starts the clock atomically |
-| ready-to-review | agent | status + owner + comment: hand over to the reviewer |
+| in-progress | agent | `tk work <id>` — claims, opens the work env (worktree + branch), and records both on the task |
+| ready-to-review | agent | `tk finish <id> --session <sid>` — the single completion path into review |
 | approved → closed | reviewer | `tk close <id> --reason "<report>"` |
-| rejected | reviewer | comments land on the record; the loop restarts at claim |
+| rejected | reviewer | comments land on the record; the loop restarts at `tk work <id>` |
+
+**The contract: work in `tk work <id>`; finish with `tk finish <id> --session <id>`; never mark done — the recorded worktree, branch, and derived diff are the evidence; review with `tk review <id>`.**
 
 1. **Find or receive work.** `tk ready --json` lists unblocked claimable work. When the user hands you a change, create the task first — the title seeds the branch name. Clarify only if ambiguity is material: one round, asked in a comment so the question stays on the record, then commit to a reading.
-2. **Claim, then isolate.** `tk update <id> --claim`. Work on a branch — a worktree keeps the main checkout clean (`git worktree add`, or `tk worktree create <name>`, which shares the `.tasks/` workspace). `tk note <id> "…"` posts progress while you work.
+2. **Claim, then isolate.** `tk work <id>` claims the task and opens a worktree + branch (shared `.tasks/` workspace); the worktree path, branch, and pinned changeset base are recorded on the task as the evidence of work. `tk note <id> "…"` posts progress while you work.
 3. **Prove the before state.** Capture current behavior — screenshot, log, output — and attach it: `tk attach <id> --evidence shot.png`. The record carries the proof, not your memory.
 4. **Implement.** Commits are the evidence of the work. Attach after-shots of the new state as you go (`task.evidence`).
-5. **Hand over.** Set the issue ready for review, return it to the user, and say so in a comment:
-   `tk update <id> --status ready-to-review --owner <user> && tk comment <id> "ready for you to review"`.
-   Handover is a state change on the record, not a chat message. You're back at step 1 — `tk ready`.
-6. **Review rides the record.** Reviewer comments and verdicts land on the task: `tk comments <id>` reads them; `tk hunk <id>` opens a branch review of the issue's work, `tk hunk <id> sync` imports review comments into the issue (deduped). TUI and web show the same record.
-7. **Report on close.** Approved → `tk close <id> --reason "<what changed, where, evidence ids>"`. Rejected → read the comments, claim again, fix, re-hand over. "Done" is a report on the record, not a chat message.
+5. **Hand over.** `tk finish <id> --session <sid>` (or `TK_SESSION` env) stamps the session and finish time, derives the changeset from the recorded worktree/branch/base, and moves the task to `ready-to-review` — the single completion path. Never mark done by hand; the recorded evidence is the proof of work. You're back at step 1 — `tk ready`.
+6. **Review rides the record.** `tk review <id>` reviews the recorded worktree, branch, and derived diff; reviewer comments and verdicts land on the task (`tk comments <id>` reads them). TUI and web show the same record.
+7. **Report on close.** Approved → `tk close <id> --reason "<what changed, where, evidence ids>"`. Rejected → read the comments, `tk work <id>` again, fix, `tk finish`, re-hand over. "Done" is a report on the record, not a chat message.
 
 ## Verbs
 
@@ -76,4 +76,5 @@ Attachments are **references, not copies** — they store a path plus optional m
 - Never close an issue whose acceptance criteria are not visibly met — say what you did in the close reason.
 - Don't gate the loop on chat: status changes and comments are the handoff; the record is the memory.
 - Prefer `--json` when parsing `tk` output programmatically; `--markdown` renders `## id — title` sections.
+- `tk onboard install|check|remove` manages the marked tk block in `AGENTS.md` (`--file <path>` targets another instruction file; `--tool claude|gemini` selects that agent's default instruction filename). `install` replaces the versioned, hash-stamped section (byte-identical no-op when current), `check` exits 0 only when current, `remove` strips only the managed section. Bare `tk onboard` prints the block. Re-run install after upgrading tk.
 - `tk skill path` prints this skill's installed location; `tk skill install` copies the skill directory into `.agents/skills` (project default) or `~/.agents/skills` (`--global`); `--tool claude|omp|pi|codex` targets that agent's skills root instead (e.g. `.claude/skills`, `~/.omp/agent/skills`); `--force` replaces an existing install. Copies do not track upgrades — re-run the install after upgrading tk.
