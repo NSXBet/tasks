@@ -1,5 +1,8 @@
 {
-  "name": "pi-extention",
+  "name": "@tasks/pi-extention",
+  "dependencies": {
+    "@tasks/surface": "workspace:*"
+  },
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -30,6 +33,5 @@
   },
   "scripts": {
     "test": "bun test ./test/"
-  },
-  "dependencies": {}
+  }
 }

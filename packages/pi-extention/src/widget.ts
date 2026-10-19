@@ -4,7 +4,7 @@
  * truncation). Consumed via `ctx.ui.setWidget(key, factory, { placement:
  * "aboveEditor" })` — identical contract on pi and omp.
  */
-import type { WatchCounts } from "../../surface/src/index.ts";
+import type { WatchCounts } from "@tasks/surface";
 import { formatCounts } from "./watch-manager.ts";
 
 export interface WatchRow {

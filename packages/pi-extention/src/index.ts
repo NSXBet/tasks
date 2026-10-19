@@ -11,7 +11,7 @@
  *   Tasks Watch widget (aboveEditor), copied from the herdr-subagents pattern.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createSurface, type TasksSurface } from "../../surface/src/index.ts";
+import { createSurface, type TasksSurface } from "@tasks/surface";
 import { Type } from "typebox";
 import { WatchManager, formatCounts } from "./watch-manager.ts";
 
@@ -59,6 +59,8 @@ export default function tasksExtension(pi: ExtensionAPI) {
       },
       refreshWidget: () => updateWidget(),
       hasUI: () => hasUI,
+      // Opt-in daemon transport: TK_EVENTS=daemon rides the tkd socket.
+      useDaemon: process.env["TK_EVENTS"] === "daemon",
     });
     return manager;
   };

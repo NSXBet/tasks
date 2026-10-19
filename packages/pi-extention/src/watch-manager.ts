@@ -4,17 +4,25 @@
  * execPath is the omp binary, not bun), coalesces and delivers notifications
  * to the host session, and keeps the above-editor widget in sync.
  *
+ * Opt-in daemon transport (`useDaemon`, i.e. `TK_EVENTS=daemon`): each
+ * subscription rides the tkd socket instead (`events.subscribe`), so the poll
+ * cost lives in the shared daemon. Daemon death mid-session falls back to the
+ * in-process loop transparently.
+ *
  * Notification primitive (verified identical on both hosts):
  *   pi.sendUserMessage(text, { deliverAs: "followUp" })
  * Queued after the current run while streaming; starts a turn when idle.
  */
-import type { WatchCounts, WatchEvent, WatchSubscription } from "../../surface/src/index.ts";
-import { runWatchLoop } from "../../surface/src/index.ts";
-import { openSurfaceStore, type SurfaceStore } from "../../surface/src/index.ts";
+import type { WatchCounts, WatchEvent, WatchSubscription } from "@tasks/surface";
+import { runWatchLoop } from "@tasks/surface";
+import { openSurfaceStore, type SurfaceStore } from "@tasks/surface";
+import { connectOrSpawn } from "../../daemon/src/index.ts";
 import { renderWatchWidgetLines, type WatchRow } from "./widget.ts";
 
 export interface WatchManagerOptions {
   readonly root: string;
+  /** Opt-in daemon transport (`TK_EVENTS=daemon`): subscriptions ride the tkd socket. */
+  readonly useDaemon?: boolean;
   /** Host session bridge; implemented in index.ts against ExtensionAPI. */
   readonly notify: (text: string) => void;
   readonly refreshWidget: () => void;
@@ -32,6 +40,8 @@ interface ActiveWatch {
 
 export class WatchManager {
   readonly #watches = new Map<string, ActiveWatch>();
+  /** Ids whose start() is still connecting; guards concurrent duplicate starts. */
+  readonly #pending = new Set<string>();
   readonly #options: WatchManagerOptions;
   #store: SurfaceStore | null = null;
   /** Latest board counters; refreshed on every delivered event. */
@@ -55,16 +65,42 @@ export class WatchManager {
   }
   /** Close the shared readonly watch store; call on session shutdown. */
   async close(): Promise<void> {
+    this.stopAll();
     await this.#store?.close();
     this.#store = null;
   }
 
-
   /** Start one subscription; id is derived from filters for dedupe. */
   async start(subscription: WatchSubscription): Promise<string> {
     const id = watchId(subscription);
-    const existing = this.#watches.get(id);
-    if (existing !== undefined) return id;
+    if (this.#watches.has(id) || this.#pending.has(id)) return id;
+    this.#pending.add(id);
+    try {
+      const watch = this.#options.useDaemon === true
+        ? await this.#startDaemon(id, subscription).catch(() => this.#startInProcess(id, subscription))
+        : this.#startInProcess(id, subscription);
+      this.#adopt(watch);
+      return id;
+    } finally {
+      this.#pending.delete(id);
+    }
+  }
+
+  /** Registers a watch: map entry, self-removal on completion, widget refresh. */
+  #adopt(watch: ActiveWatch): void {
+    this.#watches.set(watch.id, watch);
+    void watch.done.then(() => {
+      // A dead watcher removes itself; the session learns via status tool.
+      if (this.#watches.get(watch.id) === watch) {
+        this.#watches.delete(watch.id);
+        this.#options.refreshWidget();
+      }
+    });
+    this.#options.refreshWidget();
+  }
+
+  /** In-process transport: the poll loop runs inside this process. */
+  #startInProcess(id: string, subscription: WatchSubscription): ActiveWatch {
     let stopping = false;
     const done = (async () => {
       try {
@@ -74,21 +110,55 @@ export class WatchManager {
         if (this.#watches.has(id)) this.#options.notify(`⚠ tasks watcher error: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
     })();
-    this.#watches.set(id, {
+    return {
       id,
       subscription,
       startedAt: Date.now(),
       stop: () => { stopping = true; },
       done,
       lastEvent: null,
+    };
+  }
+
+  /** Daemon transport: events arrive over the tkd socket (`events.subscribe`). */
+  async #startDaemon(id: string, subscription: WatchSubscription): Promise<ActiveWatch> {
+    const { promise: closed, resolve: resolveClosed } = Promise.withResolvers<void>();
+    let stopping = false;
+    let self: ActiveWatch | undefined;
+    const client = await connectOrSpawn(this.#options.root, {
+      onEvent: (tag, event) => {
+        if (tag === id) this.#onEvent(id, event);
+      },
+      onClose: (error) => {
+        resolveClosed();
+        // Daemon death mid-session: transparently fall back to the in-process
+        // loop rather than silently dropping the subscription.
+        if (stopping || self === undefined || this.#watches.get(id) !== self) return;
+        this.#watches.delete(id);
+        this.#adopt(this.#startInProcess(id, subscription));
+        this.#options.notify(`⚠ tasks daemon lost — watching in-process (${error.message})`);
+      },
     });
-    void done.then(() => {
-      // A dead watcher removes itself; the session learns via status tool.
-      this.#watches.delete(id);
-      this.#options.refreshWidget();
-    });
-    this.#options.refreshWidget();
-    return id;
+    try {
+      await client.call('events.subscribe', { subscription: id, ...subscription });
+    } catch (cause) {
+      client.close();
+      throw cause;
+    }
+    self = {
+      id,
+      subscription,
+      startedAt: Date.now(),
+      stop: () => {
+        stopping = true;
+        resolveClosed();
+        // Dropping the socket unsubscribes server-side; no round-trip needed.
+        client.close();
+      },
+      done: closed,
+      lastEvent: null,
+    };
+    return self;
   }
 
   stop(id?: string): number {
