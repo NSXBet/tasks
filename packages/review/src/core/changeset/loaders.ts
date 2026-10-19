@@ -31,6 +31,7 @@ import { buildFilesystemUntrackedDiffFile } from "../vcs/untracked";
 import { computeWatchSignature } from "../watch/signature";
 import type { NamedCustomThemeConfig } from "../../extension-api/types";
 import type { AppBootstrap } from "../bootstrap";
+import type { ReviewCommentStore } from "../review/commentStore";
 import type {
   CliInput,
   DiffToolCommandInput,
@@ -48,6 +49,8 @@ export interface LoadAppBootstrapOptions {
   customThemes?: readonly NamedCustomThemeConfig[];
   /** Complete adapter catalog composed by the app for this session. */
   vcsCatalog?: VcsCatalog;
+  /** Comment storage composed by the app; carried onto the bootstrap for the shell. */
+  commentStore?: ReviewCommentStore;
   /** Cancel provider-backed review loading before it mutates mounted state. */
   signal?: AbortSignal;
 }
@@ -296,7 +299,7 @@ async function loadPatchChangeset(
 /** Resolve CLI input into the fully loaded app bootstrap state. */
 export async function loadAppBootstrap(
   input: CliInput,
-  { cwd = process.cwd(), customThemes, vcsCatalog, signal }: LoadAppBootstrapOptions = {},
+  { cwd = process.cwd(), customThemes, vcsCatalog, commentStore, signal }: LoadAppBootstrapOptions = {},
 ): Promise<AppBootstrap> {
   signal?.throwIfAborted();
   // Capture before loading content so watch mode can detect mutations that race initial loading.
@@ -372,5 +375,6 @@ export async function loadAppBootstrap(
     initialShowAgentNotes: input.options.agentNotes ?? false,
     initialCopyDecorations: input.options.copyDecorations ?? false,
     initialCursorLine: input.options.cursorLine ?? "row",
+    ...(commentStore === undefined ? {} : { commentStore }),
   };
 }

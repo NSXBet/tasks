@@ -19,6 +19,7 @@ import type { WheelScrollLines } from "./run/wheelScrollLines";
 import type { StartupNotice } from "./process/startupNotice";
 import type { TerminalThemeMode } from "./theme/detection";
 import type { VcsCatalog } from "./vcs/types";
+import type { ReviewCommentStore } from "./review/commentStore";
 
 /** Where a review was loaded from, retained so the session can reload and watch it. */
 export interface ReloadContext {
@@ -67,4 +68,6 @@ export interface AppBootstrap<ExtensionState = unknown> {
   keybindings?: Record<string, UserKeyBinding>;
   /** App-owned extension state carried without coupling core to the extension host. */
   extensions?: ExtensionState;
+  /** Comment storage granted to the shell; composition decides the backend (e.g. the tk task store). */
+  commentStore?: ReviewCommentStore;
 }
