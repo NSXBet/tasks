@@ -374,7 +374,8 @@ const ShellKeys = (): null => {
     if (state.diffOpen) { if (key.name === "escape") actions.closeDiffModal(); return; }
     const viewKey = ({ "1": "list", "2": "board", "3": "graph", "4": "insights", "5": "task", "6": "artifact", "7": "diff", b: "board", g: "graph", i: "insights" } as const)[key.sequence];
     if (viewKey !== undefined) { actions.setView(viewKey); return; }
-    if (state.view === "task" || state.view === "artifact" || state.view === "diff") {
+    if (state.view === "artifact") return; // ArtifactView owns all its keys (esc → task).
+    if (state.view === "task" || state.view === "diff") {
       // Mock views own their keys (WIP actions / diff navigation); shell only
       // provides escape-to-list.
       if (key.name === "escape") actions.setView("list");

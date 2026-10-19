@@ -173,7 +173,9 @@ describe("tui app", () => {
       const filtered = await waitForFramePredicate(setup, (value) => !value.includes("go to Board"));
       expect(filtered).toContain("start (in progress)");
       expect(filtered).toContain("[s]");
-      await setup.mockInput.pressKey("escape");
+      // KeyCodes are uppercase-only ("ESCAPE"); a lowercase "escape" would be
+      // typed as literal text. "\x1b" resolves via valueToKeyNameMap → "escape".
+      await setup.mockInput.pressKey("\x1b");
     } finally {
       setup.renderer.destroy();
       await store.close();
@@ -195,7 +197,18 @@ describe("tui app", () => {
       expect(frame).toContain("modal issue");
       expect(frame).toContain(first.value.id);
       expect(frame).toContain("Open (");
-      await setup.mockInput.pressKey("escape");
+      // Regression (live-pane repro 2026-10-19): TaskModal had no escape case
+      // and the shell bails while a modal is open — esc closed nothing and
+      // every later key died. Assert the modal actually closes AND input
+      // keeps working afterwards.
+      await setup.mockInput.pressKey("\x1b");
+      const closed = await waitForFrameWithout(setup, "esc ✕");
+      expect(closed).not.toContain("esc ✕");
+      await setup.mockInput.pressKey("?");
+      const help = await waitForFrameText(setup, "task modal");
+      expect(help).toContain("esc closes");
+      await setup.mockInput.pressKey("\x1b");
+      await waitForFrameWithout(setup, "task modal (enter");
     } finally {
       setup.renderer.destroy();
       await store.close();

@@ -108,7 +108,7 @@ export const useReviewKeys = (compact: boolean): void => {
   const { state, actions } = useApp();
   useKeyboard((key) => {
     const review = state.review;
-    if (review === null || key.sequence === "escape") return;
+    if (review === null) return;
     const { source } = review;
     const file = source?.files[review.fileIndex] ?? null;
     const hunkCount = file?.metadata.hunks.length ?? 0;

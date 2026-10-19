@@ -15,7 +15,7 @@ export const ArtifactView = () => {
   const { actions } = useApp();
   useReviewKeys(false);
   useKeyboard((key) => {
-    if (key.sequence === "escape") actions.setView("task");
+    if (key.name === "escape") actions.setView("task");
   });
   return (
     <box style={{ flexDirection: "column", flexGrow: 1 }}>
