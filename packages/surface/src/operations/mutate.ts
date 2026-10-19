@@ -5,6 +5,7 @@ import type { SurfaceStore } from '../store.js';
 import { getOrThrow } from '../store.js';
 import { MessageError } from '../errors.js';
 import { freezeChangesetUow } from './changeset.js';
+import { pruneIssueWorktree } from './prune.js';
 
 const now = (): Date => new Date();
 const changed = (issue: Issue, patch: Partial<Issue>): Issue => ({ ...issue, ...patch, updatedAt: now() });
@@ -120,6 +121,12 @@ export const changeStatus = (store: SurfaceStore, id: string, change: StatusChan
   const saved = await uow.save(next);
   if (!saved.ok) throw new MessageError('save failed');
   await applyRunSideEffects(uow, next, issue.status, status, now());
+  // Step 11 (gw port): auto-prune the recorded worktree on close — safety
+  // checks first, removal second; failures are recorded, never fatal to the close.
+  if (status === 'closed') {
+    const pruned = await pruneIssueWorktree({ root: store.root, tasksDir: store.tasksDir }, uow, next);
+    if (pruned !== null) return { ...next, metadata: { ...next.metadata, worktreePruned: pruned } };
+  }
   return next;
 });
 
@@ -221,7 +228,8 @@ export const markDuplicate = (store: SurfaceStore, id: string, canonical: string
   const merged = frozen === null ? result : { ...result, metadata: { ...result.metadata, changeset: frozen } };
   const saved = await uow.save(merged);
   if (!saved.ok) throw new MessageError('save failed');
-  return merged;
+  const pruned = await pruneIssueWorktree({ root: store.root, tasksDir: store.tasksDir }, uow, merged);
+  return pruned === null ? merged : { ...merged, metadata: { ...merged.metadata, worktreePruned: pruned } };
 });
 
 export const markSuperseded = (store: SurfaceStore, id: string, replacement: string) => store.transact(async (uow) => {
@@ -233,7 +241,8 @@ export const markSuperseded = (store: SurfaceStore, id: string, replacement: str
   const merged = frozen === null ? result : { ...result, metadata: { ...result.metadata, changeset: frozen } };
   const saved = await uow.save(merged);
   if (!saved.ok) throw new MessageError('save failed');
-  return merged;
+  const pruned = await pruneIssueWorktree({ root: store.root, tasksDir: store.tasksDir }, uow, merged);
+  return pruned === null ? merged : { ...merged, metadata: { ...merged.metadata, worktreePruned: pruned } };
 });
 
 /** `todo done`: close task-type issues with a reason note. */
@@ -248,7 +257,8 @@ export const closeMany = (store: SurfaceStore, ids: readonly string[], reason = 
     const merged = frozen === null ? result : { ...result, metadata: { ...result.metadata, changeset: frozen } };
     const saved = await uow.save(merged);
     if (!saved.ok) throw new MessageError(`save failed for ${raw}`);
-    results.push(merged);
+    const pruned = await pruneIssueWorktree({ root: store.root, tasksDir: store.tasksDir }, uow, merged);
+    results.push(pruned === null ? merged : { ...merged, metadata: { ...merged.metadata, worktreePruned: pruned } });
   }
   return results;
 });

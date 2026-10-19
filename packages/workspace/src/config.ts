@@ -59,7 +59,17 @@ export const WorkspaceConfigSchema = z.object({
   /** tk web's default port for this workspace; `--port` and `TK_WEB_PORT` override it. */
   webPort: z.number().int().min(1).max(65535).optional(),
   /** Workspace-wide worktree placement; `{name}` expands per worktree (see @tasks/git resolveWorktreePath). */
-  worktree: z.object({ dir: z.string().min(1) }).strict().optional(),
+  worktree: z.object({
+    dir: z.string().min(1).optional(),
+    /** Lifecycle hooks, run from inside the worktree path (gw port): after a
+     *  worktree is created (`tk work`/`tk worktree create`), after an existing
+     *  worktree is entered again, and just before a worktree is removed. */
+    postStart: z.string().min(1).optional(),
+    postCheckout: z.string().min(1).optional(),
+    preEnd: z.string().min(1).optional(),
+    /** Package-manager install after creation (detected from lockfiles). Default on. */
+    pmSetup: z.boolean().optional(),
+  }).strict().optional(),
   /** tk-tui's attachment-image cell size (width x height terminal cells); the `tk-tui --image-size WxH` flag overrides it. */
   tuiImage: z.object({ width: z.number().int().min(1), height: z.number().int().min(1) }).strict().optional(),
 }).passthrough();

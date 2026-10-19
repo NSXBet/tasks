@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -89,5 +89,78 @@ describe("tk work edge handling", () => {
     const result = run(repo, ["work", id, "--json"]);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("already exists");
+  });
+});
+
+/** Adds a `worktree` block to the workspace config (gw lifecycle hooks). */
+function withHooks(repo: string, hooks: Record<string, unknown>): void {
+  const configPath = join(repo, ".tasks", "config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+  writeFileSync(configPath, JSON.stringify({ ...config, worktree: hooks }, null, 2));
+}
+
+/** Merges the task branch into main so pruning is safe. */
+function mergeTaskBranch(repo: string, id: string): void {
+  git(repo, "merge", "--no-edit", "-q", `tk/${id}`);
+}
+
+describe("worktree lifecycle (gw port)", () => {
+  it("fires post_start and post_checkout hooks inside the fresh worktree on tk work", () => {
+    const { repo, id } = repoWorkspace();
+    const sentinel = join(repo, ".hook-ran");
+    withHooks(repo, { postStart: `touch "${join(repo, ".post-start")}"`, postCheckout: `touch "${sentinel}"` });
+    const result = json<{ created: boolean; hooks?: string }>(repo, ["work", id]);
+    expect(result.created).toBe(true);
+    expect(existsSync(sentinel)).toBe(true);
+    expect(existsSync(join(repo, ".post-start"))).toBe(true);
+  });
+
+  it("reports hook failures as notes without failing tk work", () => {
+    const { repo, id } = repoWorkspace();
+    withHooks(repo, { postStart: "exit 3" });
+    const result = json<{ created: boolean; hooks?: string }>(repo, ["work", id]);
+    expect(result.created).toBe(true);
+    expect(result.hooks).toContain("post_start");
+  });
+
+  it("tk close auto-prunes a merged worktree and deletes the branch", () => {
+    const { repo, id } = repoWorkspace();
+    const worktree = json<{ path: string }>(repo, ["work", id]).path;
+    mergeTaskBranch(repo, id);
+    const closed = json<{ metadata: Record<string, unknown> }>(repo, ["close", id]);
+    expect(existsSync(worktree)).toBe(false);
+    expect((closed.metadata["worktreePruned"] as Record<string, unknown>)["pruned"]).toBe(true);
+    const branches = Bun.spawnSync(["git", "branch", "--list", `tk/${id}`], { cwd: repo, stdout: "pipe" });
+    expect(new TextDecoder().decode(branches.stdout).trim()).toBe("");
+  });
+
+  it("tk close leaves an unmerged worktree in place but still closes", () => {
+    const { repo, id } = repoWorkspace();
+    const worktree = json<{ path: string }>(repo, ["work", id]).path;
+    writeFileSync(join(worktree, "wip.txt"), "");
+    git(worktree, "add", "wip.txt");
+    git(worktree, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-m", "wip");
+    const closed = json<{ metadata: Record<string, unknown>; status: string }>(repo, ["close", id]);
+    expect(closed.status).toBe("closed");
+    expect(existsSync(worktree)).toBe(true);
+    expect((closed.metadata["worktreePruned"] as Record<string, unknown>)["pruned"]).toBe(false);
+    expect(((closed.metadata["worktreePruned"] as Record<string, unknown>)["reason"] as string)).toContain("not fully merged");
+  });
+
+  it("tk worktree clean dry-runs by default and prunes merged closed worktrees with --yes", () => {
+    const { repo, id } = repoWorkspace();
+    const worktree = json<{ path: string }>(repo, ["work", id]).path;
+    writeFileSync(join(worktree, "wip.txt"), "");
+    git(worktree, "add", "wip.txt");
+    git(worktree, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-m", "wip");
+    json<unknown>(repo, ["close", id]); // unmerged → refused, worktree kept
+    mergeTaskBranch(repo, id);
+    const dry = json<{ eligible: ReadonlyArray<{ id: string }>; refused: ReadonlyArray<unknown> }>(repo, ["worktree", "clean"]);
+    expect(dry.eligible.map((entry) => entry.id)).toEqual([id]);
+    expect(dry.refused.length).toBe(0);
+    expect(existsSync(worktree)).toBe(true);
+    const yes = json<{ removed: ReadonlyArray<{ id: string }>; refused: ReadonlyArray<unknown> }>(repo, ["worktree", "clean", "--yes"]);
+    expect(yes.removed.map((entry) => entry.id)).toEqual([id]);
+    expect(existsSync(worktree)).toBe(false);
   });
 });
