@@ -114,4 +114,6 @@ Phases 3–5 scope delivered by executing the master plan (.agents/plans/2026-10
 
 Smoke (scratch repo, all live): `tk work` → `.worktrees/<repo>-<id>`; commit → `tk show` COMMITS/FILES re-derive; `tk review` boots vendored review TUI; `tk web` serves shell 200 + `/api/review/:id` live changeset; web comment POST → task store → `tk show`.
 
-Closed: tasks-71yd, tasks-etqk (close-path prune/freeze exercised; tasks-etqk fired the WR-02 unfrozen-snapshot warning as designed).
+Closed: tasks-71yd, tasks-etqk, tasks-plxc (close-path prune/freeze exercised; tasks-etqk fired the WR-02 unfrozen-snapshot warning as designed).
+
+**Verification gate (2026-10-19, `38900c6`):** full root suite green — 1430 pass / 28 skip / 0 fail across 1458 tests (`bun run test`). Post-cutover repairs: vendored measurement pins (`93c35a3`), tui harness-stable frame waits + fixture-era tests rewritten to live data (`fec18f7`), cli review-record tests moved to the changeset metadata contract (`0332c4c`), root test budget 15s for the tui harness. `tasks-plxc` closed after the gate; recorded here (`6482b8a` follow-up).
