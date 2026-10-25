@@ -197,6 +197,21 @@ tk inbox                         # runs awaiting attention, unread first
 tk inbox read <runId>            # mark a run's inbox entry read (also: archive; --all to include)
 ```
 
+Parallel sessions also share physical things the worktree can't isolate — a
+simulator, a dev port, a seeded database. Resource leases coordinate those:
+
+```bash
+tk lease acquire ios-sim --purpose "verify accounts screen" --ttl 900
+tk lease list                    # who holds what, time remaining
+tk lease renew ios-sim           # extend your hold by another TTL
+tk lease release ios-sim         # drop your hold early
+tk lease acquire port:19006 --task tk-wszk   # tie a hold to an issue
+```
+
+Holds are advisory: a second `acquire` on the same name fails with the
+holder's identity and time left (`--wait <ms>` queues instead), and an expired
+hold vanishes on its own — a crashed session can never deadlock a resource.
+
 #### Walkthrough: the agent-dispatch loop
 
 The registry above is the setup; this is the daily loop. In a scratch

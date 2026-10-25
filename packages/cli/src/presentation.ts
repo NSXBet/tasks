@@ -3,7 +3,7 @@ import { exit } from "node:process";
 import { terminalImageEscape } from "@tasks/terminal-image";
 import type { Agent, Issue, IssueAttachment, IssuePathAttachment, Metadata, Run } from "@tasks/domain";
 import { isBlobAttachment } from "@tasks/domain";
-import type { ActivityRow, BlobContent, ChangesetPayload, InboxEntry, RuntimeRow } from "@tasks/surface";
+import type { ActivityRow, BlobContent, ChangesetPayload, InboxEntry, LeaseRow, RuntimeRow } from "@tasks/surface";
 import type { IssueTree, TreeNode } from "./tree.js";
 
 const iso = (value: Date | null): string | null => value?.toISOString() ?? null;
@@ -330,6 +330,19 @@ export function formatRuntimeActivity(rows: readonly ActivityRow[]): string {
   if (rows.length === 0) return dim("No activity.");
   const line = (row: ActivityRow): string => `  ${dim(row.at)}  ${cyan(row.runtimeId.slice(0, 8))}  ${row.kind}${row.detail === "" ? "" : ` — ${row.detail}`}`;
   return [bold(`Activity (last ${rows.length}):`), ...rows.map(line)].join("\n");
+}
+
+/** Human view of `tk lease list`: one line per active hold, soonest expiry first. */
+export function formatLeaseList(rows: readonly LeaseRow[]): string {
+  if (rows.length === 0) return dim("No active leases.");
+  const remaining = (expiresAt: string): string => duration(Math.max(0, (new Date(expiresAt).getTime() - Date.now()) / 1000));
+  const sorted = [...rows].sort((first, second) => first.expiresAt.localeCompare(second.expiresAt));
+  const line = (lease: LeaseRow): string => {
+    const details = [lease.purpose !== "-" ? lease.purpose : null, lease.issue].filter((part): part is string => part !== null);
+    const suffix = details.length > 0 ? dim(` (${details.join(", ")})`) : "";
+    return `  ${green("●")} ${cyan(lease.name)}  ${bold(lease.holder)}  ${dim(`${remaining(lease.expiresAt)} left`)}${suffix}`;
+  };
+  return [bold("Leases:"), ...sorted.map(line)].join("\n");
 }
 
 /** Human view of `tk inbox`: unread first, then read, then archived. */
@@ -719,6 +732,12 @@ ${bold("Agents & runs")}
   tk runs                 List agent runs (--issue <id>, --state <s>)
   tk run show <id>        Run detail incl. messages and usage
   tk run cancel <id>      Cancel an active run (rerun/message subcommands)
+
+${bold("Shared resources")}
+  tk lease acquire <name> Hold a resource (--purpose, --task, --ttl, --wait)
+  tk lease list           Active holds, who holds them, time left
+  tk lease renew <name>   Extend your hold by a fresh TTL
+  tk lease release <name> Drop your hold
 
 Full list: ${cyan("tk help")}
 `;

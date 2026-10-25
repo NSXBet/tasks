@@ -13,7 +13,7 @@
 export const PROTOCOL_VERSION = 2;
 
 /** Verb-table version. Bump when methods, params, or result shapes change. */
-export const VERBS_VERSION = 2;
+export const VERBS_VERSION = 3;
 
 export type RpcErrorCode =
   | 'method_unknown' // method not in the table (client too new, or typo)

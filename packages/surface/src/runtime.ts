@@ -1,8 +1,9 @@
-import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Run } from '@tasks/domain';
 import type { WatchSubscription } from './watch/protocol.js';
+import { readJson, writeJson, withStateLock } from './state-io.js';
 
 /**
  * Runtime state lives in plain files inside `<tasksDir>`: `runtime.json` (the
@@ -95,20 +96,6 @@ const webWorkspacesPath = (tasksDir: string): string => join(tasksDir, 'web-work
 const activityPath = (tasksDir: string): string => join(tasksDir, 'activity.ndjson');
 const inboxPath = (tasksDir: string): string => join(tasksDir, 'inbox.json');
 
-const readJson = async <T>(path: string, fallback: T): Promise<T> => {
-  try { return JSON.parse(await readFile(path, 'utf8')) as T; } catch { return fallback; }
-};
-
-/** Writes through a same-directory temp file + rename: readers either see the
- * old or the new content, never a torn file (a mid-write read once fed a CLI
- * prune garbage and cost the workspace its registry). */
-const writeJson = async (path: string, value: unknown): Promise<void> => {
-  await mkdir(join(path, '..'), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`);
-  await rename(tmp, path);
-};
-
 /** Human-readable subscription summary for the registry row and CLI output. */
 export const describeSubscription = (subscription: WatchSubscription): readonly string[] => [
   ...(subscription.kinds === undefined ? [] : [`kinds=${subscription.kinds.join(',')}`]),
@@ -126,34 +113,20 @@ export const readRuntimeRegistry = (tasksDir: string): Promise<readonly RuntimeR
 const writeRuntimeRegistry = (tasksDir: string, rows: readonly RuntimeRow[]): Promise<void> =>
   writeJson(runtimePath(tasksDir), rows);
 
-/** Serializes registry read-modify-write cycles per process: the daemon owns
- * watch heartbeats, daemon rows, and web rows in one event loop, so two
- * unsynchronized cycles interleave and the later write erases the earlier
- * row (a 250ms heartbeat snapshot used to swallow the just-registered web
- * row). Keyed by tasksDir; never deleted — one entry per workspace, and a
- * still-settling chain must keep receiving later mutations. Cross-process
- * writers (CLI prunes) remain unordered with the daemon, which is the
- * pre-existing behavior. */
-const registryLocks = new Map<string, Promise<unknown>>();
-const withRegistryLock = <T>(tasksDir: string, work: () => Promise<T>): Promise<T> => {
-  const next = (registryLocks.get(tasksDir) ?? Promise.resolve()).catch(() => {}).then(work);
-  registryLocks.set(tasksDir, next);
-  return next;
-};
 
-export const registerRuntime = (tasksDir: string, row: RuntimeRow): Promise<void> => withRegistryLock(tasksDir, async () => {
+export const registerRuntime = (tasksDir: string, row: RuntimeRow): Promise<void> => withStateLock(tasksDir, async () => {
   const rows = (await readRuntimeRegistry(tasksDir)).filter((existing) => existing.id !== row.id);
   await writeRuntimeRegistry(tasksDir, [...rows, row]);
 });
 
 /** Refreshes the heartbeat stamp; a no-op when the row was already removed. Only watch rows heartbeat. */
-export const heartbeatRuntime = (tasksDir: string, runtimeId: string, at: Date): Promise<void> => withRegistryLock(tasksDir, async () => {
+export const heartbeatRuntime = (tasksDir: string, runtimeId: string, at: Date): Promise<void> => withStateLock(tasksDir, async () => {
   const rows = await readRuntimeRegistry(tasksDir);
   if (!rows.some((row) => row.kind === 'watch' && row.id === runtimeId)) return;
   await writeRuntimeRegistry(tasksDir, rows.map((row) => (row.kind === 'watch' && row.id === runtimeId ? { ...row, heartbeatAt: at.toISOString() } : row)));
 });
 
-export const unregisterRuntime = (tasksDir: string, runtimeId: string): Promise<void> => withRegistryLock(tasksDir, async () => {
+export const unregisterRuntime = (tasksDir: string, runtimeId: string): Promise<void> => withStateLock(tasksDir, async () => {
   await writeRuntimeRegistry(tasksDir, (await readRuntimeRegistry(tasksDir)).filter((row) => row.id !== runtimeId));
 });
 

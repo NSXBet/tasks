@@ -14,10 +14,10 @@ import {
   formatDuplicates, formatEpic, formatGraph, formatHistory, formatLint, formatList, formatMigration, formatOrphans,
   formatAgentList, formatAgentShow, formatInbox, formatReady, formatRenamePrefix, formatRunList, formatRunShow, formatRuntimeActivity, formatRuntimeList, formatSearch, formatShow, formatSprintList, formatStale, formatStats,
   formatStatus, formatStatuses, formatTodo, formatTree, formatTypes, formatVersion, formatWhere, formatWorktreeInfo, formatWorktreeList,
-  formatFinish,
+  formatLeaseList, formatFinish,
   HUMAN_HELP, INIT_HELP, LINT_SECTIONS, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, duration, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
-import { attachEvidenceUow, attachPathUow, detachBlobUow, deriveChangeset, pruneIssueWorktree, evidenceReadUow, finishIssueUow, freezeChangesetUow, readChangesetBase, readChangesetSnapshot, inboxEntries, markInboxArchived, markInboxRead, openSurfaceStore, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, WEB_DEFAULT_PORT, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow } from "@tasks/surface";
+import { attachEvidenceUow, attachPathUow, detachBlobUow, deriveChangeset, pruneIssueWorktree, evidenceReadUow, finishIssueUow, freezeChangesetUow, readChangesetBase, readChangesetSnapshot, inboxEntries, markInboxArchived, markInboxRead, openSurfaceStore, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebPort, unregisterRuntime, WEB_DEFAULT_PORT, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow, acquirePolling, clampTtl, LeaseBusyError, LeaseStateError, readLeases, releaseLeaseFile, renewLeaseFile, waitDeadline, getOrThrow, type LeaseRequest, type LeaseRow } from "@tasks/surface";
 import { bunRunner } from "@tasks/git";
 import { cleanStaleSocket, connectDaemon, connectOrSpawn, daemonSocketPath, probeDaemon, RpcCallError, socketAlive, type DaemonStatus } from "@tasks/daemon";
 import { formatHunkComment, hunkCommentMetaKey, parseHunkComments, pendingHunkComments, planHunk, scratchDirectory, writeAgentContext } from "./hunk.js";
@@ -34,10 +34,27 @@ const generateId = (): string => randomBytes(6).toString("base64url").toLowerCas
 /** Start at 3 chars (like bd), grow on collision pressure. */
 const idLength = (taken: number): number => (taken < 50 ? 3 : taken < 1_000 ? 4 : 6);
 
-const writers = new Set(["init", "create", "q", "update", "close", "reopen", "defer", "undefer", "comment", "note", "assign", "priority", "tag", "dep", "label", "set-state", "import", "migrate", "delete", "remove", "rename", "link", "duplicate", "supersede", "todo", "backup", "rename-prefix", "switch-backend", "hooks", "attach", "detach", "sprint", "agent", "run", "archive", "unarchive", "work", "finish"]);
-type JsonError = { readonly error: { readonly kind: "parse" | "validation" | "readonly" | "runtime"; readonly message: string } };
+const writers = new Set(["init", "create", "q", "update", "close", "reopen", "defer", "undefer", "comment", "note", "assign", "priority", "tag", "dep", "label", "set-state", "import", "migrate", "delete", "remove", "rename", "link", "duplicate", "supersede", "todo", "backup", "rename-prefix", "switch-backend", "hooks", "attach", "detach", "sprint", "agent", "run", "archive", "unarchive", "work", "finish", "lease"]);
+type JsonError = { readonly error: { readonly kind: "parse" | "validation" | "readonly" | "conflict" | "not_found" | "runtime"; readonly message: string } };
 type Config = WorkspaceConfig;
 const fail = (message: string): never => { throw new Error(message); };
+/** Lease identity for holds created by this process: `--holder` wins, then
+ * agent-session envs, so `tk status`/busy messages name the responsible session. */
+const leaseHolder = (args: ParsedArgs): string => stringFlag(args, "holder") ?? process.env["TK_SESSION"] ?? process.env["OMP_SESSION_ID"] ?? "unknown";
+const leaseWire = (lease: LeaseRow): Record<string, unknown> => ({ schema_version: 1, _type: "lease", name: lease.name, holder: lease.holder, purpose: lease.purpose, issue_id: lease.issue, granted_at: lease.grantedAt, expires_at: lease.expiresAt, remaining_ms: Math.max(0, new Date(lease.expiresAt).getTime() - Date.now()) });
+/** Parses `--ttl`/`--wait` millisecond flags; rejects non-numeric values loudly. */
+const parseMsFlag = (args: ParsedArgs, name: "ttl" | "wait"): number | undefined => {
+  const raw = stringFlag(args, name);
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) fail(`invalid --${name}: expected milliseconds`);
+  return value;
+};
+/** `--ttl`/`--wait` through the surface's bounded-range validation; this
+ * repo's `fail()` doesn't participate in control-flow narrowing, so the
+ * helpers return the number instead of guarding at each call site. */
+const leaseTtl = (args: ParsedArgs): number => { const clamped = clampTtl(parseMsFlag(args, "ttl")); return typeof clamped === "number" ? clamped : fail(clamped.message); };
+const leaseWait = (args: ParsedArgs): number => { const deadline = waitDeadline(parseMsFlag(args, "wait")); return typeof deadline === "number" ? deadline : fail(deadline.message); };
 const errorWire = (_key: string, value: unknown): unknown => value instanceof Error ? { name: value.name, message: value.message } : value;
 const unwrap = <T, E>(result: Result<T, E>): T => { if (result.ok) return result.value; const error = result.error; const message = typeof error === "object" && error !== null && "message" in error && typeof error.message === "string" ? error.message : JSON.stringify(error, errorWire); return fail(message); };
 /** Bun.stdin reads both pipes and file redirects; async-iterating `stdin` misses redirects. */
@@ -1497,6 +1514,58 @@ const derived = !json && csBase !== null && issue.branch !== null ? await derive
       else if (sub === "activity") { const rawLimit = stringFlag(args, "limit"); const limit = rawLimit === undefined ? undefined : Number(rawLimit); if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) fail("invalid --limit: expected positive integer"); const rows = await readActivity(tasksDir, limit); value = rows.map((row) => ({ schema_version: 1, _type: "activity_row", at: row.at, runtime_id: row.runtimeId, kind: row.kind, detail: row.detail })); human = () => formatRuntimeActivity(rows); }
       else fail(`unknown runtime subcommand: ${sub} (expected list, activity)`);
     }
+    else if (command === "lease") {
+      const sub = args.positionals[1] ?? fail("lease requires operation (acquire, list, release, renew)");
+      if (sub === "list") {
+        const rows = await readLeases(tasksDir);
+        value = rows.map(leaseWire);
+        human = () => formatLeaseList(rows);
+      }
+      else if (sub === "acquire") {
+        const name = args.positionals[2] ?? fail("lease acquire requires a resource name");
+        const taskRef = stringFlag(args, "task");
+        let issue: string | null = null;
+        if (taskRef !== undefined) {
+          const issueStore = await openSurfaceStore(root);
+          const resolved = await issueStore.transact(async (uow) => getOrThrow(uow, taskRef));
+          if (!resolved.ok) fail(resolved.error.message);
+          issue = resolved.value.id;
+          await issueStore.close();
+        }
+        const request: LeaseRequest = { name, holder: leaseHolder(args), purpose: stringFlag(args, "purpose") ?? "-", ttlMs: leaseTtl(args), issue };
+        try {
+          const lease = await acquirePolling(tasksDir, request, leaseWait(args));
+          value = leaseWire(lease);
+          human = () => green(`✓ Leased ${lease.name} for ${lease.holder} — ${duration(Math.max(0, new Date(lease.expiresAt).getTime() - Date.now()) / 1000)} left`) + (lease.issue !== null ? dim(` (for ${lease.issue})`) : "");
+        } catch (error) {
+          if (error instanceof LeaseBusyError || error instanceof LeaseStateError) fail(error.message);
+          throw error;
+        }
+      }
+      else if (sub === "renew") {
+        const name = args.positionals[2] ?? fail("lease renew requires a resource name");
+        try {
+          const lease = await renewLeaseFile(tasksDir, name, leaseHolder(args), leaseTtl(args));
+          value = leaseWire(lease);
+          human = () => green(`✓ Renewed ${lease.name} for ${lease.holder} — ${duration(Math.max(0, new Date(lease.expiresAt).getTime() - Date.now()) / 1000)} left`);
+        } catch (error) {
+          if (error instanceof LeaseBusyError || error instanceof LeaseStateError) fail(error.message);
+          throw error;
+        }
+      }
+      else if (sub === "release") {
+        const name = args.positionals[2] ?? fail("lease release requires a resource name");
+        try {
+          await releaseLeaseFile(tasksDir, name, leaseHolder(args));
+          value = { schema_version: 1, _type: "lease_released", name };
+          human = () => green(`✓ Released ${name}`);
+        } catch (error) {
+          if (error instanceof LeaseStateError) fail(error.message);
+          throw error;
+        }
+      }
+      else fail(`unknown lease subcommand: ${sub} (expected acquire, list, release, renew)`);
+    }
     else if (command === "inbox") {
       const sub = args.positionals[1];
       if (sub === "read" || sub === "archive") {
@@ -1519,4 +1588,4 @@ const derived = !json && csBase !== null && issue.branch !== null ? await derive
     else if (markdown) process.stdout.write(formatMarkdown(value, false));
     else if (!json && human !== null) console.log(human());
     else output(value, json); } finally { await storage.close(); } }
-main().catch((error: unknown) => { const message = error instanceof Error ? error.message : String(error); if (process.argv.includes("--json")) { const kind: JsonError["error"]["kind"] = error instanceof ArgumentParseError ? "parse" : message.startsWith("readonly") ? "readonly" : message.includes("invalid") || message.startsWith("import line") ? "validation" : "runtime"; console.error(JSON.stringify({ error: { kind, message } } satisfies JsonError)); } else console.error(formatError(message)); exit(1); });
+main().catch((error: unknown) => { const message = error instanceof Error ? error.message : String(error); if (process.argv.includes("--json")) { const kind: JsonError["error"]["kind"] = error instanceof ArgumentParseError ? "parse" : message.startsWith("readonly") ? "readonly" : message.includes("invalid") || message.startsWith("import line") ? "validation" : message.includes("not found") ? "not_found" : message.includes("held by") || message.includes("is held by") ? "conflict" : message.startsWith("no lease on") ? "not_found" : "runtime"; console.error(JSON.stringify({ error: { kind, message } } satisfies JsonError)); } else console.error(formatError(message)); exit(1); });

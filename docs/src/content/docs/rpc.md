@@ -163,8 +163,24 @@ Shared param schemas:
 | `runtime.activity` | `{ limit? }` |
 | `inbox.list` | `{ all? }` |
 | `inbox.read` / `inbox.archive` | `{ runId }` |
+| `lease.acquire` | `{ name, holder, purpose?, ttlMs?, waitMs?, issue? }` |
+| `lease.list` | — |
+| `lease.release` | `{ name, holder }` |
+| `lease.renew` | `{ name, holder, ttlMs? }` |
 
 The actor identity for mutations comes from the workspace (the daemon's store actor, `process.env.USER ?? 'unknown'`), not from the frame.
+
+### Resource leases
+
+Leases are advisory holds on shared machine resources (a simulator, a dev port,
+a seeded database) coordinated through a plain `<workspace>/.tasks/leases.json`
+book — any session on the machine can inspect and respect them without a
+broker. tk serializes access by convention, not by proxying the resource.
+
+- `lease.acquire` grants `{ ok: true, value: { name, holder, purpose, issue, grantedAt, expiresAt } }` or fails with kind `conflict` naming the current holder and time remaining. `waitMs` (capped at 300 000) long-polls server-side: the call re-checks the file every 250 ms until a grant or deadline. `issue` (optional) must resolve to a live issue — typos fail at acquire time with kind `not_found`.
+- Holds are TTL-based (default 900 000 ms, range 1 s–24 h). `lease.renew` extends one's own hold from now; a stale renew can never extend a foreign session's hold (wrong-holder renew fails with kind `conflict`).
+- `lease.release` drops one's own hold; releasing a name you don't hold fails `conflict`, an unknown name fails `not_found`.
+- Expired holds vanish without ceremony: a crashed session's lease self-expires at its TTL, so nothing can deadlock a resource. Reads (`lease.list`) filter expiry in memory and never write.
 
 ## Deliberately excluded from RPC v1
 
