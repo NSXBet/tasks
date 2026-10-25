@@ -93,10 +93,6 @@
     "packages/lua": {
       "name": "@tasks/lua",
       "version": "0.1.0",
-      "dependencies": {
-        "@tasks/rpc": "workspace:*",
-        "typebox": "^1.3.18",
-      },
     },
     "packages/pi-extention": {
       "name": "@tasks/pi-extention",
