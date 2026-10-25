@@ -16,7 +16,7 @@
 import type { WatchCounts, WatchEvent, WatchSubscription } from "@tasks/surface";
 import { runWatchLoop } from "@tasks/surface";
 import { openSurfaceStore, type SurfaceStore } from "@tasks/surface";
-import { connectOrSpawn } from "../../daemon/src/index.ts";
+import { connectOrSpawn } from "@tasks/daemon";
 import { renderWatchWidgetLines, type WatchRow } from "./widget.ts";
 
 export interface WatchManagerOptions {
