@@ -18,7 +18,7 @@ local function check(name: string, fn: () -> ())
 	end
 end
 
-local HELLO_VALUE = { tk = "tk", protocol = 1, verbs = 2, methods = { "hello" } }
+local HELLO_VALUE = { tk = "tk", protocol = 2, verbs = 2, methods = { "hello" } }
 
 local function connectMock(): (any, any, any)
 	local state = {
@@ -38,7 +38,7 @@ local function connectMock(): (any, any, any)
 			return {
 				status = 200,
 				headers = { ["content-type"] = "application/json" },
-				body = serde.encode("json", { v = 1, id = envelope.id, ok = true, value = HELLO_VALUE }),
+				body = serde.encode("json", { v = 2, id = envelope.id, ok = true, value = HELLO_VALUE }),
 			}
 		end
 		if req.path == "/api/events" then

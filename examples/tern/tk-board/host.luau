@@ -79,6 +79,7 @@ local function reconcile(state: State, cx: BlockCx): ()
 		state.fetch_pending = false
 		if err ~= nil then
 			state.error = err
+			state.phase = "error"
 			cx:toast("error", "tk board: " .. err)
 			cx:render()
 			return
@@ -88,6 +89,7 @@ local function reconcile(state: State, cx: BlockCx): ()
 		end)
 		if not ok then
 			state.error = tostring(value)
+			state.phase = "error"
 			cx:render()
 			return
 		end

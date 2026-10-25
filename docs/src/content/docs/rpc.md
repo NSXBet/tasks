@@ -13,6 +13,7 @@ Every tk client — the CLI, the web UI, the pi extension — talks to the same 
 |---|---|---|
 | `tkd` unix-socket daemon | CLI (`tk web`, watchers), pi extension | One daemon per workspace; spawned on first connect, idles out after 10 min with zero connections and nothing hosted (`idleMs: 0` disables) |
 | In-process dispatcher | web server routes | Web server owns a memoized surface lease per workspace |
+| Web HTTP (`POST /api/rpc`, `GET /api/events`) | `@tasks/lua` Luau client (`packages/lua/luau/tk`) — lune scripts and Tern plugins such as `examples/tern/tk-board` | Talks to whatever `tk web` hosts; discovery reads the hosted-web row from `<root>/.tasks/runtime.json` |
 
 The socket lives under the OS temp directory with a content-derived name (macOS binds unix sockets at ~104 chars, so a socket inside a deep repo path would routinely overflow). `tk web` bootstraps the daemon automatically; `tk daemon status` and `tk daemon stop` (plus `start` / `restart`) inspect or manage it without the web server.
 
@@ -26,8 +27,8 @@ The socket lives under the OS temp directory with a content-derived name (macOS 
 ```sh
 curl -X POST http://localhost:21579/api/rpc \
   -H 'content-type: application/json' \
-  -d '{"v":1,"id":"c1","method":"issue.list","params":{}}'
-# → 200 {"v":1,"id":"c1","ok":true,"value":[ …issues… ]}
+  -d '{"v":2,"id":"c1","method":"issue.list","params":{}}'
+# → 200 {"v":2,"id":"c1","ok":true,"value":[ …issues… ]}
 ```
 
 Watch events are served at `GET /api/events?after=<seq>&kinds=a,b` (kinds filter optional, comma-separated):
@@ -40,15 +41,15 @@ Watch events are served at `GET /api/events?after=<seq>&kinds=a,b` (kinds filter
 
 ## Envelope
 
-One JSON object per line (NDJSON). Requests and responses both carry `v: 1` (`PROTOCOL_VERSION`).
+One JSON object per line (NDJSON). Requests and responses both carry `v: 2` (`PROTOCOL_VERSION`).
 
 ```jsonc
 // request
-{ "v": 1, "id": "r1", "method": "issue.show", "params": { "id": "tasks-1" }, "root": "/path/to/repo" }
+{ "v": 2, "id": "r1", "method": "issue.show", "params": { "id": "tasks-1" }, "root": "/path/to/repo" }
 // response
-{ "v": 1, "id": "r1", "ok": true, "value": { /* issue */ } }
+{ "v": 2, "id": "r1", "ok": true, "value": { /* issue */ } }
 // or
-{ "v": 1, "id": "r1", "ok": false, "error": { "kind": "not_found", "message": "…" } }
+{ "v": 2, "id": "r1", "ok": false, "error": { "kind": "not_found", "message": "…" } }
 ```
 
 - `id` is optional; the response echoes it when present. Transports assign one when the client omits it.
@@ -60,7 +61,7 @@ One JSON object per line (NDJSON). Requests and responses both carry `v: 1` (`PR
 Call `hello` first. It returns the contract versions and the full method list:
 
 ```jsonc
-{ "tk": "tk", "protocol": 1, "verbs": 2, "methods": ["board.get", "deps.add", …] }
+{ "tk": "tk", "protocol": 2, "verbs": 2, "methods": ["board.get", "deps.add", …] }
 ```
 
 Clients must fail loudly on drift — `expectContract()` throws `ContractMismatch` when either version differs. `protocol` bumps on envelope changes (fields, error kinds); `verbs` bumps when methods, params, or result shapes change.
@@ -106,7 +107,7 @@ The daemon intercepts these frames itself; everything else falls through to the 
 Event frames share the connection, one per line:
 
 ```jsonc
-{ "v": 1, "subscription": "my-tag", "event": { "seq": 42, "kind": "issue.updated", "at": "2026-10-18T19:33:00.000Z", "issueId": "tasks-1", "counts": { "open": 3, "blocked": 1, "readyToReview": 1 }, "data": { "actor": "yuri" } } }
+{ "v": 2, "subscription": "my-tag", "event": { "seq": 42, "kind": "issue.updated", "at": "2026-10-18T19:33:00.000Z", "issueId": "tasks-1", "counts": { "open": 3, "blocked": 1, "readyToReview": 1 }, "data": { "actor": "yuri" } } }
 ```
 
 `seq` is per-subscription monotonic — the ordering authority, never timestamps. `kind` is one of `issue.created`, `issue.updated`, `issue.status_changed`, `issue.commented`, `issue.deleted`, `ready.changed`, `counts.changed`, `run.changed`; `data.from`/`data.to` accompany status changes and `data.runId` accompanies `run.changed`. A subscription's watch loop restarts automatically if it exits on its own; dropping the socket ends it.

@@ -58,12 +58,15 @@ math.randomseed(os.time() + math.floor(os.clock() * 1e9))
 
 local function fileExists(path: string): boolean
 	local ok, meta = pcall(fs.metadata, path)
-	return ok and meta ~= nil
+	-- lune returns a table with exists=false for missing paths (pcall never fails).
+	return ok and meta ~= nil and (meta :: any).exists == true
 end
 
 -- Repo root: walk up from cwd until packages/web/src/main.ts exists.
 local function findRepoRoot(): string
-	local dir = process.cwd
+	-- lune's process.cwd carries a trailing slash, which breaks the parent-strip
+	-- match below; normalize first.
+	local dir = (process.cwd :: string):gsub("/+$", "")
 	for _ = 1, 8 do
 		if fileExists(dir .. "/packages/web/src/main.ts") then
 			return dir
@@ -136,7 +139,10 @@ local root = "/tmp/tk-lua-int-" .. tostring(os.time()) .. "-" .. tostring(math.r
 fs.writeDir(root)
 print("workspace: " .. root)
 
-local initChild = process.create("bun", { repoRoot .. "/packages/cli/src/tk.ts", "-C", root, "init", "--json" })
+local initChild = process.create("bun", { repoRoot .. "/packages/cli/src/tk.ts", "-C", root, "init", "--json" }, {
+	cwd = repoRoot,
+	stdio = { stdin = "none", stdout = "forward", stderr = "forward" },
+})
 local initStatus = initChild:status()
 assert(initStatus.ok and initStatus.code == 0, "tk init failed (" .. tostring(initStatus.code) .. ")")
 

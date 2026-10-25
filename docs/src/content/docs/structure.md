@@ -30,7 +30,8 @@ tasks/
 │   ├── tui/                   # @tasks/tui — tk-tui OpenTUI app (bin: tk-tui)
 │   ├── web/                   # @tasks/web — tk web server + SPA shell
 │   ├── pi-extention/          # pi/omp agent-host extension (sic — misspelled, do not rename)
-│   └── terminal-image/        # @tasks/terminal-image — TUI image helper
+│   ├── terminal-image/        # @tasks/terminal-image — TUI image helper
+│   └── lua/                   # @tasks/lua — hand-written Luau tk client (json/transport/wire/client/events), lune-tested
 ├── tests/
 │   └── tui-test-tasks-5aof/   # Manual TUI verification artifacts (screenshots, tapes)
 ├── docs/
@@ -86,6 +87,13 @@ packages/<name>/
 
 **`packages/beads`:**
 - Purpose: read/convert legacy beads JSONL workspaces — `export.ts` (resolve), `migrate.ts`, `plan.ts`, `records.ts`, `workspace.ts`, `search-path.ts`.
+
+**`packages/lua`:**
+- Purpose: hand-written Luau reimplementation of the tk RPC client surface — no TypeScript, no codegen. `luau/tk/json.luau` (encoder/decoder), `transport.luau` (tern + lune request seam), `wire.luau` (protocol/verbs versions + verb table mirroring `packages/rpc/src/verbs.ts`), `client.luau` (connect/discovery/`call`/`get`/`unwrap`), `events.luau` (poll loop). Tested with lune (`lune run luau/tk/tests/run_all.luau`).
+- Key files: `packages/lua/luau/tk/client.luau`, `packages/lua/luau/tk/wire.luau`.
+
+**`examples/tern/tk-board`:**
+- Purpose: Tern plugin showing a live tk issue board as a plugin block. `host.luau` defines the `board` block (discovery walks up from `cx.cwd` to a `.tasks/runtime.json`, reads the hosted-web row, fetches `issue.list` via the vendored client); `lib/tk/` holds copies of `packages/lua/luau/tk` (Tern's `require` cannot reach outside the plugin directory — `sync.sh` refreshes them). Registered with Tern via a `tk-board.path` file in the plugins directory.
 
 ## Key File Locations
 

@@ -14,7 +14,7 @@
 -- is declared here — the server validates and surfaces structured errors, which
 -- surface through `client:call` unchanged.
 
-local PROTOCOL_VERSION = 1
+local PROTOCOL_VERSION = 2
 local VERBS_VERSION = 2
 
 -- Verb ids in the daemon's verb-table declaration order.

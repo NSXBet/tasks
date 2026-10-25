@@ -65,21 +65,21 @@ local function startServer(helloValue: any?): (number, any, { [string]: any })
 			table.insert(record.envelopes, envelope)
 			table.insert(record.ids, envelope.id)
 			if envelope.method == "hello" then
-				local value = helloValue or { tk = "tk", protocol = 1, verbs = 2, methods = {} }
+				local value = helloValue or { tk = "tk", protocol = 2, verbs = 2, methods = {} }
 				return {
 					status = 200,
-					body = serde.encode("json",{ v = 1, id = envelope.id, ok = true, value = value }),
+					body = serde.encode("json",{ v = 2, id = envelope.id, ok = true, value = value }),
 				}
 			end
 			if envelope.method == "fail" then
 				return {
 					status = 200,
-					body = serde.encode("json",{ v = 1, id = envelope.id, ok = false, error = { kind = "param_invalid", message = "bad params" } }),
+					body = serde.encode("json",{ v = 2, id = envelope.id, ok = false, error = { kind = "param_invalid", message = "bad params" } }),
 				}
 			end
 			return {
 				status = 200,
-				body = serde.encode("json",{ v = 1, id = envelope.id, ok = true, value = { echoed = envelope.params, method = envelope.method } }),
+				body = serde.encode("json",{ v = 2, id = envelope.id, ok = true, value = { echoed = envelope.params, method = envelope.method } }),
 			}
 		end
 		return { status = 500, body = serde.encode("json",{ raw = "text, not json" }) }
@@ -139,7 +139,7 @@ check("connect raises contract_mismatch on version drift", function()
 	server:stop()
 end)
 
-check("call posts envelope {v:1, id, method, params} with monotonic ids and no root", function()
+check("call posts envelope {v:2, id, method, params} with monotonic ids and no root", function()
 	local port, server, record = startServer()
 	local c = clientLib.connect("/tmp/does-not-exist", { port = port })
 	local v1 = c:call("issue.list", { limit = 5 })
@@ -151,7 +151,7 @@ check("call posts envelope {v:1, id, method, params} with monotonic ids and no r
 	assert(deepEqual(record.ids, { "1", "2", "3" }), serde.encode("json",record.ids))
 	assert(record.envelopes[1].method == "hello")
 	local envelope = record.envelopes[2] :: any
-	assert(envelope.v == 1)
+	assert(envelope.v == 2)
 	assert(envelope.method == "issue.list")
 	assert(envelope.root == nil, "client must not send root (injected server-side)")
 end)
@@ -204,7 +204,7 @@ check("400 with envelope error body surfaces the server error kind", function()
 	server:stop()
 	-- Reuse unwrap directly: non-2xx answers carry the same envelope.
 	local errKind = select(2, pcall(function()
-		return clientLib.unwrap({ status = 400, body = '{"v":1,"id":"1","ok":false,"error":{"kind":"method_unknown","message":"no such method"}}', error = nil })
+		return clientLib.unwrap({ status = 400, body = '{"v":2,"id":"1","ok":false,"error":{"kind":"method_unknown","message":"no such method"}}', error = nil })
 	end))
 	assert((errKind :: any).kind == "method_unknown", tostring(errKind))
 end)
