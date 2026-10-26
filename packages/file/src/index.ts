@@ -265,7 +265,12 @@ export class FileAdapter implements UnitOfWork, MigrationPort {
 
   // ─── Locking ────────────────────────────────────────────────────────────────
 
-  #acquireLock(): void {
+  /**
+   * Retries yield to the event loop instead of busy-waiting: a same-process
+   * transaction holds this lock across its awaited work, and a synchronous
+   * spin would block that holder's continuation forever.
+   */
+  async #acquireLock(): Promise<void> {
     this.#ensureDirs();
     const maxWait = 5000;
     const start = Date.now();
@@ -283,9 +288,7 @@ export class FileAdapter implements UnitOfWork, MigrationPort {
           this.#releaseLock();
           continue;
         }
-        // Spin wait 10ms
-        const end = Date.now() + 10;
-        while (Date.now() < end) { /* busy wait */ }
+        await Bun.sleep(10);
       }
     }
   }
@@ -335,7 +338,7 @@ export class FileAdapter implements UnitOfWork, MigrationPort {
   // ─── UnitOfWork ─────────────────────────────────────────────────────────────
 
   async withinTransaction<T>(work: (uow: IssueUnitOfWork) => Promise<Result<T>>): Promise<Result<T>> {
-    this.#acquireLock();
+    await this.#acquireLock();
     try {
       const uow = new FileIssueUnitOfWork(this);
       const result = await work(uow);
