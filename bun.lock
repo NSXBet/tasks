@@ -214,7 +214,6 @@
         "@tasks/rpc": "workspace:*",
         "@tasks/surface": "workspace:*",
         "@tasks/workspace": "workspace:*",
-        "chokidar": "^4.0.3",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
       },
