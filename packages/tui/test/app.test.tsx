@@ -32,7 +32,7 @@ const workspace = (): string => {
 afterEach(() => {
   while (workspaces.length) {
     const dir = workspaces.pop()!;
-    try { Bun.$`rm -rf ${dir}`.quiet(); } catch { /* tmp cleanup best effort */ }
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* tmp cleanup best effort */ }
   }
 });
 
