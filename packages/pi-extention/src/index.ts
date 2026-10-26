@@ -110,7 +110,7 @@ export default function tasksExtension(pi: ExtensionAPI) {
   // pi-only bonus: skill injection via resources_discover (omp does not fire
   // it; both hosts instead load skills/ from the package manifest).
   pi.on("resources_discover", async () => {
-    const skillPath = new URL("../skills/tasks/SKILL.md", import.meta.url).pathname;
+    const skillPath = new URL("./skills/tasks/SKILL.md", import.meta.url).pathname;
     return { skillPaths: [skillPath] };
   });
 
