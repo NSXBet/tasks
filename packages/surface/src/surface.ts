@@ -32,6 +32,11 @@ import {
 } from './operations/sprint.js';
 import { depList, depAdd, depRemove, link, type DependencyRow } from './operations/deps.js';
 import { addComment, commentsOf } from './operations/comments.js';
+import {
+  leaseAcquire, leaseList, leaseRelease, leaseRenew,
+  type LeaseAcquireInput, type LeaseOutcome, type LeaseReleaseInput, type LeaseRenewInput,
+} from './operations/leases.js';
+import type { LeaseRow } from './leases.js';
 import { evidenceRead, detachBlob, type BlobDetach, type EvidenceRead } from './operations/attachments.js';
 import {
   allIssues, counts, stats, boardTree, dependencyGraph, duplicatePairs,
@@ -136,6 +141,11 @@ export interface TasksSurface {
   inbox(options?: { readonly all?: boolean }): Promise<InboxSnapshot>;
   inboxRead(runId: string): Promise<InboxMarkers>;
   inboxArchive(runId: string): Promise<InboxMarkers>;
+  // leases (advisory holds on shared machine resources; the busy kind is `conflict`)
+  leaseAcquire(input: LeaseAcquireInput): Promise<LeaseOutcome<LeaseRow>>;
+  leaseList(): Promise<LeaseOutcome<readonly LeaseRow[]>>;
+  leaseRelease(input: LeaseReleaseInput): Promise<LeaseOutcome<{ readonly released: true }>>;
+  leaseRenew(input: LeaseRenewInput): Promise<LeaseOutcome<LeaseRow>>;
 }
 
 type TreeOptionsShim = Parameters<typeof boardTree>[1];
@@ -214,5 +224,9 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     },
     inboxRead: async (runId) => { await markInboxRead(store.tasksDir, runId); return readInboxMarkers(store.tasksDir); },
     inboxArchive: async (runId) => { await markInboxArchived(store.tasksDir, runId); return readInboxMarkers(store.tasksDir); },
+    leaseAcquire: (input) => leaseAcquire(store, input),
+    leaseList: () => leaseList(store),
+    leaseRelease: (input) => leaseRelease(store, input),
+    leaseRenew: (input) => leaseRenew(store, input),
   };
 };

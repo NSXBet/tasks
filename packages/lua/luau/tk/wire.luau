@@ -77,6 +77,10 @@ local METHODS: { string } = {
 	"inbox.list",
 	"inbox.read",
 	"inbox.archive",
+	"lease.acquire",
+	"lease.list",
+	"lease.release",
+	"lease.renew",
 }
 
 -- Cheap self-check: every verb is a bare word or `domain.action`, so malformed

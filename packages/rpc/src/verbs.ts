@@ -103,6 +103,23 @@ const UpdateParams = Type.Object({
 const verb = (params: TSchema, handler: RpcVerb['handler']): RpcVerb => ({ params, handler });
 const noParams = (handler: RpcVerb['handler']): RpcVerb => ({ params: undefined, handler });
 
+const LeaseAcquireParams = Type.Object({
+  name: str(),
+  holder: str(),
+  purpose: optStr(),
+  ttlMs: Type.Optional(Type.Number()),
+  waitMs: Type.Optional(Type.Number()),
+  issue: optNullOrStr(),
+});
+
+const LeaseReleaseParams = Type.Object({ name: str(), holder: str() });
+
+const LeaseRenewParams = Type.Object({
+  name: str(),
+  holder: str(),
+  ttlMs: Type.Optional(Type.Number()),
+});
+
 export const VERB_TABLE: Readonly<Record<string, RpcVerb>> = {
   hello: noParams(async () => ({
     ok: true,
@@ -186,6 +203,11 @@ export const VERB_TABLE: Readonly<Record<string, RpcVerb>> = {
   'inbox.list': verb(Type.Object({ all: Type.Optional(Type.Boolean()) }), (surface, p) => surface.inbox({ all: p.all }).then((value) => ({ ok: true as const, value }))),
   'inbox.read': verb(Type.Object({ runId: str() }), (surface, p) => surface.inboxRead(p.runId).then((value) => ({ ok: true as const, value }))),
   'inbox.archive': verb(Type.Object({ runId: str() }), (surface, p) => surface.inboxArchive(p.runId).then((value) => ({ ok: true as const, value }))),
+
+  'lease.acquire': verb(LeaseAcquireParams, (surface, p) => surface.leaseAcquire(p)),
+  'lease.list': noParams((surface) => surface.leaseList()),
+  'lease.release': verb(LeaseReleaseParams, (surface, p) => surface.leaseRelease(p)),
+  'lease.renew': verb(LeaseRenewParams, (surface, p) => surface.leaseRenew(p)),
 };
 
 export const verbNames = (): readonly string[] => Object.keys(VERB_TABLE).sort();

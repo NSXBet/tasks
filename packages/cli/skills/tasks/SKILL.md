@@ -70,6 +70,27 @@ Attachments are **references, not copies** — they store a path plus optional m
 - Re-attach with the same file name replaces the prior evidence entry in place (same id, new bytes).
 - Reference evidence from comments as `evidence:<id>` (e.g. `see evidence:ev-a1b2c3`); `tk detach <id> <name-or-id>` removes the entry and its stored bytes.
 
+## Leases — shared resources
+
+Parallel sessions share physical resources a worktree can't isolate (simulator,
+dev ports, a seeded DB). Before touching a shared resource, hold a lease; the
+book is `<workspace>/.tasks/leases.json` and every session can see it.
+
+```bash
+tk lease acquire ios-sim --purpose "verify accounts" --task tk-abc1   # hold (TTL 15 min default)
+tk lease list                                                         # who holds what, time left
+tk lease renew ios-sim                                                # extend your hold
+tk lease release ios-sim                                              # drop it when done
+```
+
+- One holder per name: a second acquire fails naming the holder and time
+  remaining; `--wait <ms>` queues instead of failing (cap 5 min).
+- `--task <id>` ties the hold to an issue — typos fail at acquire time.
+- Holds expire on their own, so a crashed session never deadlocks a resource;
+  `renew` in long windows.
+- This is coordination by convention, not enforcement: bypassing a lease is a
+  reviewable violation, like bypassing the issue loop.
+
 ## Rules
 
 - One issue per deliverable; `parent` for subtasks of an epic, `dep` for blockers.
