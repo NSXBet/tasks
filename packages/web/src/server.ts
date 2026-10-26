@@ -10,9 +10,9 @@
  * its own workspace via POST /api/open instead of starting a rival server,
  * so exactly one web UI exists to keep open in a browser tab.
  */
+import { watch as nativeWatch, type FSWatcher } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { watch, type FSWatcher } from "chokidar";
 import {
   readWorktreeFile, reviewPayloadFor, reviewThreads, threadInputFrom,
   worktreeOf, writeWorktreeFile, type ReviewIssueLike,
@@ -189,10 +189,21 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
     }
     for (const path of wanted) {
       if (watchedWorktrees.has(path)) continue;
+      // Native recursive fs.watch, not chokidar: chokidar's per-inode kqueue
+      // registration (depth 6 over a worktree with node_modules) corrupts
+      // Bun's timer delivery on macOS past a few thousand watched inodes —
+      // the event loop stops servicing timers for ~80s and web.start fails
+      // its own ownership probe. The native recursive handle stays healthy
+      // on the same trees. Top-level build dirs are filtered so installs
+      // don't spam reloads.
+      let debounce: ReturnType<typeof setTimeout> | undefined;
       try {
-        const watcher = watch(path, { ignoreInitial: true, depth: 6 });
-        let debounce: ReturnType<typeof setTimeout> | undefined;
-        watcher.on("all", () => {
+        const watcher = nativeWatch(path, { recursive: true }, (_event, filename) => {
+          const relative = typeof filename === "string" ? filename : null;
+          if (relative !== null) {
+            const head = relative.split("/", 1)[0];
+            if (head === "node_modules" || head === ".git") return;
+          }
           clearTimeout(debounce);
           debounce = setTimeout(() => { debounce = undefined; broadcastReload(); }, 250);
         });
@@ -203,7 +214,7 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
   const worktreeScan = setInterval(() => { void syncWorktreeWatch(); }, 5_000);
   stopWatches.push(() => {
     clearInterval(worktreeScan);
-    for (const watcher of watchedWorktrees.values()) void watcher.close();
+    for (const watcher of watchedWorktrees.values()) watcher.close();
     watchedWorktrees.clear();
   });
   void syncWorktreeWatch();
