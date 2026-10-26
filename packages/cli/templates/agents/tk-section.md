@@ -1,7 +1,7 @@
 <!-- BEGIN TK INTEGRATION -->
 ## Tasks Issue Tracker
 
-This project uses **tk (Tasks)** for ALL task tracking — do NOT use markdown TODO lists, TodoWrite, or other trackers. Run `tk prime` for full workflow context.
+This project uses **tk (Tasks)** for ALL task tracking — do NOT use markdown TODO lists, TodoWrite, or other trackers.
 
 ### The loop — task → review
 
