@@ -6,6 +6,7 @@ local net = require("@lune/net")
 local taskLib = require("@lune/task")
 local serde = require("@lune/serde")
 local clientLib = require("../client")
+local wire = require("../wire")
 local events = require("../events")
 
 local function check(name: string, fn: () -> ())
@@ -18,7 +19,7 @@ local function check(name: string, fn: () -> ())
 	end
 end
 
-local HELLO_VALUE = { tk = "tk", protocol = 2, verbs = 2, methods = { "hello" } }
+local HELLO_VALUE = { tk = "tk", protocol = wire.PROTOCOL_VERSION, verbs = wire.VERBS_VERSION, methods = { "hello" } }
 
 local function connectMock(): (any, any, any)
 	local state = {

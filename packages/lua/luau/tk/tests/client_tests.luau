@@ -65,7 +65,7 @@ local function startServer(helloValue: any?): (number, any, { [string]: any })
 			table.insert(record.envelopes, envelope)
 			table.insert(record.ids, envelope.id)
 			if envelope.method == "hello" then
-				local value = helloValue or { tk = "tk", protocol = 2, verbs = 2, methods = {} }
+				local value = helloValue or { tk = "tk", protocol = wire.PROTOCOL_VERSION, verbs = wire.VERBS_VERSION, methods = {} }
 				return {
 					status = 200,
 					body = serde.encode("json",{ v = 2, id = envelope.id, ok = true, value = value }),

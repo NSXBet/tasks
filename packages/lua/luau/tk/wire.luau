@@ -15,7 +15,7 @@
 -- surface through `client:call` unchanged.
 
 local PROTOCOL_VERSION = 2
-local VERBS_VERSION = 2
+local VERBS_VERSION = 3
 
 -- Verb ids in the daemon's verb-table declaration order.
 local METHODS: { string } = {

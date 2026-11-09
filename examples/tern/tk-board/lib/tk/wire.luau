@@ -15,7 +15,7 @@
 -- surface through `client:call` unchanged.
 
 local PROTOCOL_VERSION = 2
-local VERBS_VERSION = 2
+local VERBS_VERSION = 3
 
 -- Verb ids in the daemon's verb-table declaration order.
 local METHODS: { string } = {
@@ -77,6 +77,10 @@ local METHODS: { string } = {
 	"inbox.list",
 	"inbox.read",
 	"inbox.archive",
+	"lease.acquire",
+	"lease.list",
+	"lease.release",
+	"lease.renew",
 }
 
 -- Cheap self-check: every verb is a bare word or `domain.action`, so malformed
