@@ -6,14 +6,36 @@
  * string, never a throw — pruning is always non-fatal to its caller.
  */
 import { bunRunner, type ProcessRunner } from "./runner.js";
-import { gitDefaultBranch } from "./commands.js";
-import { gitBranchExists, gitHasUncommittedChanges, gitStashCount, gitWorktreeList, gitWorktreeRemove } from "./commands.js";
+import { gitBranchExists, gitDefaultBranch, gitDeleteBranch, gitHasUncommittedChanges, gitStashCount, gitWorktreeList, gitWorktreeRemove } from "./commands.js";
 import { runShellHook } from "./hooks.js";
 
-/** True when `branch` has no commits missing from `base` (patch-id check, so a
- *  branch merged via a merge commit counts even when `base` is a pinned SHA). */
-export const gitIsMergedToBase = async (cwd: string, base: string, branch: string, runner: ProcessRunner = bunRunner): Promise<boolean> =>
-  (await runner.run(["git", "cherry", base, branch], cwd)).stdout === "";
+/**
+ * The one merge predicate every removal path shares (`tk worktree remove`,
+ * close/duplicate/supersede/todo-done auto-prune, `tk worktree clean`). True
+ * when any of these holds:
+ *  1. ancestry — `branch` is an ancestor of `base`;
+ *  2. default-tip line — `base` sits on the default branch's tip (a base is
+ *     pinned as a SHA at work time, so its line keeps moving) and `branch` is
+ *     an ancestor of that tip;
+ *  3. patch-equivalence — `git cherry <line> <branch>` against `base` (and the
+ *     tip, when rule 2's base-on-tip held) reports no `+` line, i.e. every
+ *     commit landed via rebase or cherry-pick.
+ * Any git failure counts as "not proven merged" for that rule.
+ */
+export const gitIsMergedToBase = async (cwd: string, base: string, branch: string, runner: ProcessRunner = bunRunner): Promise<boolean> => {
+  const isAncestor = async (ancestor: string, descendant: string): Promise<boolean> =>
+    (await runner.run(["git", "merge-base", "--is-ancestor", ancestor, descendant], cwd)).code === 0;
+  if (await isAncestor(branch, base)) return true;
+  const tip = await gitDefaultBranch(cwd, runner);
+  const baseOnTip = tip !== null && await isAncestor(base, tip);
+  if (baseOnTip && await isAncestor(branch, tip)) return true;
+  const lines = baseOnTip ? [base, tip] : [base];
+  for (const line of lines) {
+    const cherry = await runner.run(["git", "cherry", line, branch], cwd);
+    if (cherry.code === 0 && !cherry.stdout.split("\n").some((row) => row.startsWith("+"))) return true;
+  }
+  return false;
+};
 
 export interface PruneInput {
   readonly path: string;
@@ -33,31 +55,27 @@ export interface PruneOutcome {
   readonly pruned: boolean;
   readonly removedWorktree: boolean;
   readonly removedBranch: boolean;
+  /** True when neither the worktree nor the branch exists any more. */
+  readonly alreadyPruned?: boolean;
   /** Why pruning did not happen; undefined when it did. */
   readonly reason?: string;
 }
 
-/** True when the branch is merged into the base commit itself or into the
- *  current tip of the default branch that carries the pinned base — a base
- *  is pinned as a SHA at work time, so the line it sits on keeps moving. */
-const mergedIntoBaseLine = async (mainRoot: string, base: string, branch: string, runner: ProcessRunner): Promise<boolean> => {
-  const ancestor = (ref: string) => runner.run(["git", "merge-base", "--is-ancestor", branch, ref], mainRoot).then((r) => r.code === 0);
-  if (await ancestor(base)) return true;
-  const tip = await gitDefaultBranch(mainRoot, runner);
-  if (tip === null) return false;
-  const baseOnTip = (await runner.run(["git", "merge-base", "--is-ancestor", base, tip], mainRoot)).code === 0;
-  return baseOnTip && await ancestor(tip);
-};
-
 export const pruneClosedWorktree = async (mainRoot: string, input: PruneInput, runner: ProcessRunner = bunRunner): Promise<PruneOutcome> => {
   const { path, branch, base } = input;
-  if (base === null) return { pruned: false, removedWorktree: false, removedBranch: false, reason: "no pinned base to compare against" };
-  // A missing branch means nothing is left to refuse or remove — already pruned.
-  if (await gitBranchExists(mainRoot, branch, runner) && !(await mergedIntoBaseLine(mainRoot, base, branch, runner)))
-    return { pruned: false, removedWorktree: false, removedBranch: false, reason: `branch ${branch} is not fully merged into ${base}` };
-
+  const branchPresent = await gitBranchExists(mainRoot, branch, runner);
   const entries = await gitWorktreeList(mainRoot, runner);
   const entry = entries.find((candidate) => candidate.branch === branch || candidate.path === path);
+  // Nothing left to refuse or remove: report it so `tk worktree clean` skips it.
+  if (!branchPresent && entry === undefined)
+    return { pruned: false, prunable: false, alreadyPruned: true, removedWorktree: false, removedBranch: false, reason: "already pruned" };
+  if (base === null) return { pruned: false, removedWorktree: false, removedBranch: false, reason: "no pinned base to compare against" };
+  // The single merge predicate; a force branch delete below is reachable only
+  // after it returned true for this exact branch.
+  const mergeProven = branchPresent && await gitIsMergedToBase(mainRoot, base, branch, runner);
+  if (branchPresent && !mergeProven)
+    return { pruned: false, removedWorktree: false, removedBranch: false, reason: `branch ${branch} is not fully merged into ${base}` };
+
   let removedWorktree = false;
   if (entry !== undefined) {
     if (await gitHasUncommittedChanges(entry.path, runner))
@@ -72,12 +90,15 @@ export const pruneClosedWorktree = async (mainRoot: string, input: PruneInput, r
     removedWorktree = true;
   }
 
-  // Branch delete uses git's own safe delete (`-d`): only succeeds when merged.
   let removedBranch = false;
   if (input.dryRun === true) return { prunable: true, pruned: false, removedWorktree: false, removedBranch: false };
-  if (await gitBranchExists(mainRoot, branch, runner)) {
-    const deletion = await runner.run(["git", "branch", "-d", branch], mainRoot);
-    removedBranch = deletion.code === 0;
+  if (mergeProven && await gitBranchExists(mainRoot, branch, runner)) {
+    // git's safe delete checks against the main checkout's HEAD — the wrong
+    // reference when that checkout sits elsewhere or the merge was a rebase.
+    // The predicate above already proved the merge, so fall back to `-D`.
+    let deletion = await gitDeleteBranch(mainRoot, branch, false, runner);
+    if (!deletion.ok) deletion = await gitDeleteBranch(mainRoot, branch, true, runner);
+    removedBranch = deletion.ok;
     if (!removedBranch) {
       return {
         pruned: removedWorktree,

@@ -28,6 +28,13 @@ describe("worktree resolver", () => {
     expect(resolveWorktreePath({ repoRoot: "/code/app", name: "demo", override: "../per-task" }).path).toBe("/code/per-task");
   });
 
+  it("expands {name} literally: $ replacement patterns in names stay verbatim (WR-02)", () => {
+    for (const name of ["foo$&bar", "a$'b", "a$`b", "x$1y"]) {
+      expect(resolveWorktreePath({ repoRoot: "/code/app", name, dir: "/pool/wt-{name}" }).path).toBe(`/pool/wt-${name}`);
+      expect(resolveWorktreePath({ repoRoot: "/code/app", name, override: "/o/{name}" }).path).toBe(`/o/${name}`);
+    }
+  });
+
   it("is pure: no FS mutation of repoRoot, configDir, or override", () => {
     const dir = mkdtempSync(`${tmpdir()}/tk-resolver-`);
     try {

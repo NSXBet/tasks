@@ -12,7 +12,7 @@
  *   2. `worktree.dir` from `.tasks/config.json` (workspace-wide placement) —
  *      a directory pool: `{name}` expands per worktree, otherwise the name is
  *      appended; relative paths resolve against the repo root.
- *   3. in-repo pool default: `<repo-root>/.worktrees/<name>` (gitignored).
+ *   3. in-repo pool default: `<repo-root>/.worktrees/<name>` (auto-excluded via info/exclude by the CLI).
  *
  * Names with spaces or path separators pass through unchanged — validating
  * them is the caller's responsibility.
@@ -31,16 +31,19 @@ export interface WorktreeResolution {
   readonly source: "override" | "config" | "default";
 }
 
+/** Function replacement so `$&`, `$'`, `` $` ``, `$1` in names stay literal. */
+const expand = (template: string, name: string): string => template.replace(/\{name\}/g, () => name);
+
 export function resolveWorktreePath(input: WorktreeResolverInput): WorktreeResolution {
   const source = input.override != null ? "override" : input.dir != null ? "config" : "default";
   if (source === "override") {
-    const expanded = input.override!.replace(/\{name\}/g, input.name);
+    const expanded = expand(input.override!, input.name);
     const path = isAbsolute(expanded) ? resolve(expanded) : resolve(input.repoRoot, expanded);
     return { path, source };
   }
   if (source === "config") {
     const dir = input.dir!;
-    const expanded = dir.includes("{name}") ? dir.replace(/\{name\}/g, input.name) : join(dir, input.name);
+    const expanded = dir.includes("{name}") ? expand(dir, input.name) : join(dir, input.name);
     const path = isAbsolute(expanded) ? resolve(expanded) : resolve(input.repoRoot, expanded);
     return { path, source };
   }
