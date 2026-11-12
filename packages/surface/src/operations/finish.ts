@@ -5,6 +5,12 @@
  * no snapshot freeze ever rides this path. D-10 requires a completion record
  * (`agent_session` + `finished_at`) merged into metadata; D-11 makes a repeat
  * finish idempotent on status (metadata-only re-record).
+ *
+ * Phase 11 (PR-03): finish also stores a counts-only `metadata.report =
+ * {changes, head, at}` stamp, the cache `resolveChanges` falls back to when
+ * the branch is out of reach. It never writes `metadata.changeset.head`, so
+ * finish still never freezes (CHG-02). A failed derivation is non-fatal: no
+ * `report` key is written and any earlier stamp is kept.
  */
 import type { Issue, StatusTransitionPolicy } from '@tasks/domain';
 import { transitionStatus } from '@tasks/domain';
@@ -12,6 +18,8 @@ import { applyRunSideEffects, type IssueUnitOfWork, type Result } from '@tasks/a
 import { getOrThrow, type SurfaceStore } from '../store.js';
 import type { SurfaceError } from '../errors.js';
 import { MessageError } from '../errors.js';
+import { bunRunner, type ProcessRunner } from '@tasks/git';
+import { reportStampFor } from './changes.js';
 
 const now = (): Date => new Date();
 const changed = (issue: Issue, patch: Partial<Issue>): Issue => ({ ...issue, ...patch, updatedAt: now() });
@@ -41,17 +49,18 @@ export const finishIssueUow = async (
   id: string,
   session: string,
   at: Date = now(),
+  harness: string | null = null,
+  runner: ProcessRunner = bunRunner,
 ): Promise<Issue> => {
   if (session.trim() === '') throw new MessageError('finish requires a non-empty session id');
-  // ctx is unused: finish performs no git work (D-09 — no freeze on this path).
-  // The parameter is kept for uow-operation signature symmetry (callers pass { cwd }).
-  void ctx;
   const issue = await getOrThrow(uow, id);
   const meta = issue.metadata['changeset'];
   const pinned = meta !== null && typeof meta === 'object' && !Array.isArray(meta) && typeof (meta as Record<string, unknown>)['base'] === 'string' && (meta as Record<string, unknown>)['base'] !== '';
   if (issue.branch === null || issue.branch === '' || !pinned)
     throw new MessageError(`finish requires a branch and pinned changeset base (no worktree record for ${id}); run \`tk work ${id}\` first`);
-  const record = { agent_session: session, finished_at: at.toISOString() };
+  // Counts-only report stamp (PR-03); derivation reads git only, never freezes (D-09).
+  const report = await reportStampFor(ctx, issue, runner, at);
+  const record = { agent_session: session, finished_at: at.toISOString(), ...(harness !== null && harness.trim() !== '' ? { agent_harness: harness.trim() } : {}), ...(report !== null ? { report } : {}) };
   if (issue.status === 'ready-to-review') {
     // D-11: idempotent — status and timestamps untouched, metadata re-recorded.
     const result = changed(issue, { metadata: { ...issue.metadata, ...record } });

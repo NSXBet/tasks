@@ -89,6 +89,40 @@ describe('@tasks/workspace config', () => {
     expect(await readWorkspaceConfig(dir)).toEqual({ worktree: { dir: '/srv/worktrees' } });
   });
 
+  it('normalizes the spec snake_case worktree hook keys and install', async () => {
+    const dir = tasksDir();
+    await Bun.write(join(dir, 'config.json'), JSON.stringify({ worktree: { post_start: 'a', post_checkout: 'b', pre_end: 'c', install: false } }));
+    expect((await readWorkspaceConfig(dir)).worktree).toEqual({ postStart: 'a', postCheckout: 'b', preEnd: 'c', install: false });
+  });
+
+  it('keeps camelCase hooks and maps legacy pmSetup to install (explicit install wins)', async () => {
+    const dir = tasksDir();
+    await Bun.write(join(dir, 'config.json'), JSON.stringify({ worktree: { postStart: 'a', pmSetup: false } }));
+    expect((await readWorkspaceConfig(dir)).worktree).toEqual({ postStart: 'a', install: false });
+    await Bun.write(join(dir, 'config.json'), JSON.stringify({ worktree: { install: true, pmSetup: false } }));
+    expect((await readWorkspaceConfig(dir)).worktree).toEqual({ install: true });
+  });
+
+  it('still rejects unknown worktree keys', async () => {
+    const dir = tasksDir();
+    await Bun.write(join(dir, 'config.json'), JSON.stringify({ worktree: { post_sart: 'x' } }));
+    await expect(readWorkspaceConfig(dir)).rejects.toThrow();
+  });
+
+  it('rejects conflicting spellings of one hook, naming both keys', async () => {
+    const dir = tasksDir();
+    await Bun.write(join(dir, 'config.json'), JSON.stringify({ worktree: { post_start: 'a', postStart: 'b' } }));
+    await expect(readWorkspaceConfig(dir)).rejects.toThrow(/worktree\.post_start and worktree\.postStart both set/);
+  });
+
+  it('round-trips a normalized worktree config as camelCase', async () => {
+    const dir = tasksDir();
+    const worktree = { dir: '/srv/wt', postStart: 'a', postCheckout: 'b', preEnd: 'c', install: false };
+    await writeWorkspaceConfig(dir, { worktree });
+    expect((await readWorkspaceConfig(dir)).worktree).toEqual(worktree);
+    expect(JSON.parse(await Bun.file(join(dir, 'config.json')).text()).worktree).toEqual(worktree);
+  });
+
   it('describes storage locations without opening a connection', () => {
     const dir = tasksDir();
     expect(describeStorage(dir, { backend: 'file' })).toEqual({ backend: 'file', location: dir });

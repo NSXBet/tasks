@@ -12,6 +12,7 @@ export * from './operations/mutate.js';
 export * from './operations/sprint.js';
 export * from './operations/deps.js';
 export * from './operations/comments.js';
+export * from './operations/review-comments.js';
 export * from './operations/views.js';
 export * from './watch/protocol.js';
 
@@ -27,11 +28,13 @@ import {
   type UpdatePatch, type StatusChange,
 } from './operations/mutate.js';
 import { finishIssue, type FinishIssueResult } from './operations/finish.js';
+import { changesOf } from './operations/changes.js';
 import {
   listSprints, startSprint, closeSprint, sprintAdd, sprintRemove, sprintMove,
 } from './operations/sprint.js';
 import { depList, depAdd, depRemove, link, type DependencyRow } from './operations/deps.js';
 import { addComment, commentsOf } from './operations/comments.js';
+import { reviewCommentList, reviewCommentSend, reviewCommentSetStatus } from './operations/review-comments.js';
 import {
   leaseAcquire, leaseList, leaseRelease, leaseRenew,
   type LeaseAcquireInput, type LeaseOutcome, type LeaseReleaseInput, type LeaseRenewInput,
@@ -49,6 +52,7 @@ import {
   readRuntimeRegistry, type ActivityRow, type InboxEntry, type InboxMarkers, type RuntimeRow,
 } from './runtime.js';
 import { MessageError, appErrorMessage } from './errors.js';
+import { taskSessions, type SessionRow } from './operations/sessions.js';
 
 /** Inbox listing result: derived entries plus the persisted markers behind them. */
 export interface InboxSnapshot {
@@ -84,6 +88,8 @@ export interface TasksSurface {
   orphans(): ReturnType<typeof orphanIssues>;
   children(id: string): ReturnType<typeof childrenOf>;
   epic(id: string): ReturnType<typeof epicView>;
+  /** Counts-only stat card data (`resolveChanges` ladder) or null; never a diff. Not-found like `show`. */
+  changes(id: string): ReturnType<typeof changesOf>;
   // mutate
   update(id: string, patch: UpdatePatch): ReturnType<typeof updateIssue>;
   status(id: string, change: StatusChange): ReturnType<typeof changeStatus>;
@@ -123,6 +129,12 @@ export interface TasksSurface {
   detachBlob(id: string, ref: string): BlobDetach;
   comments(id: string): ReturnType<typeof commentsOf>;
   comment(id: string, body: string): ReturnType<typeof addComment>;
+  /** Review comments of a task: cards (location, author, body, status) plus counts. */
+  reviewComments(id: string): ReturnType<typeof reviewCommentList>;
+  /** Explicit batched send: open comments become sent and come back as cards. */
+  reviewCommentsSend(id: string, only?: readonly string[]): ReturnType<typeof reviewCommentSend>;
+  /** Resolve, dismiss, or reopen one review comment. */
+  reviewCommentStatus(id: string, commentId: string, status: string): ReturnType<typeof reviewCommentSetStatus>;
   /** Read stored blob bytes for an evidence ref (`evidence:<id>`, bare id, or name); null when unknown. */
   evidenceRead(id: string, ref: string): EvidenceRead;
   // views
@@ -141,6 +153,8 @@ export interface TasksSurface {
   inbox(options?: { readonly all?: boolean }): Promise<InboxSnapshot>;
   inboxRead(runId: string): Promise<InboxMarkers>;
   inboxArchive(runId: string): Promise<InboxMarkers>;
+  /** Agent runs on one task (stored runs + `tk finish` session), newest first; `[]` for unknown ids. */
+  taskSessions(issueId: string): Promise<readonly SessionRow[]>;
   // leases (advisory holds on shared machine resources; the busy kind is `conflict`)
   leaseAcquire(input: LeaseAcquireInput): Promise<LeaseOutcome<LeaseRow>>;
   leaseList(): Promise<LeaseOutcome<readonly LeaseRow[]>>;
@@ -167,6 +181,7 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     orphans: () => orphanIssues(store),
     children: (id) => childrenOf(store, id),
     epic: (id) => epicView(store, id),
+    changes: (id) => changesOf(store, id),
     update: (id, patch) => updateIssue(store, id, patch),
     status: (id, change) => changeStatus(store, id, change),
     finish: (id, session) => finishIssue(store, id, session),
@@ -203,6 +218,9 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     stats: () => stats(store),
     comment: (id, body) => addComment(store, id, body),
     comments: (id) => commentsOf(store, id),
+    reviewComments: (id) => reviewCommentList(store, id),
+    reviewCommentsSend: (id, only) => reviewCommentSend(store, id, only),
+    reviewCommentStatus: (id, commentId, status) => reviewCommentSetStatus(store, id, commentId, status),
     evidenceRead: (id, ref) => evidenceRead(store, id, ref),
     tree: (options) => boardTree(store, options),
     graph: () => dependencyGraph(store),
@@ -224,6 +242,7 @@ export const createSurface = async (options: SurfaceOptions = {}): Promise<Tasks
     },
     inboxRead: async (runId) => { await markInboxRead(store.tasksDir, runId); return readInboxMarkers(store.tasksDir); },
     inboxArchive: async (runId) => { await markInboxArchived(store.tasksDir, runId); return readInboxMarkers(store.tasksDir); },
+    taskSessions: (issueId) => taskSessions(store, issueId),
     leaseAcquire: (input) => leaseAcquire(store, input),
     leaseList: () => leaseList(store),
     leaseRelease: (input) => leaseRelease(store, input),

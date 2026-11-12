@@ -25,3 +25,5 @@ export {
 export type { BlobInput, BlobMeta, BlobStore, OpenBlobStoreOptions } from './attachments.js';
 export { AttachmentsConfigSchema } from './config.js';
 export type { AttachmentsConfig } from './config.js';
+export { WorktreeConfigSchema } from './config.js';
+export type { WorktreeConfig } from './config.js';

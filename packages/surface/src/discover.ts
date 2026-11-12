@@ -1,7 +1,7 @@
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { searchPath } from '@tasks/beads';
-import { gitCommonDir, mainWorktreeRoot } from './git.js';
+import { gitCommonDir, mainWorktreeRoot } from '@tasks/git';
 
 /**
  * Workspace discovery, moved from the CLI (rootFrom): only `.tasks/` is a

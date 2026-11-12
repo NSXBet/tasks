@@ -1,13 +1,15 @@
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
-import type { IssueUnitOfWork } from '@tasks/application';
-import type { Issue, Run } from '@tasks/domain';
+import type { Issue } from '@tasks/domain';
 import type { SurfaceError } from '../errors.js';
 import { appErrorMessage } from '../errors.js';
 import type { SurfaceStore } from '../store.js';
-import type { WatchCounts, WatchEvent, WatchEventKind, WatchFrame, WatchSubscription } from './protocol.js';
+import type { WatchCounts, WatchEvent, WatchFrame, WatchSubscription } from './protocol.js';
 import { DEFAULT_POLL_INTERVAL_MS, MAX_EVENTS_PER_TICK, MIN_POLL_INTERVAL_MS } from './protocol.js';
 import { appendActivity, describeSubscription, heartbeatRuntime, newRuntimeId, registerRuntime, unregisterRuntime, type RuntimeRow } from '../runtime.js';
+import { lastEventSeq, readEvents, type TaskEvent } from '../events/log.js';
+import { normalizeKinds, toWatchEvent } from '../events/query.js';
+import { waitForAppend } from '../events/tail.js';
 import { processWakeups, type WakeupState } from './wakeups.js';
 
 /** Statuses that remove an issue from the open/blocked counters (CLI parity). */
@@ -21,110 +23,28 @@ export interface WatchHandle {
   stop(): void;
 }
 
-/**
- * Internal poll state: per-issue updatedAt watermarks plus the ready-set
- * fingerprint and the last counts snapshot. Ordering authority is the emitted
- * `seq`, never timestamps.
- */
-interface ReaderState {
-  readonly lastUpdatedAt: Map<string, string>;
-  /** Per-run state watermark: run id → last seen state. */
-  readonly runWatermarks: Map<string, string>;
-  readyHash: string | null;
-  counts: WatchCounts | null;
-}
-
-/**
- * One poll against the unit-of-work: read the full issue page (limit 100k
- * matches CLI parity), diff per-issue `updatedAt` against watermarks, classify
- * events, recompute the ready-set hash. Works uniformly across file/sqlite/
- * postgres through the existing port; per-backend watermark readers can refine
- * this later without changing the event contract.
- */
-export const diffOnce = async (
-  uow: IssueUnitOfWork,
-  subscription: WatchSubscription,
-  state: ReaderState,
-): Promise<readonly WatchEvent[]> => {
-  const page = await uow.list({ limit: 100_000 });
-  if (!page.ok) throw new Error('list failed during watch poll');
-  const all = page.value.items;
-  const at = new Date().toISOString();
-  const events: WatchEvent[] = [];
-
-  const matchesSubscription = (issue: Issue): boolean =>
-    (subscription.ids === undefined || subscription.ids.includes(issue.id))
-    && (subscription.label === undefined || issue.labels.includes(subscription.label));
-
-  for (const issue of all) {
-    const previous = state.lastUpdatedAt.get(issue.id);
-    const current = issue.updatedAt.toISOString();
-    if (previous === undefined) {
-      if (matchesSubscription(issue)) events.push({ seq: 0, kind: 'issue.created', at, issueId: issue.id });
-    } else if (previous !== current && matchesSubscription(issue)) {
-      const kind: WatchEventKind = 'issue.updated';
-      events.push({ seq: 0, kind, at, issueId: issue.id });
-    }
-    state.lastUpdatedAt.set(issue.id, current);
-  }
-  for (const id of [...state.lastUpdatedAt.keys()]) {
-    if (!all.some((issue) => issue.id === id)) {
-      state.lastUpdatedAt.delete(id);
-      if (subscription.ids === undefined || subscription.ids.includes(id)) {
-        events.push({ seq: 0, kind: 'issue.deleted', at, issueId: id });
-      }
-    }
-  }
-
-  const runPage = await uow.listRuns();
-  if (!runPage.ok) throw new Error('listRuns failed during watch poll');
-  const matchesRunSubscription = (run: Run): boolean => subscription.ids === undefined || subscription.ids.includes(run.issueId);
-  for (const run of runPage.value) {
-    const previous = state.runWatermarks.get(run.id);
-    if (previous !== undefined && previous !== run.state && matchesRunSubscription(run)) {
-      events.push({ seq: 0, kind: 'run.changed', at, issueId: run.issueId, data: { runId: run.id, from: previous, to: run.state } });
-    }
-    state.runWatermarks.set(run.id, run.state);
-  }
-  for (const id of [...state.runWatermarks.keys()]) {
-    if (!runPage.value.some((run) => run.id === id)) state.runWatermarks.delete(id);
-  }
-
+/** Board counters: open (not terminal), blocked by an open blocker, and the CLI's ready-to-review status. */
+const boardCounts = (all: readonly Issue[]): WatchCounts => {
   const blockedIds = new Set(all.filter((issue) => issue.dependencies.some((edge) => edge.type === 'blocks' && all.some((other) => other.id === edge.target && other.status !== 'closed'))).map((issue) => issue.id));
-  const readyIds = all.filter((issue) => issue.status === 'open'
-    && (issue.deferUntil === null || issue.deferUntil <= new Date())
-    && !blockedIds.has(issue.id)).map((issue) => issue.id).sort();
-  const readyHash = readyIds.join(',');
-  if (state.readyHash !== null && readyHash !== state.readyHash) {
-    events.push({ seq: 0, kind: 'ready.changed', at });
-  }
-  state.readyHash = readyHash;
-
-  // Board counters: open (not terminal), blocked by an open blocker, and the
-  // CLI's ready-to-review status. Attached to every event; a change between
-  // ticks (with no other event) becomes its own counts.changed event.
-  const counts: WatchCounts = {
+  return {
     open: all.filter((issue) => !TERMINAL_STATUSES.includes(issue.status)).length,
     blocked: blockedIds.size,
     readyToReview: all.filter((issue) => issue.status === 'ready-to-review').length,
   };
-  const countsChanged = state.counts !== null
-    && (state.counts.open !== counts.open || state.counts.blocked !== counts.blocked || state.counts.readyToReview !== counts.readyToReview);
-  state.counts = counts;
-  if (countsChanged) {
-    events.push({ seq: 0, kind: 'counts.changed', at, counts });
-  }
-  const withCounts = events.map((event) => (event.counts === undefined ? { ...event, counts } : event));
-
-  const filtered = withCounts.filter((event) => subscription.kinds === undefined || subscription.kinds.includes(event.kind));
-  return filtered.length <= MAX_EVENTS_PER_TICK ? filtered : filtered.slice(0, MAX_EVENTS_PER_TICK);
 };
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
 /**
- * In-process watch loop (CLI foreground mode and tests). The extension instead
- * spawns `runWatchChild` in a child process and reads NDJSON frames.
+ * In-process watch loop over the event wire (`.tasks/events.jsonl`). Used by
+ * `tk watch`'s frame mode (via `runWatchChild`), the daemon's
+ * `events.subscribe`, the web server and the pi extension. It does not diff
+ * the board: each tick reads the log lines past its cursor — the facts the
+ * writers appended — filters them by kind/id/label and delivers them with the
+ * log's own `seq`. Deferred-issue wakeups still run each tick; their writes
+ * reach the log through the recorder like any other mutation.
+ *
+ * Starts at the log's current end (no replay) unless `subscription.after` is
+ * given. Between ticks it waits on `fs.watch` (wakes within ~100ms of an
+ * append), falling back to the interval.
  */
 export const runWatchLoop = async (
   store: SurfaceStore,
@@ -133,7 +53,7 @@ export const runWatchLoop = async (
   shouldStop: () => boolean,
 ): Promise<void> => {
   const interval = Math.max(subscription.interval ?? DEFAULT_POLL_INTERVAL_MS, MIN_POLL_INTERVAL_MS);
-  const state: ReaderState = { lastUpdatedAt: new Map(), runWatermarks: new Map(), readyHash: null, counts: null };
+  const kinds = normalizeKinds(subscription.kinds);
   const wakeupExpiry: WakeupState = new Map();
   const runtimeId = newRuntimeId();
   const now = new Date().toISOString();
@@ -141,21 +61,24 @@ export const runWatchLoop = async (
     id: runtimeId, kind: 'watch', label: subscription.label ?? null, pid: process.pid,
     startedAt: now, heartbeatAt: now, subscriptions: [...describeSubscription(subscription)],
   };
+  // The cursor is fixed before the first tick: anything appended from here on
+  // (including this loop's own wakeup writes) is delivered.
+  let lastSeq = subscription.after ?? await lastEventSeq(store.tasksDir);
   // Registry bookkeeping is best-effort: a readonly or missing tasks dir must
   // never take the watch loop down.
   try {
     await registerRuntime(store.tasksDir, row);
     await appendActivity(store.tasksDir, { at: now, runtimeId, kind: 'started', detail: describeSubscription(subscription).join(' ') || 'unfiltered' });
   } catch { /* registry is advisory */ }
-  let seq = 0;
   let consecutiveErrors = 0;
   try {
     while (!shouldStop() && consecutiveErrors < 3) {
+      let backlog = false;
       try {
-        const events = await store.transact(async (uow) => {
+        const woke = await store.transact(async (uow) => {
           const at = new Date();
           // Deferred issues whose defer_until has expired wake up here: one
-          // run per expiry, queued before the diff pass reads them.
+          // run per expiry. The writes land in the log via the recorder.
           const wakeups = await processWakeups(uow, wakeupExpiry, at);
           if (!wakeups.ok) throw new Error(`wakeup processing failed: ${appErrorMessage(wakeups.error)}`);
           for (const wakeup of wakeups.value) {
@@ -164,12 +87,39 @@ export const runWatchLoop = async (
               detail: wakeup.runId === null ? `issue ${wakeup.issueId} (no agent)` : `issue ${wakeup.issueId} run ${wakeup.runId}`,
             }).catch(() => { /* activity is best-effort */ });
           }
-          return await diffOnce(uow, subscription, state);
         });
-        if (!events.ok) throw new Error(events.error.message);
-        for (const event of events.value) {
-          seq += 1;
-          onEvent({ ...event, seq });
+        if (!woke.ok) throw new Error(woke.error.message);
+        const lines = await readEvents(store.tasksDir, { after: lastSeq, limit: MAX_EVENTS_PER_TICK });
+        backlog = lines.length >= MAX_EVENTS_PER_TICK;
+        const candidates = lines.filter((line) => (kinds === undefined || kinds.includes(line.type))
+          && (subscription.ids === undefined || (line.task !== undefined && subscription.ids.includes(line.task))));
+        let delivered: readonly TaskEvent[] = candidates;
+        let counts: WatchCounts | undefined;
+        if (candidates.length > 0) {
+          const label = subscription.label;
+          const looked = await store.transact(async (uow) => {
+            let keep = candidates;
+            if (label !== undefined) {
+              // Log lines carry no labels: look each distinct task up once per tick.
+              const labelled = new Map<string, boolean>();
+              for (const task of new Set(candidates.flatMap((line) => (line.task === undefined ? [] : [line.task])))) {
+                const found = await uow.findById(task as Issue['id']);
+                labelled.set(task, found.ok && found.value !== null && found.value.labels.includes(label));
+              }
+              keep = candidates.filter((line) => line.task !== undefined && labelled.get(line.task) === true);
+            }
+            if (keep.length === 0) return { keep, counts: undefined };
+            const page = await uow.list({ limit: 100_000 });
+            if (!page.ok) throw new Error('list failed during watch poll');
+            return { keep, counts: boardCounts(page.value.items) };
+          });
+          if (!looked.ok) throw new Error(looked.error.message);
+          delivered = looked.value.keep;
+          counts = looked.value.counts;
+        }
+        if (lines.length > 0) lastSeq = lines[lines.length - 1]!.seq;
+        for (const line of delivered) {
+          onEvent(counts === undefined ? toWatchEvent(line) : { ...toWatchEvent(line), counts });
         }
         await heartbeatRuntime(store.tasksDir, runtimeId, new Date()).catch(() => { /* advisory */ });
         consecutiveErrors = 0;
@@ -177,7 +127,7 @@ export const runWatchLoop = async (
         consecutiveErrors += 1;
         if (consecutiveErrors >= 3) throw cause instanceof Error ? cause : new Error(String(cause));
       }
-      await sleep(interval);
+      if (!backlog && !shouldStop()) await waitForAppend(store.tasksDir, interval, { after: lastSeq });
     }
   } finally {
     try {
@@ -243,6 +193,7 @@ export const spawnWatchChild = (options: {
   if (options.subscription.ids !== undefined) args.push('--ids', options.subscription.ids.join(','));
   if (options.subscription.label !== undefined) args.push('--label', options.subscription.label);
   if (options.subscription.interval !== undefined) args.push('--interval', String(options.subscription.interval));
+  if (options.subscription.after !== undefined) args.push('--after', String(options.subscription.after));
   const runtime = watchRuntime();
   const child = spawn(runtime[0]!, [...runtime.slice(1), options.watchScript, ...args], {
     stdio: ['pipe', 'pipe', 'ignore'],

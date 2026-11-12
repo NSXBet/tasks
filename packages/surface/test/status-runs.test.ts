@@ -3,9 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentSchema, agentId, runId, type Agent, type Issue, type Run } from "@tasks/domain";
-import { createSurface } from "../src/index.js";
-import { diffOnce } from "../src/watch/core.js";
-import type { WatchSubscription } from "../src/watch/protocol.js";
+import { createSurface, runWatchLoop, type WatchEvent } from "../src/index.js";
 import type { IssueUnitOfWork } from "@tasks/application";
 
 const workspaces: string[] = [];
@@ -129,45 +127,48 @@ describe("status-driven run side effects", () => {
 });
 
 describe("run.changed watch events", () => {
-  it("emits run.changed on state transitions with from/to payloads and prunes deleted runs", async () => {
-    const subscription: WatchSubscription = { kinds: ["run.changed"] };
-    const state = { lastUpdatedAt: new Map<string, string>(), runWatermarks: new Map<string, string>(), readyHash: null, counts: null };
-    const base = run("tk-aaa-run-1", "tk-aaa", "queued");
-    const first = await diffOnce(fakeUow([], [base]), subscription, state);
-    // First sight only establishes the baseline.
-    expect(first.filter((event) => event.kind === "run.changed")).toEqual([]);
-    base.state = "running";
-    const second = await diffOnce(fakeUow([], [base]), subscription, state);
-    const transition = second.find((event) => event.kind === "run.changed");
-    expect(transition && { issueId: transition.issueId, data: transition.data }).toEqual({ issueId: "tk-aaa", data: { runId: "tk-aaa-run-1", from: "queued", to: "running" } });
-    const third = await diffOnce(fakeUow([], [base]), subscription, state);
-    expect(third.filter((event) => event.kind === "run.changed")).toEqual([]);
-    const fourth = await diffOnce(fakeUow([], []), subscription, state);
-    expect(fourth.filter((event) => event.kind === "run.changed")).toEqual([]);
-    expect(state.runWatermarks.has("tk-aaa-run-1")).toBe(false);
-  });
+  /** Integration exception: the loop runs on the OS clock against a real workspace; waits are bounded polls. */
+  async function until(fn: () => boolean, timeoutMs = 3000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (!fn()) {
+      if (Date.now() > deadline) throw new Error("timed out waiting for condition");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
 
-  it("respects ids and kinds subscription filters for run events", async () => {
-    const subscription: WatchSubscription = { ids: ["tk-bbb"] };
-    const state = { lastUpdatedAt: new Map<string, string>(), runWatermarks: new Map<string, string>(), readyHash: null, counts: null };
-    const watched = run("tk-bbb-run-1", "tk-bbb", "queued");
-    const other = run("tk-ccc-run-1", "tk-ccc", "queued");
-    await diffOnce(fakeUow([], [watched, other]), subscription, state);
-    watched.state = "done";
-    other.state = "done";
-    const events = await diffOnce(fakeUow([], [watched, other]), subscription, state);
-    const changed = events.filter((event) => event.kind === "run.changed");
-    expect(changed.map((event) => event.issueId)).toEqual(["tk-bbb"]);
+  it("delivers run.changed from the log with from/to payloads, honoring kinds and ids", async () => {
+    const root = workspace();
+    const surface = await createSurface({ root });
+    const watched = await surface.create({ title: "watched" });
+    const other = await surface.create({ title: "other" });
+    if (!watched.ok || !other.ok) throw new Error("create failed");
+    await surface.store.transact(async (uow) => uow.saveAgent(agent("reviewer")));
+    const events: WatchEvent[] = [];
+    const idsOnly: WatchEvent[] = [];
+    let stopping = false;
+    const loops = [
+      runWatchLoop(surface.store, { kinds: ["run.changed"], interval: 250 }, (event) => events.push(event), () => stopping),
+      runWatchLoop(surface.store, { kinds: ["run.changed"], ids: [watched.value.id], interval: 250 }, (event) => idsOnly.push(event), () => stopping),
+    ];
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const base = run(`${watched.value.id}-run-1`, watched.value.id, "queued");
+      await surface.store.transact(async (uow) => uow.saveRun(base));
+      await surface.store.transact(async (uow) => uow.saveRun({ ...base, state: "running" }));
+      await surface.store.transact(async (uow) => uow.saveRun({ ...base, state: "running" }));
+      await surface.store.transact(async (uow) => uow.saveRun(run(`${other.value.id}-run-1`, other.value.id, "queued")));
+      await until(() => events.length >= 3 && idsOnly.length >= 2);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(events.map((event) => [event.issueId, event.data?.runId, event.data?.from ?? null, event.data?.to])).toEqual([
+        [watched.value.id, `${watched.value.id}-run-1`, null, "queued"],
+        [watched.value.id, `${watched.value.id}-run-1`, "queued", "running"],
+        [other.value.id, `${other.value.id}-run-1`, null, "queued"],
+      ]);
+      expect(idsOnly.map((event) => event.data?.to)).toEqual(["queued", "running"]);
+    } finally {
+      stopping = true;
+      await Promise.all(loops);
+      await surface.store.close();
+    }
   });
 });
-
-function fakeUow(issues: readonly Issue[], runs: readonly Run[] = []): IssueUnitOfWork {
-  return {
-    findById: async () => { throw new Error("not used"); },
-    save: async () => { throw new Error("not used"); },
-    list: async () => ({ ok: true, value: { items: issues, nextCursor: null } }),
-    listRuns: async () => ({ ok: true, value: runs }),
-    addDependency: async () => { throw new Error("not used"); },
-    removeDependency: async () => { throw new Error("not used"); },
-  } as unknown as IssueUnitOfWork;
-}

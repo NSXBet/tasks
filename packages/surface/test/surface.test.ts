@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Issue } from "@tasks/domain";
 import { attachEvidenceUow, createSurface } from "../src/index.js";
 
 const workspaces: string[] = [];
@@ -96,6 +97,32 @@ describe("tasks surface", () => {
 
     const read = await surface.evidenceRead(created.value.id, att.id);
     expect(read.ok && read.value === null).toBe(true);
+    await surface.store.close();
+  });
+
+  it("changes(id): null for a never-worked task, not_found like show, the stale report rung from metadata.report", async () => {
+    const root = workspace();
+    const surface = await createSurface({ root });
+    const created = await surface.create({ title: "card" });
+    if (!created.ok) throw created.error;
+    const id = created.value.id;
+    const never = await surface.changes(id);
+    expect(never).toEqual({ ok: true, value: null });
+    const missing = await surface.changes("tk-doesnotexist");
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error.kind).toBe("not_found");
+    const report = { changes: { commits: 2, files: 3, additions: 10, deletions: 4 }, head: "a".repeat(40), at: "2026-11-10T00:00:00.000Z" };
+    const saved = await surface.store.transact(async (uow) => {
+      const found = await uow.findById(id as Issue["id"]);
+      if (!found.ok || found.value === null) throw new Error("missing");
+      const result = await uow.save({ ...found.value, metadata: { ...found.value.metadata, report } } as Issue);
+      if (!result.ok) throw new Error("save failed");
+    });
+    expect(saved.ok).toBe(true);
+    const cached = await surface.changes(id);
+    if (!cached.ok) throw new Error(cached.error.message);
+    expect(cached.value).toMatchObject({ id, source: "report", stale: true, at: report.at, stat: report.changes });
+    expect(cached.value!.links.web).toMatch(new RegExp(`/tasks/${id}/diff$`));
     await surface.store.close();
   });
 });

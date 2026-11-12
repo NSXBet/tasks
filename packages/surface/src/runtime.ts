@@ -110,6 +110,25 @@ export const newRuntimeId = (): string => `watch-${process.pid}-${randomUUID().s
 export const readRuntimeRegistry = (tasksDir: string): Promise<readonly RuntimeRow[]> =>
   readJson<readonly RuntimeRow[]>(runtimePath(tasksDir), []);
 
+/**
+ * Web base for review doors: the registered web runtime, else the default port. No probing.
+ * Only an `http:`/`https:` url that `new URL` parses is accepted; anything else
+ * (odd schemes, garbage, a broken registry) falls back to the default.
+ */
+export const resolveWebBase = async (tasksDir: string): Promise<string> => {
+  const fallback = `http://localhost:${WEB_DEFAULT_PORT}`;
+  try {
+    const rows = await readRuntimeRegistry(tasksDir);
+    if (!Array.isArray(rows)) return fallback;
+    const row = rows.find((candidate) => typeof candidate === 'object' && candidate !== null && candidate.kind === 'web');
+    const url = row?.kind === 'web' ? row.url : undefined;
+    if (typeof url !== 'string') return fallback;
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return fallback;
+    return url.replace(/\/+$/, '');
+  } catch { return fallback; }
+};
+
 const writeRuntimeRegistry = (tasksDir: string, rows: readonly RuntimeRow[]): Promise<void> =>
   writeJson(runtimePath(tasksDir), rows);
 

@@ -5,6 +5,7 @@ import { err, ok, type IssueUnitOfWork, type Result } from '@tasks/application';
 import { openStorage, type OpenStorageOptions, type StorageAdapter, type StorageConfig } from '@tasks/workspace';
 import { readWorkspaceConfig, resolveStorageConfig } from '@tasks/workspace';
 import { classifyMessage, MessageError, type SurfaceError } from './errors.js';
+import { withEventLog } from './events/recorder.js';
 
 export type SurfaceBackend = StorageConfig['backend'];
 
@@ -77,7 +78,10 @@ export const openSurfaceStore = async (root: string, options: SurfaceOptions = {
   const openOptions: OpenStorageOptions = { readonly: options.readonly ?? false };
   const handle = await openStorage(tasksDir, resolved, openOptions);
   const actor = options.actor ?? process.env['USER'] ?? 'unknown';
-  return new SurfaceStoreImpl(root, tasksDir, config.prefix ?? 'tk', actor, options.readonly ?? false, handle);
+  // Every surface write (web, TUI, daemon, pi, review, worktree clean) goes on the
+  // event wire. Wrapped even when readonly: a store that never commits emits nothing.
+  const adapter = withEventLog(handle.adapter, { tasksDir, actor, session: process.env['TK_SESSION'] || undefined });
+  return new SurfaceStoreImpl(root, tasksDir, config.prefix ?? 'tk', actor, options.readonly ?? false, { ...handle, adapter, close: () => handle.close() });
 };
 
 

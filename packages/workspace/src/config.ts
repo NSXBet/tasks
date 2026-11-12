@@ -49,6 +49,63 @@ export const AttachmentsConfigSchema = z.object({
 }).strict().optional();
 export type AttachmentsConfig = z.infer<typeof AttachmentsConfigSchema>;
 
+const hookCommand = z.string().min(1).optional();
+
+/** Spec spelling → normalized (camelCase) key for each lifecycle hook. */
+const HOOK_ALIASES = [
+  ['post_start', 'postStart'],
+  ['post_checkout', 'postCheckout'],
+  ['pre_end', 'preEnd'],
+] as const;
+
+/**
+ * `worktree` block of `.tasks/config.json`. Accepts the spec's snake_case hook
+ * names (`post_start`/`post_checkout`/`pre_end`) and the camelCase spellings,
+ * plus `install` (and its legacy alias `pmSetup`). Unknown keys are still
+ * rejected (strict). Output is always the normalized camelCase shape
+ * `{ dir?, postStart?, postCheckout?, preEnd?, install? }`.
+ *
+ * Hooks are shell strings run from inside the worktree path (gw port), never
+ * fatal to the tk command that fired them:
+ * - `post_start`: after tk creates a worktree on a NEW branch;
+ * - `post_checkout`: after tk creates a worktree for an already-existing branch;
+ * - `pre_end`: just before tk removes a worktree (remove, close-prune, clean).
+ * Re-entering an existing worktree fires neither post hook.
+ * `install`: package-manager install after creation (detected from the main
+ * worktree's lockfile). Default on; `false` disables.
+ */
+export const WorktreeConfigSchema = z.object({
+  dir: z.string().min(1).optional(),
+  postStart: hookCommand,
+  post_start: hookCommand,
+  postCheckout: hookCommand,
+  post_checkout: hookCommand,
+  preEnd: hookCommand,
+  pre_end: hookCommand,
+  install: z.boolean().optional(),
+  /** Legacy alias of `install`; an explicit `install` wins. */
+  pmSetup: z.boolean().optional(),
+}).strict().superRefine((value, ctx) => {
+  for (const [snake, camel] of HOOK_ALIASES) {
+    const a = value[snake];
+    const b = value[camel];
+    if (a !== undefined && b !== undefined && a !== b) {
+      ctx.addIssue({ code: 'custom', path: [snake], message: `worktree.${snake} and worktree.${camel} both set` });
+    }
+  }
+}).transform((value) => {
+  const out: { dir?: string; postStart?: string; postCheckout?: string; preEnd?: string; install?: boolean } = {};
+  if (value.dir !== undefined) out.dir = value.dir;
+  for (const [snake, camel] of HOOK_ALIASES) {
+    const command = value[camel] ?? value[snake];
+    if (command !== undefined) out[camel] = command;
+  }
+  const install = value.install ?? value.pmSetup;
+  if (install !== undefined) out.install = install;
+  return out;
+});
+export type WorktreeConfig = z.output<typeof WorktreeConfigSchema>;
+
 /** File is the default backend: git-friendly, no native driver, works with zero configuration. */
 export const DEFAULT_STORAGE: StorageConfig = Object.freeze({ backend: 'file' });
 
@@ -58,18 +115,8 @@ export const WorkspaceConfigSchema = z.object({
   attachments: AttachmentsConfigSchema,
   /** tk web's default port for this workspace; `--port` and `TK_WEB_PORT` override it. */
   webPort: z.number().int().min(1).max(65535).optional(),
-  /** Workspace-wide worktree placement; `{name}` expands per worktree (see @tasks/git resolveWorktreePath). */
-  worktree: z.object({
-    dir: z.string().min(1).optional(),
-    /** Lifecycle hooks, run from inside the worktree path (gw port): after a
-     *  worktree is created (`tk work`/`tk worktree create`), after an existing
-     *  worktree is entered again, and just before a worktree is removed. */
-    postStart: z.string().min(1).optional(),
-    postCheckout: z.string().min(1).optional(),
-    preEnd: z.string().min(1).optional(),
-    /** Package-manager install after creation (detected from lockfiles). Default on. */
-    pmSetup: z.boolean().optional(),
-  }).strict().optional(),
+  /** Workspace-wide worktree placement and lifecycle (see WorktreeConfigSchema). */
+  worktree: WorktreeConfigSchema.optional(),
   /** tk-tui's attachment-image cell size (width x height terminal cells); the `tk-tui --image-size WxH` flag overrides it. */
   tuiImage: z.object({ width: z.number().int().min(1), height: z.number().int().min(1) }).strict().optional(),
 }).passthrough();
