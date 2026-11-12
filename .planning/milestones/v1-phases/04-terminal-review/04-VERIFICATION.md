@@ -39,7 +39,7 @@ covered_files:
   - "packages/tui/test/review-selection.test.ts"
   - "packages/tui/test/review-smoke.ts"
   - "packages/tui/test/review.test.tsx"
-covered_digest: "v3:sha256:609810b106d286e98abca1cc72bc3d6de2773a506bb1c69c67ede2885bd88be7"
+covered_digest: "v3:sha256:5322ce5bccfe8c57c5f8f047a331daddc3c7ea567240ac82c5432768ba731f96"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
@@ -233,3 +233,6 @@ Gate results, all on the current working tree:
 - `bun test packages/review/test/headless-smoke.test.ts`: 2 pass. `bun test packages/web/test/live.test.ts` ran 3 times: 5/5 pass each time, including 'branch frame'.
 - `cd docs && bun run build`: Complete (rc 0).
 - Phase-specific recheck (15/15 truths). `review-smoke.ts` is all green, 9/9 (open, live re-render, edit, comment to the record, `/` search, `1`/`2` layout, branchless, `q` quits). `HUNK_SHELL_KEYS` is wired (`App.tsx:16,655`). `WatchingIndicator` is at `diff.tsx:455`, and `live.ts` returns `watching: false` on no-op handles. The TUI review suites are green in the full run.
+
+
+Fingerprint regenerated 2026-11-12 after the milestone-audit gap fix (packages/tui/src/review/source.ts frozen-snapshot fallback; packages/tui/test/frozen-source.test.ts 2/2, full tui suite 127/0, tsc clean, live tmux on a closed+pruned task).

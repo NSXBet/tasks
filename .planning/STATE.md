@@ -1,13 +1,11 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 11
-current_phase_name: PR Sidecar & Chat Stat Card
-status: planning
-stopped_at: Phase 10 complete, ready to plan Phase 11
-last_updated: "2026-11-12T17:53:38.876Z"
+status: Awaiting next milestone
+stopped_at: Milestone v1 complete — ready for /gsd:new-milestone
+last_updated: "2026-11-12T21:24:58.426Z"
 last_activity: 2026-11-12
-last_activity_desc: Phase 10 complete, transitioned to Phase 11
-state_head: 496745b6ad49570362ec3fc5d672b7da784b292f
+last_activity_desc: Milestone v1 completed and archived
+state_head: a589e6e489c56d15483c0b190e495c6ef71bada6
 progress:
   total_phases: 11
   completed_phases: 11
@@ -20,19 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-18)
+See: .planning/PROJECT.md (updated 2026-11-12)
 
 **Core value:** A task's branch is the evidence — tk derives commits and diff from the task's worktree branch (never agent-supplied lists), review comments land on the task record with resolve state, and nothing ships past `ready-to-review` without that record.
-**Current focus:** Phase 02 — Changeset Derivation & Completion Contract
+**Current focus:** Planning next milestone (v1 Task → Review shipped 2026-11-12)
 
 ## Current Position
 
-Phase: 11 — PR Sidecar & Chat Stat Card
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-11-12 — Phase 10 complete, transitioned to Phase 11
-
-Progress: [██████████] 100%
+Phase: Milestone v1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-11-12 — Milestone v1 completed and archived
 
 ## Performance Metrics
 
@@ -67,37 +63,20 @@ Progress: [██████████] 100%
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- [Init]: Derive commits/diff from the task's branch — never accept file lists (GitHub-PR semantics)
-- [Init]: Copy hunk + gw and reimplement in TS; upstream stay code origins, never runtime deps
-- [Init]: Lazy changeset — snapshot frozen exactly once at close+prune
-- [Init]: `tk finish` can set exactly `ready-to-review` — never close/done (enforced in code)
-- [Init]: Research skipped — brownfield + 399-line plan + codebase map made it redundant
-- [Phase 1]: Changeset base pinned at `tk work` creation; diff is branch-vs-pinned-base, not live-derived
-- [Phase 1]: Worktree resolution precedence: default `<repoRoot>/.worktrees/` dir (Phase 2 UAT decision, confirmed 2026-11-10) < workspace `worktree.dir` < per-task metadata override (`{name}` expansion)
-- [Phase 1]: Every git call flows through `@tasks/git` enumerated commands — no scattered `git` subprocess calls
-- [Phase 2 / 02-01]: Changeset derivation is lazy and show-scoped (D-03): re-derived live on every `tk show`, never cached, never written to metadata; commits use two-dot `base..branch`, files/counts use three-dot merge-base diff (D-01/D-02)
-- [Phase 2 / 02-02]: Completion contract (FIN-01): `tk finish` is the only write path into `ready-to-review` — requires a work record (branch + pinned base) and `--session` (D-10), idempotent re-finish (D-11); terminal freeze (CHG-02): close freezes `{base, head, commits, files, counts}` into metadata exactly once and closed `tk show` renders it with zero git calls (D-05)
+Full decision log in PROJECT.md Key Decisions table (v1 outcomes recorded 2026-11-12).
 
 ### Pending Todos
 
-None yet.
+None — v1 tech debt is tracked as tk tasks (see `.planning/milestones/v1-MILESTONE-AUDIT.md`).
 
 ### Blockers/Concerns
 
-- Code review CR-01 (Phase 1, advisory): RESOLVED in 02-02 (commit 97d891a) — `work` and `finish` added to the writers set in `tk.ts`.
-- Known debt riding specific phases: `pi-extention` workspace-dep fix rides Phase 3; `tk hunk` spawn path deleted in Phase 3.
-- Mock shells (plan steps 1–3) are replaced by real implementations in Phases 4–5; mock-only plumbing is deleted at those steps.
-
-### Roadmap Evolution
-
-- Phase 7 added: spec extension (task-to-review.html requests outside v1 roadmap)
-- Phase 8 added: spec extension (task-to-review.html requests outside v1 roadmap)
-- Phase 9 added: spec extension (task-to-review.html requests outside v1 roadmap)
-- Phase 10 added: spec extension (task-to-review.html requests outside v1 roadmap)
-- Phase 11 added: spec extension (task-to-review.html requests outside v1 roadmap)
+Open for the next milestone (none blocking):
+- Injected contract vs `tk work` behavior — claim to in-progress (tasks-jlhs) and "title seeds the branch" text vs `tk/<id>`.
+- `tk pr merge` → `tk close` prune refuses until origin is fetched (overlaps UAT tasks-omwa).
+- Comment counts: `sent` folded into `open` in human views vs `tk comments --json`.
+- Live-harness UAT outstanding: tasks-aucj (omp inbox), tasks-omwa (real gh), tasks-llrt (primed session).
+- No phase has a Nyquist VALIDATION.md.
 
 ## Deferred Items
 
@@ -110,7 +89,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-10-19T05:40:00.000Z
-Stopped at: Phase 10 complete, ready to plan Phase 11
+Stopped at: Milestone v1 complete — ready for /gsd:new-milestone
 Resume file: .agents/plans/2026-10-08-task-to-review.md
 
 ## task→review Plan Execution (2026-10-19, direct — outside the GSD loop, user-directed "finish this, no iteration")
@@ -137,3 +116,7 @@ Closed: tasks-71yd, tasks-etqk, tasks-plxc (close-path prune/freeze exercised; t
 **Verification gate (2026-10-19, `38900c6`):** full root suite green — 1430 pass / 28 skip / 0 fail across 1458 tests (`bun run test`). Post-cutover repairs: vendored measurement pins (`93c35a3`), tui harness-stable frame waits + fixture-era tests rewritten to live data (`fec18f7`), cli review-record tests moved to the changeset metadata contract (`0332c4c`), root test budget 15s for the tui harness. `tasks-plxc` closed after the gate; recorded here (`6482b8a` follow-up).
 
 **Live-pane TUI verification (2026-10-19, `84fd945` + `effb93a`):** first real-interface pass (per tui-testing skill) caught what headless frame tests could not: the task detail modal was fully input-dead in the live renderer — `TaskModal` had no `escape` case while `ShellKeys` bails whenever a modal is open, so `esc ✕` closed nothing and every later key (j/esc/q/?) died. Same dead `key.sequence === "escape"` check in artifact/diff views fixed name-based. Headless suite missed it: `pressKey("escape")` never sent escape at all (opentui `KeyCodes` are uppercase-only; lowercase fell through to literal text) and no test asserted esc-closes-modal. Regression test added with real `\x1b` bytes + post-close input assertions; artifact `esc → task` honored by yielding artifact keys to the view. Evidence: `.agents/tests/tui-test-modal-esc/` (VHS tape + GIF of the fixed live flow). TUI suite 34/0 ×2.
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

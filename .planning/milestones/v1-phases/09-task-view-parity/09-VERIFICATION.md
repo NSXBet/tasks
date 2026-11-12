@@ -62,7 +62,7 @@ covered_files:
   - "packages/web/src/server.ts"
   - "packages/web/test/live.test.ts"
   - "packages/web/test/taskview.test.ts"
-covered_digest: "v3:sha256:96cb33c173963d8e2bcb227bde32b4390efe56e8493200344d98ce43979ba69f"
+covered_digest: "v3:sha256:c8e8b4e306b35abd93533412cce71f2d03ae9ddad00f95150abae9f64c660018"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
@@ -241,3 +241,6 @@ Gate results, all on the current working tree:
 - `cd docs && bun run build`: Complete (rc 0).
 - Phase-specific recheck (8/8 truths). The taskview smoke checks 1–11 (SC1–SC5) were green on all 5 runs. Check 12 (R34) was green on 3 of 5 runs. In the 2 failing runs the captured frames still show correct `]`/`[`/`]]` switching and highlighting (see the flake analysis above). It stays an advisory, not a gap. `tasklist.tsx` and `worktreeLabel` (`review.ts:218`) are present. `gitUntrackedFiles` and `gitDiffNewFile` are at `commands.ts:103,124`. The taskview, review and live untracked tests are green.
 - Advisory carried forward: the check-12 harness is still timing and start-state sensitive. The `${id} · ` wait can also match an event toast. Hardening the smoke (`openTask(id)` before creating tasks, and anchoring the header match) is a test-only follow-up.
+
+
+Fingerprint regenerated 2026-11-12 after the milestone-audit gap fix (packages/tui/src/review/source.ts frozen-snapshot fallback; packages/tui/test/frozen-source.test.ts 2/2, full tui suite 127/0, tsc clean, live tmux on a closed+pruned task).

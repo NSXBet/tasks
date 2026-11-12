@@ -46,7 +46,7 @@ covered_files: [
     "packages/web/src/app.html",
     "packages/web/src/review.ts"
 ]
-covered_digest: "v3:sha256:200dd85c7ee8629818221d886efbabaf1e76f534863184379877f078f6b50e05"
+covered_digest: "v3:sha256:66b4a1c12949fb66d721f81d803e049501da551a3f6c1dc709226bd0ac98207b"
 behavior_unverified: 0
 overrides_applied: 0
 deferred:
@@ -179,3 +179,6 @@ Gate results, all on the current working tree:
 - `bun test packages/review/test/headless-smoke.test.ts`: 2 pass. `bun test packages/web/test/live.test.ts` ran 3 times: 5/5 pass each time, including 'branch frame'.
 - `cd docs && bun run build`: Complete (rc 0).
 - Phase-specific recheck (9/9 truths). Headless-smoke test passes 2/2. Production `packages/review/src` and `packages/review/scripts` contain no spawn or git calls. `core/vcs` = types, index, untracked. `tk hunk x` gives `✗ unknown command: hunk`, rc 1. The removed hunk symbols have no hits. `pi-extention` deps are `@tasks/daemon` and `@tasks/surface` workspace:*. The comment, resolve and legacy-import paths are covered by show-review, review-record and presentation tests, all green. No `describe.skip` remains in core/watch. Advisory: the original "0 hits, tests included" no longer holds literally. `core/taskview/model.test.ts:20` (added by a later phase) runs `Bun.spawnSync(["git", …])` as a test-fixture helper. That is test setup, not review production git code, so SC2a still holds.
+
+
+Fingerprint regenerated 2026-11-12 after the milestone-audit gap fix (packages/tui/src/review/source.ts frozen-snapshot fallback; packages/tui/test/frozen-source.test.ts 2/2, full tui suite 127/0, tsc clean, live tmux on a closed+pruned task).

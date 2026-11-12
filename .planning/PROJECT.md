@@ -2,7 +2,7 @@
 
 ## What This Is
 
-An agent-native issue tracker: a single-binary `tk` CLI (Bun, compiled per-platform) with a typed surface API, an OpenTUI terminal interface, a local web server, and a Pi/omp agent extension — used by humans and agents together to file, claim, and close tasks. This project chartered GSD around the **task → review** plan (`.agents/plans/2026-10-08-task-to-review.md`): one PR-shaped record from `tk work` to reviewed, like a GitHub PR but tracked in the issue store.
+An agent-native issue tracker: a single-binary `tk` CLI (Bun, compiled per-platform) with a typed surface API, an OpenTUI terminal interface, a local web server, and a Pi/omp agent extension — used by humans and agents together to file, claim, and close tasks. As of v1 every task is a **PR-shaped record**: `tk work` opens a worktree on `tk/<id>`, commits and diff derive from that branch, `tk finish` hands it to review, reviewers comment in the TUI or web over the same store, one append-only event log carries comments and verdicts back to agents, and a task can carry at most one GitHub PR via `gh`.
 
 ## Core Value
 
@@ -12,7 +12,7 @@ A task's branch **is** the evidence: tk derives commits and diff from the task's
 
 ### Validated
 
-<!-- Shipped and confirmed valuable — inferred from the codebase map (2026-10-17, commit fac7670). -->
+<!-- Pre-v1 baseline — inferred from the codebase map (2026-10-17, commit fac7670). -->
 
 - ✓ Issue tracking end-to-end — create/ready/show/update/close/attach with typed IDs (branded zod), status-runs lifecycle — packages/domain, surface
 - ✓ Agent integration — hooks capture session ids on codex/cursor/claude, `tk prime` context, skills injection for pi and omp — packages/cli, pi-extention
@@ -21,57 +21,80 @@ A task's branch **is** the evidence: tk derives commits and diff from the task's
 - ✓ Terminal UI — OpenTUI 0.5.11 board with task detail view incl. image support, centralized app state — packages/tui
 - ✓ Web server — Bun-native HTTP SPA served by `tk web` with `/events` SSE stream — packages/web
 - ✓ Distribution — `bun build --compile` single-binary for 4 targets, GitHub Release assets + install.sh + `tk update`
-- ✓ Mock interfaces for the review loop — three views (task, artifact, diff) in TUI, web, and `tk show`/`work`/`review` CLI shapes from fixtures (plan steps 1–3; tasks-foo, tasks-tnc, tasks-xskm built, awaiting review)
-- ✓ Git adapter & worktree entry — `@tasks/git` typed adapter (one abortable runner, enumerated commands, porcelain parsing), `resolveWorktreePath()` with config/metadata precedence, `tk work <id>` pinning base SHA + branch + path on `tk/<id>` — Phase 1
+- ✓ Mock interfaces for the review loop — three views (task, artifact, diff) in TUI, web, and CLI shapes from fixtures (plan steps 1–3)
+
+<!-- v1 "Task → Review" — shipped 2026-11-12. -->
+
+- ✓ Typed git adapter `@tasks/git` — one abortable runner, enumerated commands, porcelain parsing; no scattered git calls (GIT-01) — v1
+- ✓ `resolveWorktreePath()` — default `.worktrees/<repo>-<id>` pool, `worktree.dir`, per-task override; one resolver for `tk work` and `tk worktree create` (GIT-02) — v1
+- ✓ `tk work <id>` — worktree on `tk/<id>` with pinned base SHA, path and branch on the record (GIT-03) — v1
+- ✓ Lazy changeset — commits + diff derived live from the branch vs pinned base on every read (CHG-01) — v1
+- ✓ Terminal changeset snapshot frozen once at close+prune; closed tasks render from it in show/changes/web/TUI (CHG-02) — v1
+- ✓ `tk finish <id> --session` — the only path into `ready-to-review`; cannot close/done (FIN-01) — v1
+- ✓ `packages/review` vendored hunk slice; `tk hunk` spawn path deleted; one git adapter (REV-01) — v1
+- ✓ Review comments/edits persist to the task record with resolve state and "All resolved" (REV-02) — v1
+- ✓ `tk review <id>` — live TUI review over the derived diff, in-view edit, hunk keymap (REV-03) — v1
+- ✓ Web review — task/artifact/diff views on @pierre/diffs, live via SSE, editable via write endpoint (WEB-01, WEB-02) — v1
+- ✓ Worktree lifecycle — `gitIsMergedToBase` safety, close auto-prune, `tk worktree clean`, `post_start`/`post_checkout`/`pre_end` hooks, package-manager install (LC-01..04) — v1
+- ✓ Workflow contract injected into `tk onboard`, `tk prime`, SKILL.md and AGENTS.md (INJ-01) — v1
+- ✓ Harness registry agent line, review doors on every surface, comments row (REC-01..03) — v1
+- ✓ Comment lifecycle — location-tagged comments, open/sent/resolved/dismissed, explicit batched send as cards (CMT-01..03) — v1
+- ✓ Task view parity — work-first center column, tabbed sessions/changes/workspace/minimap rail, diff modal, distinct artifact view, TASKS column (VIEW-01..04) — v1
+- ✓ Event wire — append-only `.tasks/events.jsonl` drives `tk watch --until/--drain/--follow`, TUI, web and the pi/omp inbox (WIRE-01..03) — v1
+- ✓ PR sidecar and stat card — one PR per task via `gh` (`tk pr create/sync/close/merge`), counts-only stat card in chat, report fallback when the worktree is gone (PR-01..03) — v1
 
 ### Active
 
-<!-- Current scope — plan steps 4–12 ("make it real" behind the approved shells). -->
+<!-- Next milestone candidates — v1 tech debt is tracked as tk tasks (see Context). Define formally via /gsd:new-milestone. -->
 
-- [ ] Lazy changeset derivation — commits + diff computed live from the branch per read; terminal `{base, head, files}` snapshot frozen only at close+prune
-- [ ] `tk finish <id> --session` — records session id, moves to `ready-to-review`, can never close/done
-- [ ] `packages/review` — vendored hunk slice (changeset, review types, watch controller; @pierre/diffs dep; broker + comment store stripped); hunk-vcs + hunk-git fold into packages/git; old spawn path deleted
-- [ ] Review storage — component comments/edits persist to the task store with per-comment resolve state
-- [ ] Real TUI review — three views wired to the live component; `tk review <id>` opens the derived diff
-- [ ] Real web review — same layouts via @pierre/diffs `./react` + `./edit`; `/tasks/:id`, SSE live updates, edit write-endpoint
-- [ ] Worktree lifecycle — gw ported to TS: `gitIsMergedToBase` safety, auto-prune in `tk close` with terminal snapshot, `tk worktree clean`, lifecycle hooks, package-manager setup on start
-- [ ] Injection — ONBOARD snippet, `prime`, `SKILL.md`, root AGENTS.md teach the workflow contract
+- [ ] Reconcile the injected contract with `tk work` behavior — claim to in-progress (tasks-jlhs) and the "title seeds the branch" text vs `tk/<id>`
+- [ ] `tk pr merge` → `tk close` prune needs a fetch step (prune refuses until origin is fetched)
+- [ ] One comment-count rule — `sent` vs `open` disagree between `tk comments --json` and the human views
+- [ ] `tk next` oracle and post-review accept/merge/close automation (R54/R55 deferred from v1)
+- [ ] Live-harness UAT: omp inbox delivery (tasks-aucj), real gh run (tasks-omwa), primed session contract (tasks-llrt)
 
 ### Out of Scope
 
 <!-- Explicit boundaries, with reasoning. -->
 
-- Post-review automation (accept/merge/close, rejection flow) — the plan stops at review; merge machinery is a later milestone
 - Interactive keybindings inside `tk show` — show stays a record renderer; interactive work belongs to `tk review` and the TUI
-- Tier-b product epics (draft tasks, team/cloud, daemon, views & navigation, etc.) — tracked as tk issues (tasks-34rm, -k5kp, -lx7a, -d0rq, -zshv, -nzg0, -xcov, -6zif, -gt6y), parked until the review loop ships
+- Tier-b product epics (draft tasks, team/cloud, views & navigation, etc.) — tracked as tk issues (tasks-34rm, -k5kp, -lx7a, -d0rq, -zshv, -nzg0, -xcov, -6zif, -gt6y), parked
 - Rewriting hunk's rendering stack — tk's TUI already runs @opentui/react, the same stack; only inputs, outputs, and storage change
-- The event fabric ("the wire") and `tk next` oracle — designed on the plan page (§10); its own project
+- A daemon-hosted event broker — v1 chose an append-only log with per-subscriber cursors; a broker adds a process without adding capability
+- Polling gh for PR state — PR sync is an explicit verb; gh is the remote truth
 
 ## Context
 
-- **Stack**: TypeScript 5.9.3 on Bun 1.3.14, Bun workspaces (14 packages), hexagonal layering `domain → application → adapters → workspace → surface → cli/tui/web/pi-extention`. Tests: vitest + bun test side by side (match the package's script). Strict tsconfig (exactOptionalPropertyTypes, verbatimModuleSyntax).
-- **Origins to vendor**: hunk (https://github.com/modem-dev/hunk — diff TUI, Apache-2.0 deps incl. @pierre/diffs) and nsxbet/gw (yurifrl fork, Go — worktree management) are copied and reimplemented in TypeScript, then replaced: upstream hunk/gw stay code origins, never runtime dependencies.
-- **Current position**: GSD Phase 1 complete (git adapter, resolver, `tk work` entry; 263 tests pass) — lazy changeset derivation is next (Phase 2). Mocks 1–3 remain built, three tasks ready-to-review.
-- **Known debt**: `pi-extention` workspace-dep fix rides the review-vendoring step (trivially independent). The `tk hunk` spawn path is deleted at step 7. Code review of Phase 1 flagged `tk --readonly work` bypassing the readonly gate (CR-01, unfixed — advisory).
+- **Shipped v1 "Task → Review" (2026-11-12)**: 11 phases, 52 plans, 32/32 requirements; 13 code commits `496745b..a589e6e` (308 files, +38.8k/−1.9k). ~100k LOC TypeScript under `packages/`. Regression sweep at audit: full suite 1897 pass / 0 fail, `bun run check` rc 0, luau 6/6, docs build ok.
+- **Stack**: TypeScript 5.9.3 on Bun 1.3.14, Bun workspaces, hexagonal layering `domain → application → adapters → workspace → surface → cli/tui/web/pi-extention`; new packages `@tasks/git` and `@tasks/review`. Tests: vitest + bun test side by side. Strict tsconfig. react/react-dom pinned to 19.2.8. RPC VERBS_VERSION 6 (TS + Luau).
+- **The contract**: `docs/html/task-to-review.html` (+ `docs/html/data/task-to-review-data.js`) is the spec; Phases 7–11 were added to cover its requests beyond the original plan steps.
+- **Origins vendored**: hunk (diff TUI, @pierre/diffs) and gw (worktree management) were copied and reimplemented in TypeScript; neither is a runtime dependency.
+- **Known debt (tracked as tk tasks, from `.planning/milestones/v1-MILESTONE-AUDIT.md`)**: contract drift (tasks-jlhs), pr-merge→close fetch, comment-count rule, web polish (tasks-lsna, -xo2y, -lgjk, -yjx4, -qliz, -0elp), hooks config (tasks-iqlr, -iqkh), leaseHolder env (tasks-2fux), event echo/cursor sharing (tasks-kdpe, -uvvr, -mzsn), TUI smoke flake (tasks-syjq), cross-cutting validation (tasks-vzws, -rq1i, -sssi, -uhry, -lyhe). No phase has a Nyquist VALIDATION.md. tk bookkeeping for delivered step/epic tasks is still open.
 
 ## Constraints
 
 - **Tech stack**: Bun-first with node-compat only where it exists today; new packages follow workspace conventions (`@tasks/<pkg>` deps, never relative cross-package imports; packages never reach up a directory).
-- **Architecture**: package-oriented, locality of behavior — every piece ships as a package module where it's used; enumerated-command git adapter only (no scattered `git` subprocess calls).
+- **Architecture**: package-oriented, locality of behavior — every piece ships as a package module where it's used; enumerated-command git adapter only (no scattered `git` subprocess calls); gh only through `packages/surface/src/gh.ts`.
 - **Compatibility**: PR-shaped record must render in all three surfaces (TUI, web, CLI text) from one task record; TUI and web are one review surface in two shapes.
-- **Testing**: per-step end-to-end smoke in a scratch repo (plan §Verification) is the acceptance bar, not unit tests alone.
+- **Testing**: per-step end-to-end smoke in a scratch repo is the acceptance bar, not unit tests alone; TUI changes also need a live-pane pass (headless frame tests missed a dead-input modal).
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Derive commits/diff from the task's branch, never accept file lists | GitHub-PR semantics; the agent supplies nothing to game | — Pending |
-| Copy hunk + gw and reimplement in TS rather than spawn/dep | Full control over inputs/outputs/storage; tk replaces both tools in tk-using repos | — Pending |
-| Lazy changeset, snapshot frozen exactly once at close+prune | Live reads without per-read caching; record survives worktree deletion | — Pending |
-| `tk finish` can set exactly `ready-to-review` — never close/done | Completion is review's entry, not the end; enforced in code | — Pending |
-| GSD chartered around the task→review plan as first milestone | Live plan with tk-tagged steps exists; mocks prove the interaction | — Pending |
-| Research skipped at init | Brownfield + 399-line plan + codebase map make domain research redundant | — Pending |
-| Task's changeset base pinned at `tk work` creation, not derived later | Record is stable against upstream movement; diff is branch-vs-pinned-base, PR-shaped | ✓ Phase 1 |
+| Derive commits/diff from the task's branch, never accept file lists | GitHub-PR semantics; the agent supplies nothing to game | ✓ Good — v1 |
+| Copy hunk + gw and reimplement in TS rather than spawn/dep | Full control over inputs/outputs/storage; tk replaces both tools in tk-using repos | ✓ Good — v1 (`tk hunk` deleted, one git adapter) |
+| Lazy changeset, snapshot frozen exactly once at close+prune | Live reads without per-read caching; record survives worktree deletion | ✓ Good — v1 (TUI fallback added at audit) |
+| `tk finish` can set exactly `ready-to-review` — never close/done | Completion is review's entry, not the end; enforced in code | ✓ Good — v1 |
+| GSD chartered around the task→review plan as first milestone | Live plan with tk-tagged steps exists; mocks prove the interaction | ✓ Good — v1 |
+| Research skipped at init | Brownfield + 399-line plan + codebase map make domain research redundant | ✓ Good — v1 |
+| Task's changeset base pinned at `tk work` creation, not derived later | Record is stable against upstream movement; diff is branch-vs-pinned-base, PR-shaped | ✓ Good — Phase 1 |
+| The spec `docs/html/task-to-review.html` is the contract | User decision: one source of truth for UI and behavior; drove Phases 7–11 and gap closures ("match the spec") | ✓ Good — v1 |
+| Event wire is an append-only `events.jsonl` log, not a daemon broker | User decision: no extra process; per-subscriber cursors give many concurrent watchers via CLI and tool calls | ✓ Good — v1 |
+| Diff view uses hunk's own keymap (`]`/`[`, `.`/`,`, `1`/`2`, `g`/`G`, `R`, `q`) with non-colliding tk aliases | User decision 2026-11-10: match the spec; reviewers keep muscle memory | ✓ Good — v1 |
+| Default worktree pool is `<repoRoot>/.worktrees/<repo>-<id>` (auto-excluded) | User decision (Phase 2 UAT): in-repo, discoverable, no sibling-dir sprawl | ✓ Good — v1 |
+| One PR per task via `gh`; sync is an explicit verb, never polled | User decision: gh is the remote truth; 1-to-1 relation on the record | ✓ Good — v1 (merge→close fetch step ⚠️ Revisit) |
+| `tk work` branch is `tk/<id>`, not title-seeded | Stable, collision-free branch names | ⚠️ Revisit — injected contract text still says the title seeds the branch |
 
 ---
-*Last updated: 2026-10-18 after Phase 1*
+*Last updated: 2026-11-12 after v1 milestone*
