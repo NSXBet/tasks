@@ -6,7 +6,7 @@ import { testRender } from "@opentui/react/test-utils";
 import { waitForFramePredicate, waitForFrameText, waitForFrameWithout } from "./wait.js";
 import { App } from "../src/app/App.js";
 import { openTuiStore } from "../src/store.js";
-import { attachEvidenceUow } from "@tasks/surface";
+import { attachEvidenceUow, getOrThrow, registerRuntime, WEB_RUNTIME_ID } from "@tasks/surface";
 import type { BootSlots } from "../src/app/routes.js";
 
 /** Plain-launch defaults with per-test overrides, matching App's boot contract. */
@@ -260,7 +260,7 @@ describe("tui app", () => {
     }
   });
 
-  test("task view renders the live record meta, description, and review rail", async () => {
+  test("task view renders the live record meta, description, and tabbed rail", async () => {
     const root = workspace();
     const store = await openTuiStore(root);
     const anchor = await store.surface.create({ title: "Fix flaky retry logic in uploader", priority: 1 });
@@ -272,17 +272,105 @@ describe("tui app", () => {
       expect(frame).toContain(id);
       expect(frame).toContain("open");
       expect(frame).toContain("v open diff · V diff modal · c comment");
-      // No work record yet: the rail still resolves its null form.
-      expect(frame).toContain("branch —");
-      expect(frame).toContain("base HEAD");
-      expect(frame).toContain("THREADS 0 open");
+      // No work record yet: the rail asks for `tk work` (D-01).
+      expect(frame).toContain("no branch yet");
+      expect(frame).toContain("COMMENTS · 0");
+      expect(frame).toContain(`tk review ${id}`);
+      expect(frame).toContain(`/tasks/${id}`);
+      expect(frame).toContain("comments 0 · 0 open 0 ✓");
     } finally {
       setup.renderer.destroy();
       await store.close();
     }
   });
 
-  test("artifact view boots the review workbench with its escape hint", async () => {
+  test("task view web door uses the registered web runtime base", async () => {
+    const root = workspace();
+    const store = await openTuiStore(root);
+    const created = await store.surface.create({ title: "door base probe", priority: 2 });
+    if (!created.ok) throw created.error;
+    const id = created.value.id;
+    await registerRuntime(store.surface.store.tasksDir, { id: WEB_RUNTIME_ID, kind: "web", pid: process.pid, port: 5999, url: "http://127.0.0.1:5999", workspace: root, startedAt: new Date().toISOString() });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} boot={slotsFor({ view: "task", detailId: id, targetId: id })} />, { width: 160, height: 80, useThread: false });
+    try {
+      const frame = await waitForFramePredicate(setup, (value) => value.includes(`http://127.0.0.1:5999/tasks/${id}`));
+      expect(frame).not.toContain(":4747");
+    } finally {
+      setup.renderer.destroy();
+      await store.close();
+    }
+  });
+
+  test("list view shows both review doors for the highlighted row", async () => {
+    const root = workspace();
+    const store = await openTuiStore(root);
+    const created = await store.surface.create({ title: "list door probe", priority: 1 });
+    if (!created.ok) throw created.error;
+    const id = created.value.id;
+    await registerRuntime(store.surface.store.tasksDir, { id: WEB_RUNTIME_ID, kind: "web", pid: process.pid, port: 5999, url: "http://127.0.0.1:5999", workspace: root, startedAt: new Date().toISOString() });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 200, height: 30, useThread: false });
+    try {
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("list door probe") && value.includes(`http://127.0.0.1:5999/tasks/${id}`));
+      expect(frame).toContain(`review tk review ${id}`);
+    } finally {
+      setup.renderer.destroy();
+      await store.close();
+    }
+  });
+
+  test("list view with no issues shows no doors line", async () => {
+    const root = workspace();
+    const store = await openTuiStore(root);
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 160, height: 24, useThread: false });
+    try {
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("open 0"));
+      expect(frame).not.toContain("tk review");
+    } finally {
+      setup.renderer.destroy();
+      await store.close();
+    }
+  });
+
+  test("kanban view shows both review doors for the selected card", async () => {
+    const root = workspace();
+    const store = await openTuiStore(root);
+    const created = await store.surface.create({ title: "kanban door probe", priority: 1 });
+    if (!created.ok) throw created.error;
+    const id = created.value.id;
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} />, { width: 160, height: 30, useThread: false });
+    try {
+      await waitForFramePredicate(setup, (value) => value.includes("kanban door probe"));
+      await setup.mockInput.pressKey("2");
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("Open (") && value.includes(`/tasks/${id}`));
+      expect(frame).toContain(`tk review ${id}`);
+    } finally {
+      setup.renderer.destroy();
+      await store.close();
+    }
+  });
+
+  test("detail pane shows the agent line and review doors for a finished task", async () => {
+    const root = workspace();
+    const store = await openTuiStore(root);
+    const created = await store.surface.create({ title: "agent probe", priority: 1 });
+    if (!created.ok) throw created.error;
+    const id = created.value.id;
+    await store.surface.store.transact(async (uow) => {
+      const issue = await getOrThrow(uow, id);
+      const saved = await uow.save({ ...issue, metadata: { ...issue.metadata, agent_session: "s9", agent_harness: "codex" }, updatedAt: new Date() });
+      if (!saved.ok) throw new Error("save failed");
+    });
+    const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} boot={slotsFor({ view: "list", detailId: id })} />, { width: 200, height: 40, useThread: false });
+    try {
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("agent codex · session s9"));
+      expect(frame).toContain(`tk review ${id}`);
+    } finally {
+      setup.renderer.destroy();
+      await store.close();
+    }
+  });
+
+  test("artifact view boots as a file view with its escape hint", async () => {
     const root = workspace();
     const store = await openTuiStore(root);
     const created = await store.surface.create({ title: "artifact probe", priority: 2 });
@@ -290,9 +378,9 @@ describe("tui app", () => {
     const id = created.value.id;
     const setup = await testRender(<App store={store} actor="tester" onQuit={() => {}} boot={slotsFor({ view: "artifact", detailId: id, targetId: id })} />, { width: 120, height: 80, useThread: false });
     try {
-      // Same live review session chrome as the diff view, framed on one file.
-      const frame = await waitForFramePredicate(setup, (value) => value.includes("esc back to task"));
-      expect(frame).toContain("c comment · r reply");
+      // 09-05: a distinct file view (not the diff workbench); a branchless task has no artifact to show yet.
+      const frame = await waitForFramePredicate(setup, (value) => value.includes("esc back to task") && value.includes("no artifact open"));
+      expect(frame).not.toContain("c note  R reply");
     } finally {
       setup.renderer.destroy();
       await store.close();

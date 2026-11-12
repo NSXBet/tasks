@@ -5,7 +5,7 @@ import { useApp } from "./context.js";
 import type { RouteEntry, RouteParams } from "./routes.js";
 import { colors } from "../theme.js";
 import { truncate } from "../format.js";
-import type { ComposerMode } from "./context.js";
+import type { ComposerMode, ReviewComposerContext } from "./context.js";
 
 const modeLabels: Record<Exclude<ComposerMode, "closed">, string> = {
   create: "✎ new issue",
@@ -21,7 +21,13 @@ const modeLabels: Record<Exclude<ComposerMode, "closed">, string> = {
   "review-comment": "✎ review comment",
   "review-reply": "↩ reply to thread",
   "review-edit": "✎ edit comment",
+  "review-search": "/ search files",
+  commit: "commit",
 };
+
+/** `comment on <file>[:<line>[-<endLine>]]` for a new review thread. */
+const reviewCommentPlaceholder = (review: ReviewComposerContext | null): string =>
+  `comment on ${review?.filePath ?? ""}${review?.line !== null && review?.line !== undefined ? `:${review.line}${review.endLine !== null && review.endLine !== undefined ? `-${review.endLine}` : ""}` : ""}`;
 
 /**
  * Bottom composer. One component, many modes: single-line inputs for the
@@ -86,6 +92,9 @@ export const Composer = () => {
         if (body !== "") void actions.submitReview(body).then(finish);
         else finish();
         break;
+      case "review-search": actions.searchReviewFiles(value); finish(); break;
+      // An empty message still goes through: commitWorktree refuses it with `commit message is empty`.
+      case "commit": if (forId !== null) void actions.commitTask(forId, value).then(finish); else finish(); break;
       default: finish();
     }
   };
@@ -164,10 +173,15 @@ export const Composer = () => {
     : mode === "assignee" ? "assignee (empty clears)"
     : mode === "labels" ? "+tag −tag"
     : mode === "dep-add" ? "target id (tk-abc12 or fuzzy)"
+    : mode === "review-comment" ? reviewCommentPlaceholder(state.composer.review)
+    : mode === "review-reply" ? "reply…"
+    : mode === "review-edit" ? "edit comment"
+    : mode === "review-search" ? "search files…"
+    : mode === "commit" ? "commit message (tracked + staged · never pushed)"
     : "search";
 
   return (
-    <box key={`${mode}:${forId ?? ""}:${initial}`} style={{ height: 3, paddingLeft: 1, paddingRight: 1 }} borderStyle="rounded" borderColor={mode === "search" ? colors.yellow : colors.borderFocus} title={` ${modeLabels[mode]}${forId !== null && mode !== "search" ? ` ${forId}` : ""} `}>
+    <box key={`${mode}:${forId ?? ""}:${initial}`} style={{ height: 3, paddingLeft: 1, paddingRight: 1 }} borderStyle="rounded" borderColor={mode === "search" || mode === "review-search" ? colors.yellow : colors.borderFocus} title={` ${modeLabels[mode]}${forId !== null && mode !== "search" && mode !== "review-search" ? ` ${forId}` : ""} `}>
       <input
         ref={(node: unknown) => {
           if (node !== null && node !== undefined && initial !== "") {
@@ -180,25 +194,6 @@ export const Composer = () => {
         backgroundColor={colors.bg}
         onSubmit={(payload: unknown) => submitInput(typeof payload === "string" ? payload : String((payload as { value?: string } | null)?.value ?? ""))}
       />
-    </box>
-  );
-};
-
-/**
- * Static composer row for mock views — the message input as the web mock
- * paints it: bordered input placeholder plus Comment chip. Non-editable;
- * the chip reports WIP exactly like the web mock's `data-wip` buttons.
- */
-export const ComposerRow = ({ placeholder }: { placeholder: string }) => {
-  const { actions } = useApp();
-  return (
-    <box style={{ flexDirection: "row", height: 3 }}>
-      <box style={{ flexGrow: 1, paddingLeft: 1 }} borderStyle="rounded" borderColor={colors.border}>
-        <text fg={colors.dim} content={placeholder} />
-      </box>
-      <box style={{ paddingLeft: 1, paddingTop: 1 }} onMouseDown={() => actions.notify("WIP")}>
-        <text fg={colors.accent} content="[ Comment ]" />
-      </box>
     </box>
   );
 };

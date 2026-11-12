@@ -17,21 +17,19 @@ export const TaskModal = () => {
   const { state, actions } = useApp();
   const issue = state.modalId === null ? null : state.board.issues.find((candidate) => candidate.id === state.modalId) ?? null;
 
-  if (issue === null) return null;
-
-  const blockedBy = issue.dependencies
-    .filter((edge) => edge.type === "blocks" && state.board.issues.some((other) => other.id === edge.target && other.status !== "closed"))
-    .map((edge) => edge.target);
-  const done = issue.status === "closed";
-
   useKeyboard((key) => {
-    if (state.modalId === null) return;
+    // Hooks run before the early return (stable order while the board loads); the handler guards instead.
+    if (state.modalId === null || issue === null) return;
     if (state.composer.mode !== "closed") return;
     if (key.name === "escape") { actions.closeModal(); return; }
     if (key.name === "return" || key.name === "enter") { actions.closeModal(); actions.openComposer("title", issue.id, issue.title); return; }
     switch (key.sequence) {
       case "o": void actions.setStatus(issue.id, "open"); break;
-      case "s": void actions.setStatus(issue.id, "in_progress"); break;
+      case "s":
+        if (issue.status === "ready-to-review") actions.notify("ready-to-review — v opens the diff");
+        else void actions.setStatus(issue.id, "in_progress");
+        break;
+      case "v": if (issue.status === "ready-to-review") { actions.closeModal(); actions.openReview(issue.id); } break;
       case "r": void actions.setStatus(issue.id, "ready-to-review"); break;
       case "a": void actions.claim(issue.id); break;
       case "+": void actions.setPriority(issue.id, clampPriority(issue.priority + 1)); break;
@@ -44,11 +42,20 @@ export const TaskModal = () => {
       case "D": actions.closeModal(); actions.openComposer("dep-add", issue.id, ""); break;
       case "X": actions.closeModal(); actions.openComposer("dep-remove", issue.id); break;
       case "d":
-        if (!done) actions.requestConfirm({ kind: "close", id: issue.id, target: null, label: `close ${issue.id}?` });
+        if (issue.status !== "closed") actions.requestConfirm({ kind: "close", id: issue.id, target: null, label: `close ${issue.id}?` });
         break;
       default: break;
     }
   });
+
+  if (issue === null) return null;
+
+  const blockedBy = issue.dependencies
+    .filter((edge) => edge.type === "blocks" && state.board.issues.some((other) => other.id === edge.target && other.status !== "closed"))
+    .map((edge) => edge.target);
+  // D-03: a ready-to-review task never offers start-work; its diff is the next step.
+  const inReview = issue.status === "ready-to-review";
+
 
   return (
     <box
@@ -90,7 +97,9 @@ export const TaskModal = () => {
         <box style={{ marginTop: 1, height: 3, paddingLeft: 2, paddingRight: 2 }} borderStyle="single" borderColor={colors.border}>
           <text fg={issue.description === "" ? colors.dim : colors.text} content={issue.description === "" ? "no description — E to edit" : truncate(issue.description.replace(/[#*`>]/g, "").replace(/\n+/g, " ⏎ "), 120)} />
         </box>
-        <text fg={colors.dim} content="  ↵ title · s/r/o status · +/- prio · a claim · E desc · @ , D X edits · esc ✕" />
+        <text fg={colors.dim} content={inReview
+          ? "  ↵ title · v open diff · r/o status · +/- prio · a claim · E desc · @ , D X edits · esc ✕"
+          : "  ↵ title · s/r/o status · +/- prio · a claim · E desc · @ , D X edits · esc ✕"} />
       </box>
     </box>
   );

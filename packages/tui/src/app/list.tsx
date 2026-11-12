@@ -1,6 +1,7 @@
 import { useKeyboard } from "@opentui/react";
 import { useMemo, useRef } from "react";
 import { useApp } from "./context.js";
+import { DoorsLine } from "./doors.js";
 import type { RouteEntry } from "./routes.js";
 import { colors, priorityColor, priorityLabel, statusColor, statusGlyph } from "../theme.js";
 import { padStart, relativeAge, truncate, type ListRow } from "../format.js";
@@ -87,6 +88,7 @@ export const IssueList = () => {
           />
         ))}
       </scrollbox>
+      {rows[selected] === undefined ? null : <DoorsLine id={rows[selected]!.id} />}
     </box>
   );
 };

@@ -5,8 +5,8 @@
  * `renderOnce`) deadlock under `bun test` once a render is scheduled from
  * outside the initial act()-wrapped one: the native span feed backpressures
  * and the harness's frame/idle await chain never drains, while frames
- * themselves keep advancing on the real clock (the watch poll drives the
- * renderer's own loop timeouts). These helpers therefore poll
+ * themselves keep advancing on the real clock (the renderer's own loop
+ * timeouts). These helpers therefore poll
  * `captureCharFrame()` against the real clock and never await the harness's
  * frame/idle chain.
  */

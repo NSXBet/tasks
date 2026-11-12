@@ -24,6 +24,7 @@
     "@tasks/git": "workspace:*",
     "@tasks/review": "workspace:*",
     "@tasks/surface": "workspace:*",
+    "@tasks/terminal-image": "workspace:*",
     "@tasks/workspace": "workspace:*"
   },
   "devDependencies": {

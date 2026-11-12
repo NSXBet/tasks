@@ -1,9 +1,9 @@
 import type { Issue } from "@tasks/domain";
-import { createSurface, type TasksSurface, type WatchEvent } from "@tasks/surface";
+import { createSurface, resolveWebBase, tailEvents, toWatchEvent, WEB_DEFAULT_PORT, type TasksSurface, type WatchEvent } from "@tasks/surface";
 
 /**
  * Board model derived once per refresh: the TUI never re-queries the store
- * for every render. Counts come from the same full page the watcher uses,
+ * for every render. Counts come from the same full page the list renders,
  * so the list and the counters never disagree.
  */
 export interface Board {
@@ -12,6 +12,8 @@ export interface Board {
   readonly activeSprintId: string | null;
   readonly counts: { readonly open: number; readonly inProgress: number; readonly readyToReview: number; readonly blocked: number; readonly closed: number; readonly archived: number };
   readonly fetchedAt: Date;
+  /** Web base for review doors: the registered web runtime, else the default port (no probing). */
+  readonly webBase: string;
 }
 
 export const isBlocked = (issue: Issue, all: readonly Issue[]): boolean =>
@@ -23,7 +25,7 @@ export const isReady = (issue: Issue, all: readonly Issue[]): boolean =>
   && (issue.deferUntil === null || issue.deferUntil <= new Date())
   && !isBlocked(issue, all);
 
-export const buildBoard = (issues: readonly Issue[], activeSprintId: string | null = null): Board => {
+export const buildBoard = (issues: readonly Issue[], activeSprintId: string | null = null, webBase = `http://localhost:${WEB_DEFAULT_PORT}`): Board => {
   const tally = (predicate: (issue: Issue) => boolean): number => issues.filter(predicate).length;
   return {
     issues,
@@ -37,6 +39,7 @@ export const buildBoard = (issues: readonly Issue[], activeSprintId: string | nu
       archived: tally((issue) => issue.status === "archived"),
     },
     fetchedAt: new Date(),
+    webBase,
   };
 };
 
@@ -104,10 +107,6 @@ export const visibleIssues = (board: Board, filter: FilterKind, search: string, 
   return base.filter((issue) =>
     [issue.id, issue.title, issue.description, ...issue.labels].join(" ").toLowerCase().includes(term));
 };
-
-/** Board change signature: cheap dirty check between poll ticks. */
-export const boardSignature = (board: Board): string =>
-  JSON.stringify(board.counts) + `|${board.issues.length}|${Math.max(-1, ...board.issues.map((issue) => issue.updatedAt.getTime()))}`;
 
 // ---------------------------------------------------------------------------
 // Pure graph helpers. All operate on a full board page; they never re-query
@@ -396,12 +395,15 @@ export const kanbanCardAt = (groups: readonly KanbanGroup[], col: number, row: n
 /**
  * Store session: one surface handle plus a resumable refresh function.
  * The surface owns workspace discovery, storage, and all mutations; the TUI
- * layer adds only the full-page board view and a change-detection poll.
+ * layer adds only the full-page board view and a read-only tail of the
+ * workspace event log (`.tasks/events.jsonl`). The board refreshes from the
+ * log (any writer: CLI, web, agents, this TUI), not from a change-detection poll.
  */
 export interface TuiStore {
   readonly surface: TasksSurface;
   readonly loadBoard: () => Promise<Board>;
-  readonly watch: (onEvent: (event: WatchEvent) => void, intervalMs?: number) => () => void;
+  /** Tails the event log from its current end (no replay); returns a stop function. */
+  readonly watch: (onEvent: (event: WatchEvent) => void) => () => void;
   readonly close: () => Promise<void>;
 }
 
@@ -412,25 +414,21 @@ const openTuiStore = async (root: string): Promise<TuiStore> => {
     if (!page.ok) throw new Error(page.error.message);
     const sprints = await surface.sprintList();
     const activeSprintId = sprints.ok ? sprints.value.find((sprint) => sprint.status === "active")?.id ?? null : null;
-    return buildBoard(page.value, activeSprintId);
+    return buildBoard(page.value, activeSprintId, await resolveWebBase(surface.store.tasksDir));
   };
-  const watch = (onEvent: (event: WatchEvent) => void, intervalMs = 1000): (() => void) => {
-    let lastSignature = "";
-    let stopping = false;
-    const loop = async (): Promise<void> => {
-      while (!stopping) {
-        try {
-          const board = await loadBoard();
-          if (boardSignature(board) !== lastSignature) {
-            lastSignature = boardSignature(board);
-            onEvent({ seq: 0, kind: "issue.updated", at: new Date().toISOString(), counts: board.counts });
-          }
-        } catch { /* Keep polling through transient storage failures; UI shows a stale mark. */ }
-        await Bun.sleep(intervalMs);
-      }
-    };
-    void loop();
-    return () => { stopping = true; };
+  const watch = (onEvent: (event: WatchEvent) => void): (() => void) => {
+    let stopped = false;
+    // tailEvents pins its cursor at the log's current end before the first read,
+    // so only lines appended after subscribe are delivered.
+    const handle = tailEvents(surface.store.tasksDir, {
+      onEvents: (lines) => {
+        for (const line of lines) {
+          if (stopped) return;
+          try { onEvent(toWatchEvent(line)); } catch { /* a consumer error must not kill the tail */ }
+        }
+      },
+    });
+    return () => { stopped = true; handle.stop(); };
   };
   return { surface, loadBoard, watch, close: () => surface.store.close() };
 };

@@ -1,6 +1,7 @@
 import { useKeyboard } from "@opentui/react";
 import { useEffect, useRef } from "react";
 import { useApp } from "./context.js";
+import { DoorsLine } from "./doors.js";
 import type { RouteEntry } from "./routes.js";
 import { colors, priorityLabel, statusGlyph, typeEmoji } from "../theme.js";
 import { padStart, relativeAge, truncate } from "../format.js";
@@ -37,24 +38,29 @@ export const KanbanBoard = () => {
     }
   });
 
+  const selectedCard = columns[col]?.cards[row];
+
   return (
-    <box style={{ flexGrow: 1, flexDirection: "row", backgroundColor: colors.bg, gap: 1 }}>
-      {columns.map((group, groupIndex) => (
-        <KanbanColumnView
-          key={group.key}
-          group={group}
-          active={groupIndex === col}
-          selectedRow={groupIndex === col ? row : -1}
-          wipLimit={group.key === "in_progress" ? state.wipLimit : null}
-          onCardMouseDown={(cardId: string) => {
-            const now = Date.now();
-            const cardIndex = group.cards.findIndex((card) => card.id === cardId);
-            actions.setBoardSel({ col: groupIndex, row: Math.max(0, cardIndex) });
-            if (now - lastClick.current < 350 && cardIndex >= 0) actions.openModal(group.cards[cardIndex]!.id);
-          }}
-        />
-      ))}
-      {columns.length === 0 ? <text fg={colors.dim} content="no issues — press n to create one" /> : null}
+    <box style={{ flexGrow: 1, flexDirection: "column", backgroundColor: colors.bg }}>
+      <box style={{ flexGrow: 1, flexDirection: "row", backgroundColor: colors.bg, gap: 1 }}>
+        {columns.map((group, groupIndex) => (
+          <KanbanColumnView
+            key={group.key}
+            group={group}
+            active={groupIndex === col}
+            selectedRow={groupIndex === col ? row : -1}
+            wipLimit={group.key === "in_progress" ? state.wipLimit : null}
+            onCardMouseDown={(cardId: string) => {
+              const now = Date.now();
+              const cardIndex = group.cards.findIndex((card) => card.id === cardId);
+              actions.setBoardSel({ col: groupIndex, row: Math.max(0, cardIndex) });
+              if (now - lastClick.current < 350 && cardIndex >= 0) actions.openModal(group.cards[cardIndex]!.id);
+            }}
+          />
+        ))}
+        {columns.length === 0 ? <text fg={colors.dim} content="no issues — press n to create one" /> : null}
+      </box>
+      {selectedCard === undefined ? null : <DoorsLine id={selectedCard.id} />}
     </box>
   );
 };

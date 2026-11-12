@@ -58,7 +58,10 @@ export const CommandPalette = () => {
     return [
       ...views,
       ...globals,
-      { glyph: "⚡", label: "start (in progress)", group: "status", keycap: "s", run: (): void => { void actions.setStatus(issue.id, "in_progress"); } },
+      // D-03: a ready-to-review task offers its diff, never start-work.
+      issue.status === "ready-to-review"
+        ? { glyph: "◧", label: "open diff", group: "review", keycap: "v", run: (): void => actions.openReview(issue.id) }
+        : { glyph: "⚡", label: "start (in progress)", group: "status", keycap: "s", run: (): void => { void actions.setStatus(issue.id, "in_progress"); } },
       { glyph: "👀", label: "ready-to-review", group: "status", keycap: "r", run: (): void => { void actions.setStatus(issue.id, "ready-to-review"); } },
       { glyph: "☑", label: "reopen", group: "status", keycap: "o", run: (): void => { void actions.setStatus(issue.id, "open"); } },
       { glyph: "✓", label: `close ${issue.id}`, group: "status", keycap: "d", run: (): void => actions.requestConfirm({ kind: "close", id: issue.id, target: null, label: `close ${issue.id}?` }) },
