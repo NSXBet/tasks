@@ -9,3 +9,4 @@ export { VERB_TABLE, verbNames } from './verbs.js';
 export type { RpcOutcome, RpcContext, RpcVerb } from './verbs.js';
 export { dispatchRpc, rpcResponse, perCallLease } from './dispatch.js';
 export type { SurfaceLease } from './dispatch.js';
+export { mcpToolName, rpcMethodName } from './mcp-names.js';
