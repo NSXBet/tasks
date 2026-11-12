@@ -94,6 +94,7 @@ tk detach <id> <path>        # Remove an attachment
 tk tui [workspace] ['tk://route']  # Launch the terminal UI; deep-link boots into a state, e.g. 'tk://task/<id>'
 tk watch <id> --until "status=approved|rejected"  # Block until the review lands (also --drain, --follow; see below)
 tk daemon [start|status|stop|restart]  # Manage the per-workspace daemon (tk web bootstraps it; status --quiet exits 1 when down)
+tk mcp [--root <path>]        # MCP stdio server for Claude Code / Cursor / Codex (bridges to the daemon); e.g. claude mcp add tasks -- tk mcp
 tk tree [--all] [--depth N]  # Tree view: epics, subtasks, dependency fan-out
 tk search <text>              # Full-text search
 tk review <id>                # Open the task's review (diff + comments) in the TUI

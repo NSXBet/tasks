@@ -14,6 +14,8 @@ matching section as its release notes — add a section for every new version
   clients) on its existing unix socket, via `@modelcontextprotocol/server`: one
   tool per RPC verb, workspace root set with `transport.bind` or a per-call
   `root` argument.
+- `tk mcp [--root <path>]`: stdio MCP server for Claude Code, Cursor and Codex,
+  a thin bridge to the `tkd` daemon (spawned on demand).
 
 ## [0.7.0] - 2026-11-12
 

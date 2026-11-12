@@ -161,6 +161,8 @@ The same `tkd` socket also speaks the Model Context Protocol, served by the offi
 
 **Root.** MCP forbids relying on earlier requests for context, so the workspace root is a property of the transport binding (like a stdio process's cwd): `transport.bind { root }` sets the connection default, and every tool accepts an optional `root` string argument that overrides it per call. With neither, the call returns a tool error `root_invalid`.
 
+**`tk mcp`.** MCP clients that only launch stdio servers use `tk mcp [--root <path>]` (`bridgeStdio` in `packages/daemon/src/bridge.ts`): it connects to or spawns the daemon, sends `transport.bind` as a plain RPC frame, waits for its `ok:true` reply (not forwarded), then pipes bytes both ways without parsing. See `integrations.md` for client registration.
+
 **Results.** A call dispatches through `dispatchRpc`. Success returns `content: [{ type: 'text', text: <JSON, indent 1> }]`, `structuredContent` (the value; non-object values are wrapped as `{ value }`), `isError: false`. A failure returns `isError: true` with text `error <kind>: <message>` (tool errors are results, not JSON-RPC errors).
 
 ## Verb table

@@ -76,6 +76,18 @@ order: 7
 **tmux (test-only):**
 - pty E2E harness for the TUI: `packages/tui/test/smoke.ts` launches the real `tk-tui` binary inside a tmux session (tmux answers OpenTUI's terminal-capability queries that a bare pty would not).
 
+**MCP clients (Claude Code / Cursor / Codex):**
+- `tk mcp [--root <path>]` is the stdio server MCP clients launch. It is a dumb bridge to the `tkd` daemon (which speaks MCP, see `rpc.md`, "MCP on the daemon"): it connects to or spawns the daemon, sends `transport.bind { root }`, then pipes stdin/stdout line for line. Stdout carries only MCP lines; diagnostics go to stderr; stdin EOF exits 0. The root resolves from `--root`, then `-C`, then `CLAUDE_PROJECT_DIR` (Claude Code sets it for stdio servers), then the workspace enclosing the cwd; no workspace exits 1.
+- Claude Code: `claude mcp add tasks -- tk mcp`, or `.mcp.json`:
+
+  ```json
+  { "mcpServers": { "tasks": { "command": "tk", "args": ["mcp"] } } }
+  ```
+
+- Cursor (`.cursor/mcp.json`) uses the same shape: `{ "mcpServers": { "tasks": { "command": "tk", "args": ["mcp"] } } }`.
+- Codex (`~/.codex/config.toml`): `[mcp_servers.tasks]` with `command = "tk"` and `args = ["mcp"]`.
+- Claude Code caps MCP tool output at 25k tokens by default (`MAX_MCP_OUTPUT_TOKENS`); call list-style tools (`issue_list`, `issue_query`, ...) with limits.
+
 ## Data Storage
 
 **Databases (pluggable storage backends, selected by `.tasks/config.json` `storage.backend`):**

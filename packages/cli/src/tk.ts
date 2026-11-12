@@ -19,7 +19,7 @@ import {
   HUMAN_HELP, INIT_HELP, LINT_SECTIONS, PRIME, QUICKSTART, SWITCH_BACKEND_HELP, VERSION, cyan, dim, duration, formatError, formatMarkdown, green, issueWire, output, treeNodeWire,
 } from "./presentation.js";
 import { withEventLog, resolveChanges, changesWire, prCreate, prSync, prShow, prClose, prMerge, PR_MERGE_METHODS, attachEvidenceUow, attachPathUow, detachBlobUow, deriveChangeset, pruneIssueWorktree, evidenceReadUow, finishIssueUow, freezeChangesetUow, readChangesetBase, readChangesetSnapshot, reviewComments, reviewCommentListUow, reviewCommentSendUow, reviewCommentSetStatusUow, inboxEntries, markInboxArchived, markInboxRead, openSurfaceStore, probeWebServer, readActivity, readInboxMarkers, readRuntimeRegistry, resolveWebBase, resolveWebPort, unregisterRuntime, WEB_DEFAULT_PORT, type ActivityRow, type BlobContent, type InboxEntry, type RuntimeRow, acquirePolling, clampTtl, LeaseBusyError, LeaseStateError, readLeases, releaseLeaseFile, renewLeaseFile, waitDeadline, getOrThrow, type LeaseRequest, type LeaseRow } from "@tasks/surface";
-import { cleanStaleSocket, connectDaemon, connectOrSpawn, daemonSocketPath, probeDaemon, RpcCallError, socketAlive, type DaemonStatus } from "@tasks/daemon";
+import { bridgeStdio, cleanStaleSocket, connectDaemon, connectOrSpawn, daemonSocketPath, probeDaemon, RpcCallError, socketAlive, type DaemonStatus } from "@tasks/daemon";
 import { buildTree, type TreeOptions } from "./tree.js";
 import { checkGitHooks, installHooks, managedHookNames, runHookCommand, uninstallHooks } from "./hooks.js";
 import { CODEX_EVENTS, installCodexHooks, codexHooksPath, installCursorHooks, cursorHooksTargetPath, removeCodexHooks, removeCursorHooks } from "./hooks-json.js";
@@ -879,6 +879,9 @@ WORKING WITH ISSUES
                           Manage the per-workspace daemon (tkd): start (or bootstrap
                           via tk web), status (ping + hosted web URL; --quiet exits 1
                           when down), stop, restart. --idle-ms sets idle exit delay.
+  mcp [--root <path>]     MCP stdio server for agent clients (Claude Code, Cursor, Codex):
+                          bridges stdin/stdout to the tkd daemon, which speaks MCP. Root:
+                          --root, -C, CLAUDE_PROJECT_DIR, else the enclosing workspace.
   watch [<id>…] --until "<query>" [--timeout 30m] | --drain | --follow "<query>"
             [--json] [--as <name>] [--from <seq>] [--peek]
                           Read the event log (.tasks/events.jsonl) from this subscriber's
@@ -1158,6 +1161,22 @@ async function runWeb(args: ParsedArgs, root: string | null, start: string): Pro
  * plus `web.status`, so one command shows the whole daemon story. Global —
  * no workspace resolution required.
  */
+/**
+ * `tk mcp [--root <path>]` — the stdio bridge MCP clients launch. All MCP logic
+ * lives in tkd; this resolves the workspace root and pipes bytes. Stdout carries
+ * only MCP lines; diagnostics go to stderr. Exits 0 on stdin EOF.
+ */
+async function runMcp(args: ParsedArgs, start: string): Promise<void> {
+  const explicit = stringFlag(args, "root") ?? stringFlag(args, "directory");
+  const candidate = explicit !== undefined ? resolve(explicit) : process.env["CLAUDE_PROJECT_DIR"] !== undefined && process.env["CLAUDE_PROJECT_DIR"] !== "" ? resolve(process.env["CLAUDE_PROJECT_DIR"]) : start;
+  const root = await rootFrom(candidate);
+  if (root === null) {
+    process.stderr.write(`tk mcp: no tasks workspace found from ${candidate} (use --root <path>, -C <dir>, or run inside a workspace)\n`);
+    exit(1);
+  }
+  exit(await bridgeStdio({ root: root! }));
+}
+
 async function runDaemon(args: ParsedArgs, start: string): Promise<void> {
   const sub = args.positionals[1];
   if (sub !== undefined && sub !== "start" && sub !== "status" && sub !== "stop" && sub !== "restart") {
@@ -1457,6 +1476,7 @@ async function main(): Promise<void> { const rawTokens = process.argv.slice(2); 
   if (command === "tui") { await runTui(args, root, start); return; }
   if (command === "web") { await runWeb(args, root, start); return; }
   if (command === "daemon") { await runDaemon(args, start); return; }
+  if (command === "mcp") { await runMcp(args, start); return; }
   if (command === "watch") { await runWatch(args, start); return; }
 /**
  * `tk setup cursor|codex [--global] [--remove]` — agent lifecycle hooks.json

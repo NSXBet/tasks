@@ -92,6 +92,19 @@ const CLIENT_CONTRACT = { protocol: PROTOCOL_VERSION, verbs: VERBS_VERSION };
  * drift throws {@link ContractMismatch}.
  */
 export const connectOrSpawn = async (root: string, options: ConnectOptions = {}): Promise<RpcClient> => {
+  const { socket, socketPath } = await connectRawSocket(options);
+  const client = new SocketClient(socket, socketPath, root, options.onEvent, options.onClose);
+  await verifyHello(client);
+  return client;
+};
+
+/**
+ * Connects a raw socket to the global tkd daemon, spawning one when the socket
+ * is dead or stale (stale files are unlinked first). Shared by
+ * {@link connectOrSpawn} (which layers an RPC client on it) and the stdio MCP
+ * bridge (which pipes bytes). No handshake is performed here.
+ */
+export const connectRawSocket = async (options: Pick<ConnectOptions, 'idleMs' | 'spawnTimeoutMs'> = {}): Promise<{ readonly socket: net.Socket; readonly socketPath: string }> => {
   const socketPath = daemonSocketPath();
   const spawnTimeoutMs = options.spawnTimeoutMs ?? 5000;
 
@@ -107,10 +120,7 @@ export const connectOrSpawn = async (root: string, options: ConnectOptions = {})
   } else {
     socket = await spawnAndConnect(socketPath, options, spawnTimeoutMs);
   }
-
-  const client = new SocketClient(socket, socketPath, root, options.onEvent, options.onClose);
-  await verifyHello(client);
-  return client;
+  return { socket, socketPath };
 };
 
 /** Opens a raw socket connection to `socketPath`, rejecting after `timeoutMs`. */
@@ -144,7 +154,7 @@ export const connectDaemon = async (timeoutMs = 1000): Promise<RpcClient | null>
   return client;
 };
 
-const spawnAndConnect = async (socketPath: string, options: ConnectOptions, spawnTimeoutMs: number): Promise<net.Socket> => {
+const spawnAndConnect = async (socketPath: string, options: Pick<ConnectOptions, 'idleMs'>, spawnTimeoutMs: number): Promise<net.Socket> => {
   // Spawned daemons must never be immortal: 10 minutes after the last call,
   // an unconfigured daemon exits. Callers pass idleMs to pin longer/shorter.
   const args = [join(import.meta.dir, 'main.ts'), '--idle-ms', String(options.idleMs ?? 600_000)];
