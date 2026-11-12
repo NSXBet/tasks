@@ -8,8 +8,25 @@ matching section as its release notes — add a section for every new version
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-12
+
 ### Added
 
+- `tk work <id>` claims a task and opens its work environment (worktree on
+  `tk/<id>`, in-repo `.worktrees` pool); `tk finish <id> --session <sid>` moves
+  it to `ready-to-review` and derives the changeset (commits, files, +/−) from
+  the recorded worktree/branch/base. `tk close` freezes the changeset and
+  prunes merged, clean worktrees (`worktree.post_start`/`post_checkout`/
+  `pre_end`/`pm_setup` hooks).
+- Review loop on the record: `tk review <id>` (TUI and web review pages with
+  hunk-style diffs), `tk comments` (list/resolve review comments), `tk changes`,
+  `tk watch` modes (`--until`, `--drain`), and `tk pr create|sync|merge|close`
+  for one PR per task via `gh`. The pi/omp extension gains an automatic review
+  inbox, a `tasks_wait` tool and stat/PR cards.
+- Resource leases: `tk lease acquire|list|release|renew` with expiring holds so
+  a crashed session never deadlocks others (RPC verbs `lease.*`).
+- `tk web` gains task view with tabbed rail, diff modal, artifact and evidence
+  views, and a live review/event stream.
 - `tk web` now exposes the full RPC verb table at `POST /api/rpc` (server-injected
   workspace root, 1 MiB body cap) and a watch-event feed at
   `GET /api/events?after=<seq>&kinds=a,b` — a bounded event ring (512 events,
