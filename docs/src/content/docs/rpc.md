@@ -150,6 +150,10 @@ VERBS 6 (from 5): `task.pr` and `task.report` event kinds (the `issue.updated` a
 
 ## Verb table
 
+Every verb entry carries `params` (schema), `handler`, and a one-line model-facing `description` (what it does, key params, what it returns). The `description` is metadata, not wire contract: editing it never bumps `VERBS_VERSION`. It exists so a transport can derive a tool list from the table — the planned MCP surface registers one tool per verb using `description` plus the Typebox `params` schema.
+
+MCP tool names: `mcpToolName(method)` replaces `.` with `_` (`issue.create` → `issue_create`; `hello` is unchanged), since MCP tool names must match `[A-Za-z0-9_-]`. `rpcMethodName(toolName)` is the reverse lookup against the verb table keys and returns `null` for an unknown name. Both are exported from `@tasks/rpc`; `verbNames()` is sorted, so a derived tool list has a deterministic order.
+
 Shared param schemas:
 
 - **ListOptions** (`issue.list`, `issue.ready`): `status?`, `parent?`, `assignee?`, `type?`, `priority?`, `label?`, `sprint?`, `archived?`, `limit?`, `claim?`
