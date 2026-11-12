@@ -14,17 +14,20 @@ import { watch as nativeWatch, type FSWatcher } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
-  readWorktreeFile, reviewPayloadFor, reviewThreads, threadInputFrom,
+  readBaseFile, readWorktreeFile, renderDocBlocks, reviewPayloadFor, reviewThreads, taskViewFor, threadInputFrom,
   worktreeOf, writeWorktreeFile, type ReviewIssueLike,
 } from "./review.js";
 import { ReviewCommentStoreError } from "@tasks/review";
+import { isDocPath } from "@tasks/review/taskview";
+import { gitBranchHead, gitCommonDir } from "@tasks/git";
+import { HARNESS_REGISTRY } from "@tasks/domain";
 import {
   createSurface, pidAlive, probeWebServer, readRuntimeRegistry, readWebWorkspaces, rootFrom,
   registerRuntime, unregisterRuntime, WEB_DEFAULT_PORT, WEB_RUNTIME_ID, writeWebWorkspaces,
   type SurfaceError, type TasksSurface, type WebRuntimeRow, type WebServerStatus,
 } from "@tasks/surface";
 import { dispatchRpc, rpcResponse, PROTOCOL_VERSION, type RpcOutcome, type RpcRequest, type SurfaceLease } from "@tasks/rpc";
-import { runWatchLoop, type WatchEvent, type WatchEventKind } from "@tasks/surface";
+import { commitWorktree, lastEventSeq, normalizeKinds, prCreate, readEvents, storeTransact, tailEvents, toWatchEvent, type TailHandle, type WatchEvent } from "@tasks/surface";
 
 export interface WebServerOptions {
   readonly root: string;
@@ -50,6 +53,9 @@ const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
 const shellPath = (): string => join(import.meta.dir, "app.html");
+
+/** Most events one GET /api/events page returns; page on with `after=<last seq>`. */
+export const EVENTS_PAGE_LIMIT = 512;
 
 /**
  * The review island ships as a single browser bundle built from its React
@@ -164,30 +170,95 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
     }, 400);
     stopWatches.push(() => clearInterval(ticker));
   }
-  // Worktree watch (step 10): live-reload open pages when any task's worktree
-  // changes on disk. The watched set is re-derived from the board every few
-  // seconds, so `tk work`-created worktrees join without a server restart.
-  const watchedWorktrees = new Map<string, FSWatcher>();
+  // Live review (D-02): a native watcher on each task's worktree and one on
+  // the repo's branch refs push a named SSE frame — `event: review` with
+  // `{id, reason: "worktree"|"branch"}` — down GET /events; the mounted review
+  // island re-fetches its payload instead of the page reloading. The watched
+  // set is re-derived from the board every few seconds, so `tk work`-created
+  // worktrees join without a server restart. Unnamed `data: reload` frames
+  // stay reserved for the dev shell ticker and workspace repoints.
+  const watchedWorktrees = new Map<string, { watcher: FSWatcher; ids: Set<string> }>();
   const broadcastReload = (): void => {
     for (const waiter of reloadWaiters) waiter?.(`data: reload\n\n`);
   };
-  const syncWorktreeWatch = async (): Promise<void> => {
+  /** JSON-encoded payload: an id can never inject extra SSE lines. */
+  function broadcastReview(id: string, reason: "worktree" | "branch"): void {
+    const frame = `event: review\ndata: ${JSON.stringify({ id, reason })}\n\n`;
+    for (const waiter of reloadWaiters) waiter?.(frame);
+  }
+  // Branch-ref watch: one watcher pair per active repo (refs/heads recursive +
+  // packed-refs in the common dir). git runs only on a refs event (head
+  // re-read) or when a sync pass sees a newly tracked issue — never on a timer.
+  let refWatch: { root: string; commonDir: string | null; watchers: FSWatcher[] } | null = null;
+  const trackedBranches = new Map<string, string>();
+  const lastHead = new Map<string, string | null>();
+  const closeRefWatch = (): void => {
+    for (const watcher of refWatch?.watchers ?? []) watcher.close();
+    refWatch = null;
+    trackedBranches.clear();
+    lastHead.clear();
+  };
+  let refDebounce: ReturnType<typeof setTimeout> | undefined;
+  const onRefsChanged = (): void => {
+    clearTimeout(refDebounce);
+    refDebounce = setTimeout(() => {
+      refDebounce = undefined;
+      void (async (): Promise<void> => {
+        const root = active.root;
+        for (const [id, branch] of [...trackedBranches]) {
+          const head = await gitBranchHead(root, branch);
+          if (root !== active.root || trackedBranches.get(id) !== branch) return;
+          if (lastHead.get(id) === head) continue;
+          lastHead.set(id, head);
+          broadcastReview(id, "branch");
+        }
+      })();
+    }, 150);
+  };
+  const ensureRefWatch = async (): Promise<void> => {
+    if (refWatch !== null && refWatch.root === active.root) return;
+    closeRefWatch();
+    const root = active.root;
+    const commonDir = (await gitCommonDir(root))?.trim() || null;
+    if (root !== active.root) return;
+    const watchers: FSWatcher[] = [];
+    if (commonDir !== null) {
+      try { watchers.push(nativeWatch(join(commonDir, "refs", "heads"), { recursive: true }, onRefsChanged)); }
+      catch { /* no refs/heads yet (fresh repo); packed-refs still covers rewrites */ }
+      try {
+        watchers.push(nativeWatch(commonDir, (_event, filename) => {
+          if (typeof filename === "string" && filename.startsWith("packed-refs")) onRefsChanged();
+        }));
+      } catch { /* common dir unreadable; branch frames degrade to none */ }
+    }
+    refWatch = { root, commonDir, watchers };
+  };
+  const syncWorktreeWatchOnce = async (): Promise<void> => {
     const board = await call("board.get");
     if (!board.ok || typeof board.value !== "object" || board.value === null || !("issues" in board.value)) return;
     const rows = board.value.issues;
     if (!Array.isArray(rows)) return;
-    const wanted = new Set<string>();
-    for (const row of rows) {
+    await ensureRefWatch();
+    const wanted = new Map<string, Set<string>>();
+    const branches = new Map<string, string>();
+    for (const row of rows as ReviewIssueLike[]) {
       const worktree = worktreeOf(row);
-      if (worktree !== null) wanted.add(worktree);
+      if (worktree === null || typeof row.id !== "string") continue;
+      const ids = wanted.get(worktree) ?? new Set<string>();
+      ids.add(row.id);
+      wanted.set(worktree, ids);
+      if (typeof row.branch === "string" && row.branch !== "") branches.set(row.id, row.branch);
     }
-    for (const [path, watcher] of watchedWorktrees) {
-      if (!wanted.has(path)) {
+    for (const [path, entry] of watchedWorktrees) {
+      const ids = wanted.get(path);
+      if (ids === undefined) {
         watchedWorktrees.delete(path);
-        void watcher.close();
+        void entry.watcher.close();
+      } else {
+        entry.ids = ids;
       }
     }
-    for (const path of wanted) {
+    for (const [path, ids] of wanted) {
       if (watchedWorktrees.has(path)) continue;
       // Native recursive fs.watch, not chokidar: chokidar's per-inode kqueue
       // registration (depth 6 over a worktree with node_modules) corrupts
@@ -195,48 +266,95 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
       // the event loop stops servicing timers for ~80s and web.start fails
       // its own ownership probe. The native recursive handle stays healthy
       // on the same trees. Top-level build dirs are filtered so installs
-      // don't spam reloads.
+      // don't spam frames.
       let debounce: ReturnType<typeof setTimeout> | undefined;
       try {
-        const watcher = nativeWatch(path, { recursive: true }, (_event, filename) => {
-          const relative = typeof filename === "string" ? filename : null;
-          if (relative !== null) {
-            const head = relative.split("/", 1)[0];
-            if (head === "node_modules" || head === ".git") return;
-          }
-          clearTimeout(debounce);
-          debounce = setTimeout(() => { debounce = undefined; broadcastReload(); }, 250);
-        });
-        watchedWorktrees.set(path, watcher);
+        const entry: { watcher: FSWatcher; ids: Set<string> } = {
+          ids,
+          watcher: nativeWatch(path, { recursive: true }, (_event, filename) => {
+            const relative = typeof filename === "string" ? filename : null;
+            if (relative !== null) {
+              const head = relative.split("/", 1)[0];
+              if (head === "node_modules" || head === ".git") return;
+            }
+            clearTimeout(debounce);
+            debounce = setTimeout(() => {
+              debounce = undefined;
+              for (const id of entry.ids) broadcastReview(id, "worktree");
+            }, 250);
+          }),
+        };
+        watchedWorktrees.set(path, entry);
       } catch { /* worktree vanished between scan and watch; joins on a later pass */ }
     }
+    // Branch heads: drop issues that left the board, seed newly tracked ones.
+    for (const id of [...trackedBranches.keys()]) {
+      if (branches.get(id) !== trackedBranches.get(id)) { trackedBranches.delete(id); lastHead.delete(id); }
+    }
+    const root = active.root;
+    for (const [id, branch] of branches) {
+      if (trackedBranches.has(id)) continue;
+      const head = await gitBranchHead(root, branch);
+      if (root !== active.root) return;
+      trackedBranches.set(id, branch);
+      lastHead.set(id, head);
+    }
+  };
+  // Passes are serialized: the 5s ticker and a repoint must not race to open duplicate watchers.
+  let syncChain: Promise<void> = Promise.resolve();
+  const syncWorktreeWatch = (): Promise<void> => {
+    syncChain = syncChain.then(syncWorktreeWatchOnce).catch(() => { /* next pass retries */ });
+    return syncChain;
   };
   const worktreeScan = setInterval(() => { void syncWorktreeWatch(); }, 5_000);
   stopWatches.push(() => {
     clearInterval(worktreeScan);
-    for (const watcher of watchedWorktrees.values()) watcher.close();
+    clearTimeout(refDebounce);
+    for (const entry of watchedWorktrees.values()) entry.watcher.close();
     watchedWorktrees.clear();
+    closeRefWatch();
   });
   void syncWorktreeWatch();
-  // Events ring (tasks-861t): one host-level watch loop feeds a bounded ring;
-  // RPC clients poll GET /api/events and reconcile with the cumulative dropped
-  // counter — the Luau client's short-poll transport.
-  const eventRing = createEventRing({ capacity: 512, ttlMs: 5 * 60_000 });
-  let eventLoopStopped = false;
-  stopWatches.push(() => { eventLoopStopped = true; });
-  void runWatchLoop(
-    active.surface.store,
-    { interval: 250 },
-    (event) => eventRing.push(event),
-    () => eventLoopStopped,
-  ).catch(() => { /* loop logged its 3-strikes failure; ring keeps serving what it holds */ });
+  // Event wire (D-03): one tail of the active workspace's `.tasks/events.jsonl`
+  // pushes every appended line down GET /events as a named SSE frame —
+  // `event: task` with the `WatchEvent` JSON — whoever wrote it (CLI, TUI,
+  // agents, this server's own RPC). The tail follows `open()` repoints; GET
+  // /api/events reads the same log directly.
+  /** JSON-encoded payload: user text in an event can never inject extra SSE lines. */
+  function broadcastTask(event: WatchEvent): void {
+    const frame = `event: task\ndata: ${JSON.stringify(event)}\n\n`;
+    for (const waiter of reloadWaiters) waiter?.(frame);
+  }
+  let eventTail: { tasksDir: string; handle: TailHandle } | null = null;
+  const stopEventTail = (): void => {
+    eventTail?.handle.stop();
+    eventTail = null;
+  };
+  /** (Re)starts the tail on `tasksDir` at its current end; any previous root's tail stops first. */
+  const startEventTail = async (dir: string): Promise<void> => {
+    // Pin the start cursor before serving/acking, so a write made right after is never missed.
+    const after = await lastEventSeq(dir);
+    // Stop after the await: overlapping repoints must never leave two tails running.
+    stopEventTail();
+    let live = true;
+    const handle = tailEvents(dir, {
+      after,
+      onEvents: (lines) => {
+        if (!live) return;
+        for (const line of lines) broadcastTask(toWatchEvent(line));
+      },
+    });
+    eventTail = { tasksDir: dir, handle: { stop: () => { live = false; handle.stop(); }, done: handle.done } };
+  };
+  stopWatches.push(stopEventTail);
+  await startEventTail(active.surface.store.tasksDir);
   // Bind last: a squatted port (any non-tk process) must surface as PortBusyError,
   // not a raw bind crash that leaves the surface store open.
   let server: Bun.Server<never>;
   try {
     server = Bun.serve({
       port,
-      async fetch(request): Promise<Response> {
+      async fetch(request, httpServer): Promise<Response> {
       const url = new URL(request.url);
       const body = async (): Promise<Record<string, unknown>> => {
         try {
@@ -260,7 +378,8 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         setTimeout(() => { void stopServer(); }, 50);
         return json({ ok: true, stopped: status() });
       }
-      if (request.method === "GET" && url.pathname === "/") {
+      if (request.method === "GET" && (url.pathname === "/" || /^\/tasks\/[^/]+(?:\/(?:diff|file))?\/?$/.test(url.pathname))) {
+        // Client-routed shell: /tasks/:id (task view), /tasks/:id/diff (diff view), /tasks/:id/file (file view).
         const shell = await readFile(shellPath(), "utf8");
         return new Response(shell, { headers: { "content-type": "text/html; charset=utf-8" } });
       }
@@ -271,25 +390,36 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
       }
       if (request.method === "GET" && url.pathname === "/events") {
         let generation = shellGeneration;
+        // Long-lived stream: Bun's default 10s idle timeout would otherwise cut it.
+        httpServer.timeout(request, 0);
+        let drop = (): void => {};
         const stream = new ReadableStream<Uint8Array>({
           start: (controller) => {
             const encoder = new TextEncoder();
-            const write = (chunk: string): void => controller.enqueue(encoder.encode(chunk));
-            write(`retry: 2000\n\n`);
-            reloadWaiters.push((chunk) => write(chunk));
-            const tick = setInterval(() => {
+            let tick: ReturnType<typeof setInterval> | undefined;
+            // A stream can close without the abort signal (client cancel,
+            // server-side timeout); the waiter must leave the broadcast list
+            // then, or the next frame throws on a closed controller.
+            const waiter = (chunk: string): void => {
+              try { controller.enqueue(encoder.encode(chunk)); } catch { drop(); }
+            };
+            drop = (): void => {
+              clearInterval(tick);
+              reloadWaiters = reloadWaiters.filter((entry) => entry !== waiter);
+              try { controller.close(); } catch { /* already closed */ }
+            };
+            waiter(`retry: 2000\n\n`);
+            reloadWaiters.push(waiter);
+            tick = setInterval(() => {
               if (shellGeneration !== generation) {
                 generation = shellGeneration;
-                write(`data: reload\n\n`);
+                waiter(`data: reload\n\n`);
               }
             }, 250);
             // Idleness guard: the SSE channel only matters while the page is open.
-            request.signal.addEventListener("abort", () => {
-              clearInterval(tick);
-              reloadWaiters = reloadWaiters.filter((waiter) => waiter !== null);
-              try { controller.close(); } catch { /* already closed */ }
-            });
+            request.signal.addEventListener("abort", () => drop());
           },
+          cancel: () => drop(),
         });
         return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
       }
@@ -318,7 +448,8 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         const rpcRequest: RpcRequest = {
           v: envelope.v,
           method: envelope.method,
-          root: options.root,
+          // tasks-qliz: the active workspace, so RPC follows POST /api/open repoints.
+          root: active.root,
           params,
           ...(typeof envelope.id === "string" ? { id: envelope.id } : {}),
         };
@@ -330,13 +461,21 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         if (!Number.isInteger(after) || after < 0) return json({ error: { kind: "invalid_params", message: "after must be a non-negative integer" } }, 400);
         const kindsParam = url.searchParams.get("kinds");
         const kinds = kindsParam === null ? undefined : kindsParam.split(",").map((k) => k.trim()).filter((k) => k !== "");
-        const { events, dropped } = eventRing.query(after, kinds);
-        return json({ events, dropped });
+        // Straight from the active workspace's log: `seq` is the durable log seq,
+        // so nothing is ever evicted (`dropped` stays 0 for client compatibility).
+        // Legacy kind names map through the alias table; a page holds at most 512.
+        const wanted = normalizeKinds(kinds);
+        const lines = await readEvents(active.surface.store.tasksDir, { after });
+        const events = lines
+          .filter((line) => wanted === undefined || wanted.includes(line.type))
+          .slice(0, EVENTS_PAGE_LIMIT)
+          .map(toWatchEvent);
+        return json({ events, dropped: 0, workspace: active.root });
       }
       if (request.method === "GET" && url.pathname === "/api/board") {
         const board = await call("board.get");
         if (!board.ok) return json({ error: board.error }, errorStatus(board.error.kind));
-        return json(board.value);
+        return json({ ...(board.value as object), harnesses: HARNESS_REGISTRY });
       }
       const blobMatch = /^\/api\/issue\/([^/]+)\/blob\/([^/]+)$/.exec(url.pathname);
       if (request.method === "GET" && blobMatch !== null) {
@@ -395,20 +534,54 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         try {
           const issue = await issueWire(rid);
           if (issue === null) return json({ error: { kind: "runtime", message: `no issue ${rid}` } }, 404);
-          if (sub === "" && request.method === "GET") return json(await reviewPayloadFor(options.root, issue));
+          if (sub === "" && request.method === "GET") return json(await reviewPayloadFor(active.root, issue));
+          if (sub === "taskview" && request.method === "GET") {
+            // 09-06: the task page's one payload — changes/minimap/artifacts/sessions/workspace/comments.
+            return json(await taskViewFor(active.root, issue, (await threads().list(rid)).threads, await active.surface.taskSessions(rid)));
+          }
           if (sub === "file" && (request.method === "GET" || request.method === "PUT")) {
             const relativePath = url.searchParams.get("path") ?? "";
             if (request.method === "GET") {
-              const read = await readWorktreeFile(options.root, issue, relativePath);
+              const side = url.searchParams.get("side");
+              if (side !== null && side !== "base") return json({ error: { kind: "runtime", message: "side must be base or omitted" } }, 400);
+              const read = side === "base" ? await readBaseFile(active.root, issue, relativePath) : await readWorktreeFile(active.root, issue, relativePath);
               if (!read.ok) return json({ error: read.error }, read.error.kind === "missing" ? 404 : 400);
+              // 09-08 (D-05): `render=doc` adds sanitized per-block HTML for markdown paths, after the guarded read.
+              if (url.searchParams.get("render") === "doc" && isDocPath(relativePath)) {
+                return json({ ...read.value, blocks: renderDocBlocks(read.value.contents) });
+              }
               return json(read.value);
             }
             const input = await body();
             const contents = input["contents"];
             if (typeof contents !== "string") return json({ error: { kind: "runtime", message: "contents must be a string" } }, 400);
-            const written = await writeWorktreeFile(options.root, issue, relativePath, contents);
+            const written = await writeWorktreeFile(active.root, issue, relativePath, contents);
             if (!written.ok) return json({ error: written.error }, written.error.kind === "missing" ? 404 : 400);
             return json({ ok: true });
+          }
+          if ((sub === "commit" || sub === "pr") && request.method === "POST") {
+            // 11-05: WORKSPC actions — HTTP routes beside the worktree write, not RPC verbs.
+            // commit = commitWorktree (git commit --all in the task worktree, never pushed);
+            // pr = prCreate, the same path as `tk pr create <id>`.
+            const deps = { cwd: active.root, transact: storeTransact(active.surface.store) };
+            try {
+              if (sub === "commit") {
+                const input = await body();
+                const message = typeof input["message"] === "string" ? input["message"] : "";
+                const committed = await commitWorktree(deps, rid, message);
+                return json({ ok: true, sha: committed.sha, report: committed.report });
+              }
+              const created = await prCreate(deps, rid, {});
+              return json({ ok: true, op: created.op, pr: created.pr });
+            } catch (failure) {
+              return json({ error: { kind: "runtime", message: failure instanceof Error ? failure.message : String(failure) } }, 400);
+            }
+          }
+          if (sub === "comments" && reviewParts[4] === "send" && request.method === "POST") {
+            // Explicit batched send: open -> sent, delivered as cards. Optional {ids} narrows the batch.
+            const input = await body();
+            const ids = Array.isArray(input["ids"]) ? input["ids"].filter((entry): entry is string => typeof entry === "string") : undefined;
+            return json(await threads().sendOpen(rid, ids));
           }
           if (sub === "threads") {
             const threadId = reviewParts[4] === undefined ? null : decodeURIComponent(reviewParts[4]);
@@ -426,6 +599,11 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
               const replyBody = text("body");
               if (replyBody === undefined) return json({ error: { kind: "runtime", message: "body is required" } }, 400);
               return json(await threads().reply(rid, threadId, { body: replyBody }));
+            }
+            if (request.method === "POST" && tail === "status") {
+              const status = text("status");
+              if (status !== "open" && status !== "resolved" && status !== "dismissed") return json({ error: { kind: "runtime", message: "status must be open, resolved, or dismissed" } }, 400);
+              return json(await threads().setStatus(rid, threadId, status));
             }
             if (request.method === "POST" && tail === "resolve") {
               return json(await threads().setResolved(rid, threadId, { resolved: input["resolved"] === true }));
@@ -524,6 +702,8 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
     workspaces.push(...next);
     void writeWebWorkspaces(join(discovered, ".tasks"), next).catch(() => {});
     void syncWorktreeWatch();
+    // Both event channels follow the repoint: the old root's tail stops, the new one's starts before pages reload.
+    await startEventTail(surface.store.tasksDir);
     broadcastReload();
     return { ok: true };
   };
@@ -562,49 +742,6 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
 };
 
 export type { SurfaceError };
-
-/**
- * Bounded watch-event ring backing GET /api/events. Re-sequences events with a
- * host-level monotonic `seq` (each watch loop's own seq restarts), evicts by
- * TTL first then capacity, and counts every eviction in a cumulative `dropped`
- * total so pollers can detect gaps: any monotonic jump in `dropped` means
- * re-fetch `board.get` to resync. Units are milliseconds per the watch layer.
- */
-export interface EventRing {
-  push: (event: WatchEvent) => void;
-  query: (after: number, kinds?: readonly string[]) => { events: WatchEvent[]; dropped: number };
-  droppedCount: () => number;
-}
-export const createEventRing = (options: { capacity: number; ttlMs: number }): EventRing => {
-  const events: WatchEvent[] = [];
-  let nextSeq = 0;
-  let droppedTotal = 0;
-  const evict = (): void => {
-    const now = Date.now();
-    while (events.length > 0 && now - Date.parse(events[0]!.at) > options.ttlMs) {
-      events.shift();
-      droppedTotal += 1;
-    }
-    while (events.length > options.capacity) {
-      events.shift();
-      droppedTotal += 1;
-    }
-  };
-  return {
-    push: (event) => {
-      nextSeq += 1;
-      events.push({ ...event, seq: nextSeq });
-      evict();
-    },
-    query: (after, kinds) => ({
-      events: events.filter(
-        (event) => event.seq > after && (kinds === undefined || kinds.includes(event.kind)),
-      ),
-      dropped: droppedTotal,
-    }),
-    droppedCount: () => droppedTotal,
-  };
-};
 
 /** Opens `url` in the default browser (macOS `open`; silently absent elsewhere). */
 export const launchBrowser = (url: string): void => {

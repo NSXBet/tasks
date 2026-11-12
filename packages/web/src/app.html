@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -134,6 +134,7 @@
   .card .meta { display: flex; gap: 8px; margin-top: 7px; color: var(--faint); font-size: 11.5px; align-items: center; flex-wrap: wrap; }
   .card .meta .who { color: var(--dim); }
   .card .meta .lbl { border: 1px solid var(--border); border-radius: 5px; padding: 0 6px; font-size: 10.5px; }
+  .card .doors { margin-top: 6px; color: var(--faint); font-size: 10.5px; }
   .card .flag { color: var(--blocked); font-size: 11px; cursor: pointer; }
   .card .flag:hover { text-decoration: underline; }
   .card.blocked { border-left: 3px solid var(--blocked); }
@@ -153,6 +154,7 @@
   .lrow.closed .title { color: var(--faint); }
   .lrow .who { color: var(--dim); font-size: 12px; width: 90px; text-align: right; }
   .lrow .age { color: var(--faint); font-size: 12px; width: 48px; text-align: right; }
+  .lrow .ldoors { color: var(--faint); font-size: 11px; flex-shrink: 0; }
   .statchip { font-size: 11px; padding: 1px 9px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid; white-space: nowrap; }
   .pchip { font-size: 10.5px; padding: 0 6px; border-radius: 5px; border: 1px solid; font-weight: 600; flex-shrink: 0; }
 
@@ -317,15 +319,202 @@
   .rvi-actions .at { color: var(--faint); font-size: 10.5px; }
   .rvi-ann { margin: 10px 0; }
   .rvi-empty { color: var(--faint); font-size: 13px; padding: 14px 4px; }
+  /* comment lifecycle (08-03): header, banner, ✓/✕/↺ controls, send to agent */
+  .rvi-hwrap { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .rvi-head.cmt { display: inline; font-size: 11px; font-weight: 400; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+  .rvi-banner { color: var(--closed); border: 1px solid var(--closed); border-radius: 999px; padding: 1px 9px; font-size: 11.5px; }
+  .rvi-ctrls { margin-left: auto; display: inline-flex; gap: 6px; }
+  .rvi-ctrl { font-size: 11.5px; }
+  .rvi-thread.dis { opacity: .6; }
+  .rvi-send { border: 1px solid var(--border-hi); background: var(--panel2); color: var(--text); border-radius: 8px; padding: 3px 11px; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+  .rvi-send:hover:not(:disabled) { border-color: var(--review); color: var(--review); }
+  .rvi-send:disabled { color: var(--faint); cursor: default; opacity: .7; }
+  .rvi-sent { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; margin: 6px 0; font-size: 12px; color: var(--dim); }
+  .rvi-sent-head { display: flex; align-items: center; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--review); margin-bottom: 4px; }
+  .rvi-sent-x { margin-left: auto; background: none; border: none; color: var(--faint); cursor: pointer; font-size: 14px; }
+  .rvi-sent-x:hover { color: var(--text); }
+  .rvi-sent-row { font-size: 11.5px; padding: 2px 0; white-space: pre-wrap; word-break: break-word; }
+  .apanel-head { padding: 0 2px 8px; }
+  .dwrap > .rvi-sent { margin: 0; border-radius: 0; border-bottom: none; }
   .dfl { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 6px 12px; color: var(--dim); font-size: 12.5px; }
   .dfl .mono { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .dfl .st { font-weight: 700; width: 12px; text-align: center; }
   .dfl.sel { background: var(--accent-bg); color: var(--text); }
   .dfl:hover { color: var(--text); }
+  .dflrow { display: flex; align-items: center; min-width: 0; }
+  .dflrow .dfl { flex: 1; min-width: 0; }
+  .dflrow.sel { background: var(--accent-bg); }
+  .dflrow.sel .dfl.sel { background: none; }
+  .dflview { flex-shrink: 0; margin-right: 8px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; color: var(--faint); font-size: 10.5px; opacity: 0; }
+  .dflrow:hover .dflview, .dflrow.sel .dflview, .dflview:focus-visible { opacity: 1; }
+  .dflview:hover { color: var(--text); border-color: var(--accent); }
+  /* artifact view (VIEW 2): file body + comments panel */
+  .dedit { display: flex; gap: 8px; align-items: center; }
+  .dedit .btn[disabled] { opacity: .45; cursor: default; }
+  .dfbar { display: flex; align-items: center; gap: 10px; padding: 0 0 8px; font-size: 12px; color: var(--dim); }
+  .dfbar .btn { margin-left: auto; }
+  .dfthreads { margin: 0 0 10px; }
+  .apanel { width: 320px; flex-shrink: 0; border-left: 1px solid var(--border); padding: 8px 10px; overflow: auto; }
+  .apanel .flhead { display: flex; align-items: center; padding: 2px 2px 8px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+  .apanel .flhead .cnt { margin-left: 4px; }
+  @media (max-width: 860px) { .artifact .dmain { flex-direction: column; } .apanel { width: auto; border-left: none; border-top: 1px solid var(--border); } }
+  .tview a.tcrow { color: inherit; text-decoration: none; cursor: pointer; }
+  .tview a.tcrow:hover .loc { color: var(--accent); }
+
+  /* the dark diff sits on the app panel, not a mismatched black (D-04) */
+  [data-theme="dark"] .dbody { --diffs-bg-context-override: var(--panel); --diffs-bg-separator-override: var(--panel2); }
+  /* code rows paint --diffs-bg = light-dark(…, --diffs-dark-bg); the theme sets it on the shadow :host, which light-DOM rules outrank */
+  [data-theme="dark"] .dbody diffs-container { --diffs-dark-bg: var(--panel); }
+
+  /* ---------- task view (record first, D-01) ---------- */
+  .tview { flex: 1; display: flex; gap: 18px; padding: 16px 20px; overflow: auto; align-items: flex-start; }
+  .tview .tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+  .tview .trail { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; }
+  .tview .thead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .tview .thead .id { color: var(--faint); font-size: 12.5px; }
+  .tview .thead h2 { font-size: 17px; font-weight: 650; color: var(--text); }
+  .tview .tchips { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .tview .tchips .btn.primary { margin-left: auto; }
+  .tview .tdesc { border: 1px solid var(--border); border-radius: 9px; background: var(--panel); padding: 10px 12px; color: var(--dim); font-size: 13.5px; white-space: pre-wrap; min-height: 40px; }
+  .tview .tdesc.none { color: var(--faint); }
+  .tview .tdesc + .fieldrow { margin-bottom: 0; }
+  .tview .tsec { border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); padding: 10px 12px; }
+  .tview .tsec h3 { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); font-weight: 600; margin-bottom: 8px; display: flex; gap: 8px; }
+  .tview .tsec h3 .cnt { margin-left: auto; letter-spacing: 0; text-transform: none; font-weight: 500; }
+  .tview .tcrow { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; font-size: 13px; color: var(--dim); border-top: 1px solid var(--border); }
+  .tview .tcrow:first-of-type { border-top: none; }
+  .tview .tcrow .st { width: 14px; text-align: center; flex-shrink: 0; }
+  .tview .tcrow .st.open { color: var(--open); }
+  .tview .tcrow .st.done { color: var(--closed); }
+  .tview .tcrow .who { color: var(--text); font-weight: 600; flex-shrink: 0; }
+  .tview .tcrow .body { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tview .tcrow .loc { color: var(--faint); font-size: 11.5px; flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tview .topen { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .tview .topen .note { font-size: 11.5px; color: var(--faint); }
+  .tview .tsec .note { font-size: 11.5px; color: var(--faint); padding-top: 8px; line-height: 1.5; }
+  .tview .tsec .note code { font-size: 11px; }
+  .tview .tcrow .avatar { width: 18px; height: 18px; border-radius: 50%; background: var(--accent-bg); color: var(--accent); font-size: 10.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; align-self: center; text-transform: uppercase; }
+  /* ARTIFACTS — evidence on the task (main column) */
+  .tview .acounts { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+  .tview .acounts .grouped { margin-left: auto; }
+  .tview .agroup { font-size: 10.5px; letter-spacing: .1em; color: var(--faint); padding: 8px 0 2px; }
+  .tview .arow { display: flex; gap: 8px; align-items: center; padding: 3px 0; font-size: 13px; color: var(--dim); min-width: 0; }
+  .tview .arow .aname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); text-decoration: none; text-align: left; }
+  .tview .arow a.aname:hover { color: var(--accent); }
+  .tview .arow .athumb { width: 28px; height: 28px; border-radius: 5px; border: 1px solid var(--border); object-fit: cover; cursor: zoom-in; flex-shrink: 0; padding: 0; }
+  .tview .arow .athumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; display: block; }
+  .pill.amber { color: var(--run); border-color: var(--run); }
+  .pill.del { color: var(--blocked); border-color: var(--blocked); }
+  /* tabbed side rail (D-02): SESSIONS · CHANGES · WORKSPC · MINIMAP */
+  .tview .trail { border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); padding: 4px 12px 12px; gap: 0; }
+  .tview .rtabs { display: flex; border-bottom: 1px solid var(--border); margin: 0 -4px 8px; }
+  .tview .rtab { flex: 1; padding: 7px 4px; font-size: 10.5px; letter-spacing: .08em; color: var(--faint); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 600; }
+  .tview .rtab:hover { color: var(--text); }
+  .tview .rtab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+  .tview .rpanel { font-size: 12.5px; color: var(--dim); }
+  .tview .rpanel[hidden] { display: none; }
+  .tview .rpanel .rhead { font-size: 10.5px; letter-spacing: .1em; color: var(--faint); margin-bottom: 4px; }
+  .tview .rpanel .note { font-size: 11.5px; color: var(--faint); padding-top: 10px; line-height: 1.5; }
+  .tview .rfilters { display: flex; gap: 5px; margin-bottom: 6px; }
+  .tview .rfilters .pill { cursor: pointer; background: none; }
+  .tview .rfilters .pill.on { color: var(--accent); border-color: var(--accent); }
+  .tview .crow { display: flex; gap: 6px; align-items: center; padding: 3px 4px; border-radius: 5px; color: var(--dim); text-decoration: none; min-width: 0; }
+  .tview .crow .cname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tview .crow .dot { margin-left: auto; color: var(--open); }
+  .tview a.crow { cursor: pointer; }
+  .tview a.crow:hover { background: var(--panel2); color: var(--text); }
+  .tview .stable { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .tview .stable th { font-size: 10px; letter-spacing: .1em; color: var(--faint); font-weight: 600; text-align: left; padding: 4px 4px 4px 0; }
+  .tview .stable td { border-top: 1px solid var(--border); padding: 5px 4px 5px 0; vertical-align: middle; }
+  .tview .stable td.lbl { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+  .tview .stable .upd { text-align: right; color: var(--faint); padding-right: 0; }
+  .tview .pill.done { color: var(--closed); border-color: var(--closed); }
+  .tview .pill.run { color: var(--run); border-color: var(--run); }
+  .tview .wsrow { display: flex; gap: 8px; align-items: center; padding: 3px 0; min-width: 0; }
+  .tview .wsrow .k { width: 64px; flex-shrink: 0; color: var(--faint); }
+  .tview .wsrow .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tview .wsrow a.v { color: var(--accent); text-decoration: none; }
+  .tview .wsrow a.v:hover { text-decoration: underline; }
+  /* WORKSPC actions (11-05): the mock's neutral `commit` and green `open pr` */
+  .tview .wsact { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .tview .wsbtn { padding: 3px 9px; border-radius: 5px; border: 1px solid var(--border-hi); background: var(--panel2); color: var(--text); font-size: 11.5px; }
+  .tview .wsbtn:hover:not(:disabled) { border-color: var(--accent); }
+  .tview .wsbtn.go { color: var(--closed); border-color: color-mix(in srgb, var(--closed) 55%, transparent); background: color-mix(in srgb, var(--closed) 12%, var(--panel)); }
+  .tview .wsbtn:disabled { opacity: .45; cursor: not-allowed; }
+  .tview .wscommit { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .tview .wscommit input { width: 100%; box-sizing: border-box; padding: 5px 8px; border-radius: 5px; border: 1px solid var(--border-hi); background: var(--bg); color: var(--text); font: inherit; font-size: 12px; }
+  .tview .wscommit .row { display: flex; gap: 6px; }
+  .tview .mmap { display: flex; align-items: flex-end; gap: 3px; height: 96px; }
+  .tview .mbar { flex: 1; min-width: 3px; border-radius: 2px; cursor: pointer; display: block; }
+  .tview .mbar:hover { outline: 1px solid var(--accent); }
+  /* TASKS column (09-11, R34): the working tasks beside the task view; [ / ] or a click switches in place. */
+  .tview .ttasks { width: 190px; flex-shrink: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); padding: 8px 0; display: flex; flex-direction: column; }
+  .tview .tthead, .tview .ttfoot { font-size: 10.5px; letter-spacing: .1em; color: var(--faint); font-weight: 600; padding: 2px 12px 6px; }
+  .tview .ttfoot { padding: 8px 12px 2px; font-weight: 500; letter-spacing: .04em; }
+  .tview .ttask { display: flex; gap: 8px; align-items: center; padding: 5px 12px; color: var(--dim); text-decoration: none; font-size: 13px; min-width: 0; border-left: 2px solid transparent; }
+  .tview .ttask .cdot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .tview .ttask .tttitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tview .ttask:hover { color: var(--text); background: var(--panel2); }
+  .tview .ttask.on { color: var(--text); font-weight: 650; border-left-color: var(--accent); background: var(--accent-bg); }
+  @media (max-width: 1100px) { .tview .ttasks { display: none; } }
+  @media (max-width: 860px) {
+    .tview { flex-direction: column; align-items: stretch; }
+    .tview .trail { width: auto; }
+    /* narrow keeps the worktree (D-03): path only, the branch chip goes */
+    .tview .brchip { display: none; }
+    .tview .wtchip { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  }
+
+  /* diff modal over the task view (09-07, D-04): positioned against .main, so it stays put while the task scrolls */
+  .dmodal { position: absolute; inset: 0; z-index: 20; background: rgb(0 0 0 / 60%); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .dmodal[hidden] { display: none; }
+  .dmodal-card { width: min(760px, 100%); max-height: 86vh; overflow: auto; background: var(--panel); border: 1px solid var(--border-hi); border-radius: var(--radius); box-shadow: 0 18px 50px rgb(0 0 0 / 50%); }
+  .dmodal-frame .dmenu { position: sticky; top: 0; z-index: 2; border: none; border-bottom: 1px solid var(--border); border-radius: 0; gap: 8px; }
+  .dmodal-frame .dm-id, .dmodal-frame .dm-sep { color: var(--faint); }
+  .dmodal-frame .dm-path { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .dmodal-frame .dm-acts { margin-left: auto; display: flex; gap: 6px; }
+  .dmodal-frame .dbody { overflow: visible; }
+  .dmodal-frame .dm-keys { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 7px 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--dim); }
+  .dmodal-frame .dm-keys .dm-hint { margin-left: auto; color: var(--accent); }
+  .rvi-empty [data-act="close"] { margin-top: 8px; }
+  /* evidence in the diff flow (09-07, D-06) */
+  .rvi-ev { margin: 14px 0; padding-top: 8px; border-top: 1px solid var(--border); }
+  .rvi-ev > .rvi-loc { display: block; margin-bottom: 8px; }
+  .rvi-evimg { display: block; max-width: min(420px, 100%); border-radius: var(--radius); border: 1px solid var(--border-hi); cursor: pointer; }
+  .rvi-ev .rvi-ann { max-width: 560px; }
+  /* artifact view DOC / EVIDENCE modes (09-08, D-05) */
+  .rvi-mode { font-size: 10.5px; letter-spacing: .1em; }
+  .rvi-doc { padding: 12px 18px 24px; max-width: 900px; color: var(--text); }
+  .rvi-docblock { display: flex; gap: 8px; align-items: flex-start; padding: 2px 0; }
+  .rvi-docmain { flex: 1; min-width: 0; }
+  .rvi-gut { flex-shrink: 0; width: 22px; height: 22px; margin-top: 2px; padding: 0; border: 1px solid transparent; border-radius: 5px; background: none; color: var(--faint); opacity: .35; cursor: pointer; font-size: 13px; line-height: 1; }
+  .rvi-docblock:hover .rvi-gut, .rvi-gut:focus-visible { opacity: 1; color: var(--accent); border-color: var(--border-hi); }
+  .rvi-dochtml h1 { font-size: 22px; margin: 10px 0 6px; }
+  .rvi-dochtml h2 { font-size: 18px; margin: 10px 0 6px; }
+  .rvi-dochtml h3 { font-size: 15px; margin: 8px 0 4px; }
+  .rvi-dochtml p, .rvi-dochtml li { line-height: 1.6; margin: 4px 0; }
+  .rvi-dochtml ul, .rvi-dochtml ol { margin: 4px 0; padding-left: 22px; }
+  .rvi-dochtml pre { background: var(--panel2); padding: 8px 10px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  .rvi-dochtml code { font-family: var(--mono, ui-monospace, monospace); font-size: .92em; }
+  .rvi-dochtml a { color: var(--accent); }
+  .rvi-dochtml img { max-width: 100%; }
+  .rvi-dochtml blockquote { margin: 4px 0; padding-left: 10px; border-left: 3px solid var(--border-hi); color: var(--dim); }
+  .rvi-doc .rvi-ann { max-width: 640px; margin: 4px 0 8px; }
+  .rvi-evbody { padding: 12px 18px; }
+  .rvi-evbody > .rvi-loc { display: block; margin-bottom: 10px; }
+  .rvi-evimg.rvi-evfull { max-width: min(900px, 100%); }
+  .artifact.evidence .apanel .rvi-thread.draft textarea { display: block; width: 100%; min-height: 54px; margin: 6px 0; padding: 6px 8px; font-size: 12.5px; color: var(--text); background: var(--bg, var(--panel2)); border: 1px solid var(--border-hi); border-radius: 6px; resize: vertical; }
+  .rvi-note, .rvi-hint { font-size: 11.5px; }
+  .rvi-ev .rvi-thread.draft textarea { display: block; width: 100%; min-height: 54px; margin: 6px 0; padding: 6px 8px; font-size: 12.5px; color: var(--text); background: var(--bg, var(--panel2)); border: 1px solid var(--border-hi); border-radius: 6px; cursor: text; resize: vertical; }
+  .dfiles .flhead.evhead { padding-top: 14px; }
+  .dfl.evrow .evn { margin-left: auto; color: var(--faint); font-size: 11.5px; flex-shrink: 0; }
+  .dfl.evrow .evn.on { color: var(--open); }
 
   .pill { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-hi); border-radius: 999px; padding: 1px 9px; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); white-space: nowrap; flex-shrink: 0; }
   .pill.open { color: var(--open); border-color: var(--open); }
   .pill.res { color: var(--closed); border-color: var(--closed); }
+  .pill.sent { color: var(--review); border-color: var(--review); }
+  .pill.dis { color: var(--faint); border-color: var(--border-hi); text-decoration: line-through; }
 </style>
 </head>
 <body>
@@ -336,7 +525,7 @@
       <kbd>/</kbd>
     </div>
     <div class="spacer"></div>
-    <span id="conn" title="live · polling every 2s"></span>
+    <span id="conn" title="live · event stream"></span>
     <button class="btn" id="cmdBtn" title="Command palette (Ctrl+K or :)"><kbd>:</kbd> commands</button>
     <button class="btn primary" id="newBtn">＋ New issue <kbd>n</kbd></button>
     <button class="btn" id="stopBtn" title="Stop the tk web server">⏻ stop</button>
@@ -361,6 +550,7 @@
         <div class="pane" id="graphView" style="display:none"></div>
         <div class="pane" id="insightsView" style="display:none"></div>
         <div class="rview" id="reviewView" style="display:none"></div>
+        <div class="tview" id="taskView" style="display:none"></div>
       </div>
     </main>
   </div>
@@ -438,16 +628,21 @@
 <script type="module">
   const $ = (id) => document.getElementById(id);
   const state = {
+    harnesses: [],
     view: "board", issues: [], actor: "—", selected: null, query: "",
     filter: "all", pal: { rows: [], cursor: 0 }, newStatus: "open",
-    activeSprint: null, reviewKey: "",
+    activeSprint: null, reviewKey: "", route: null,
+    railTab: "changes", changesFilter: "all",
+    /** The open diff modal `{ id, path, hunk }` over the task view (09-07), or null. */
+    diffModal: null,
   };
   const STATUS_COLOR = { open: "var(--open)", in_progress: "var(--run)", "ready-to-review": "var(--review)", closed: "var(--closed)", archived: "var(--dim)" };
   const STATUS_NAME = { open: "Open", in_progress: "In progress", "ready-to-review": "Review", closed: "Closed", archived: "Icebox" };
   const COLUMNS = ["open", "in_progress", "ready-to-review", "closed"];
   const P_COLOR = ["var(--p0)", "var(--p1)", "var(--p2)", "var(--p3)"];
 
-  const esc = (s) => { const d = document.createElement("span"); d.textContent = s ?? ""; return d.innerHTML; };
+  // Text-node escaping plus quotes, so the result is also safe inside a double-quoted attribute (T-09-26).
+  const esc = (s) => { const d = document.createElement("span"); d.textContent = s ?? ""; return d.innerHTML.replace(/"/g, "&quot;"); };
   const age = (iso) => {
     if (!iso) return "";
     const s = Math.max(1, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -490,6 +685,7 @@
         ${issue.labels.length > 2 ? `<span class="lbl">+${issue.labels.length - 2}</span>` : ""}
         ${blocked ? `<span class="flag" data-blocked="${esc(blockerIds(issue)[0])}" title="click to open the blocker">⚠ ${blockerIds(issue).length} blocker${blockerIds(issue).length === 1 ? "" : "s"}</span>` : ""}
       </div>
+      <div class="doors mono" title="${esc(doorsFor(issue).web)}">${esc(doorsFor(issue).tui)} · /tasks/${esc(issue.id)}</div>
     </article>`;
   };
 
@@ -559,6 +755,7 @@
         ${statchip(i)}
         <span class="who">${esc(i.assignee ?? "")}</span>
         <span class="age">${age(i.updatedAt)}</span>
+        <span class="ldoors mono" title="${esc(doorsFor(i).web)}">${esc(doorsFor(i).tui)}</span>
       </button>`).join("") || `<div class="empty" style="max-width:300px">no issues match</div>`;
     document.querySelectorAll("#listView .lrow").forEach((el) => {
       el.addEventListener("click", () => { selectIssue(el.dataset.id); openModal(el.dataset.id); });
@@ -608,26 +805,440 @@
   };
 
   /* ---------- review (real island) ---------- */
+  const reviewable = (issue) => Boolean(issue?.metadata?.changeset?.base && issue?.branch);
   const renderReview = () => {
-    const issues = state.issues.filter((i) => i.metadata?.changeset?.base && i.branch);
+    // Artifact view (/tasks/:id/file?path=): one worktree file + its comments (D-05).
+    if (state.view === "file" && state.route?.view === "file") {
+      const { id, path, evidence } = state.route;
+      const key = `file\u0000${id}\u0000${path ?? ""}\u0000${evidence ?? ""}`;
+      if (state.reviewKey !== key) {
+        state.reviewKey = key;
+        window.ReviewIsland?.unmount();
+        window.ReviewIsland?.mount($("reviewView"), {
+          mode: "file",
+          ...(evidence ? { evidenceId: evidence } : { path }),
+          issueId: id,
+          actor: state.actor,
+          onError: (message) => toast(message, true),
+          onBack: () => navigate(taskUrl(id)),
+          theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
+        });
+      }
+      return;
+    }
+    const issues = state.issues.filter(reviewable);
+    // A routed diff (/tasks/:id/diff) shows that task or says why it can't — never another task.
+    const routed = state.route?.view === "review" ? state.issues.find((i) => i.id === state.route.id) : undefined;
+    if (routed && !reviewable(routed)) {
+      state.reviewKey = "";
+      window.ReviewIsland?.unmount();
+      $("reviewView").innerHTML = `<div class="iempty"><button class="btn" id="diffBack">← task</button> no changes to review yet on ${esc(routed.id)} — it needs a branch and a changeset base (\`tk work\`)</div>`;
+      $("diffBack").addEventListener("click", () => navigate(taskUrl(routed.id)));
+      return;
+    }
     if (issues.length === 0) {
       $("reviewView").innerHTML = `<div class="iempty">no reviewable issues — an issue needs a branch and a changeset base (set via \`tk work\` or the CLI)</div>`;
       return;
     }
     if (state.selected === null || !issues.some((i) => i.id === state.selected)) state.selected = issues[0].id;
     const issue = issues.find((i) => i.id === state.selected);
-    const key = issue.id;
+    const initialFile = state.route?.view === "review" && state.route.id === issue.id ? state.route.file : null;
+    const key = `diff\u0000${issue.id}\u0000${initialFile ?? ""}`;
     const remount = state.reviewKey !== key;
     if (remount) {
       state.reviewKey = key;
       window.ReviewIsland?.unmount();
       window.ReviewIsland?.mount($("reviewView"), {
+        mode: "diff",
         issueId: issue.id,
         actor: state.actor,
         onError: (message) => toast(message, true),
+        onBack: () => navigate(taskUrl(issue.id)),
+        onOpenFile: (p) => navigate(fileUrl(issue.id, p)),
+        ...(initialFile ? { initialFile } : {}),
+        theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
       });
     }
   };
+
+  /* ---------- task view (record first, D-01) ---------- */
+  const taskUrl = (id) => `/tasks/${encodeURIComponent(id)}`;
+  const diffUrl = (id) => `/tasks/${encodeURIComponent(id)}/diff`;
+  const fileUrl = (id, path) => `/tasks/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`;
+  const evidenceUrl = (id, evId) => `/tasks/${encodeURIComponent(id)}/file?evidence=${encodeURIComponent(evId)}`;
+  /**
+   * The task-view payload per issue id (`GET /api/review/:id/taskview`, 09-06):
+   * changes, minimap, artifacts, sessions, workspace, comments. Fetched on
+   * entering the task view, on `review` SSE frames for the task on screen, and
+   * when the record's updatedAt moves; every board refresh re-renders from here.
+   */
+  const taskviewCache = new Map();
+  const taskviewInflight = new Set();
+  const loadTaskView = async (id) => {
+    if (taskviewInflight.has(id)) { taskviewInflight.add(id + "\0again"); return; }
+    taskviewInflight.add(id);
+    const updatedAt = state.issues.find((i) => i.id === id)?.updatedAt ?? null;
+    try {
+      const view = await api(`/api/review/${encodeURIComponent(id)}/taskview`);
+      taskviewCache.set(id, { view, error: null, updatedAt });
+    } catch (cause) {
+      taskviewCache.set(id, { view: null, error: cause instanceof Error ? cause.message : "failed to load the task view", updatedAt });
+    }
+    taskviewInflight.delete(id);
+    if (taskviewInflight.delete(id + "\0again")) { void loadTaskView(id); return; }
+    if (state.view === "task" && state.selected === id) renderTask();
+  };
+  const THREAD_GLYPH = { open: ["○", "open"], sent: ["↗", "open"], resolved: ["✓", "done"], dismissed: ["⊘", "done"] };
+  const threadStatus = (t) => THREAD_STATUSES.includes(t?.status) ? t.status : t?.resolved === true ? "resolved" : "open";
+  const STATUS_PILL = { A: "open", M: "amber", R: "amber", D: "del" };
+  const commentsPreview = (issue, cached) => {
+    const rows = cached?.view?.comments?.rows ?? [];
+    const body = cached === undefined
+      ? `<div class="iempty">loading comments…</div>`
+      : cached.error
+        ? `<div class="iempty">${esc(cached.error)}</div>`
+        : rows.map((t) => {
+          const [glyph, tone] = THREAD_GLYPH[threadStatus(t)];
+          const cells = `<span class="avatar" title="${esc(t.author)}">${esc(String(t.author || "?").slice(0, 1))}</span><span class="st ${tone}" title="${esc(threadStatus(t))}">${glyph}</span><span class="body">${esc(t.first)}</span><span class="loc mono">→ ${esc(t.location)}</span>`;
+          // File-located rows open the artifact view (05-03); evidence rows stay plain.
+          return typeof t.filePath === "string" && t.filePath
+            ? `<a class="tcrow tclink" href="${esc(fileUrl(issue.id, t.filePath))}" data-file="${esc(t.filePath)}" title="open ${esc(t.filePath)}">${cells}</a>`
+            : `<div class="tcrow">${cells}</div>`;
+        }).join("") || `<div class="iempty">no review comments yet</div>`;
+    const counts = cached?.view?.comments?.counts;
+    return `<section class="tsec" id="tComments"><h3>COMMENTS · ${rows.length}<span class="cnt">${counts ? esc(counts.label) : ""}</span></h3>${body}
+      <p class="note">one comments store — file, line, or evidence; each comment carries where it was made</p></section>`;
+  };
+  const artifactsSection = (issue, cached) => {
+    const art = cached?.view?.artifacts;
+    const atts = blobAtts(issue);
+    let body;
+    if (cached === undefined) body = `<div class="iempty">loading artifacts…</div>`;
+    else if (cached.error) body = `<div class="iempty">${esc(cached.error)}</div>`;
+    else if (!art || art.groups.length === 0) body = `<div class="iempty">no evidence attached — <code>tk attach ${esc(issue.id)} --evidence &lt;file&gt;</code></div>`;
+    else body = art.groups.map((g) => `<div class="agroup">${esc(g.label)} (${g.rows.length})</div>${g.rows.map((r) => {
+      const att = r.evidenceId ? atts.find((a) => a.id === r.evidenceId) : null;
+      const pill = r.comments > 0 ? `<span class="pill open">● ${r.comments}</span>` : `<span class="pill">—</span>`;
+      const status = r.status ? `<span class="pill ${STATUS_PILL[r.status] ?? ""}">${esc(r.status)}</span>` : "";
+      let lead = "", name;
+      if (r.kind === "evidence" && att && isImage(att.mime)) {
+        lead = `<button class="athumb" data-view="${esc(att.id)}" title="open in viewer"><img src="${blobUrl(issue, att)}" alt=""></button>`;
+        name = `<a class="aname" href="${esc(evidenceUrl(issue.id, att.id))}" data-evidence="${esc(att.id)}" title="open ${esc(r.key)}">${esc(r.name)}</a>`;
+      } else if (r.kind === "evidence") {
+        // Every evidence row opens the artifact view (09-08, D-05); it shows a name·mime chip for non-images.
+        name = r.evidenceId
+          ? `<a class="aname" href="${esc(evidenceUrl(issue.id, r.evidenceId))}" data-evidence="${esc(r.evidenceId)}" title="open ${esc(r.key)}">📎 ${esc(r.name)}</a>`
+          : `<span class="aname" title="${esc(r.key)}">${esc(r.name)}</span>`;
+      } else {
+        name = `<a class="aname mono" href="${esc(fileUrl(issue.id, r.path))}" data-file="${esc(r.path)}" title="open ${esc(r.path)}">${esc(r.path)}</a>`;
+      }
+      return `<div class="arow">${lead}${name}${status}${pill}</div>`;
+    }).join("")}`).join("");
+    const c = art?.counts ?? { src: 0, edit: 0, new: 0, other: 0 };
+    return `<section class="tsec" id="tArtifacts"><h3>ARTIFACTS — evidence on the task</h3>
+      <div class="acounts"><span class="pill">${c.src} src</span><span class="pill amber">${c.edit} edit</span><span class="pill open">${c.new} new</span><span class="pill">${c.other} other</span><span class="pill grouped">GROUPED</span></div>
+      ${body}
+      <p class="note">evidence on the task — <code>tk evidence</code> uploads and attached files; typed counts read before anything opens; images open in the viewer</p></section>`;
+  };
+  /* WORKSPC actions (11-05): `commit` (inline message, POST /api/review/:id/commit) and `open pr` (POST /api/review/:id/pr = tk pr create). */
+  const wsState = { commitFor: null, draft: "", busy: false };
+  const wsPrRow = (pr) => pr && typeof pr.url === "string" && /^https?:\/\//.test(pr.url)
+    ? `<div class="wsrow"><span class="k">pr</span><a class="v mono" href="${esc(pr.url)}" target="_blank" rel="noopener noreferrer" title="${esc(pr.url)}">PR #${esc(String(pr.number))} · ${esc(String(pr.state))}</a></div>`
+    : "";
+  const wsActions = (issue, ws) => {
+    const noTree = !ws?.worktree;
+    const clean = ws?.dirty === 0;
+    const commitTitle = noTree ? `no worktree — run tk work ${issue.id}` : clean ? "nothing to commit — the worktree is clean" : "commit tracked + staged changes in the task worktree (never pushed)";
+    const prOpen = ws?.pr?.state === "open";
+    const busy = wsState.busy ? " disabled" : "";
+    const form = wsState.commitFor === issue.id && !noTree
+      ? `<div class="wscommit"><input id="wsCommitMsg" type="text" maxlength="4000" autocomplete="off" placeholder="commit message (tracked + staged · never pushed)" value="${esc(wsState.draft)}"${busy}>
+          <div class="row"><button class="wsbtn go" data-ws-act="commit-submit"${busy}>commit</button><button class="wsbtn" data-ws-act="commit-cancel"${busy}>cancel</button></div></div>`
+      : "";
+    return `<div class="wsact">
+        <button class="wsbtn" data-ws-act="commit" title="${esc(commitTitle)}"${noTree || clean || wsState.busy ? " disabled" : ""}>commit</button>
+        <button class="wsbtn go" data-ws-act="pr" title="${esc(ws?.branch ? `tk pr create ${issue.id} — push the branch, then create / adopt / refresh the PR` : `no branch — run tk work ${issue.id}`)}"${!ws?.branch || wsState.busy ? " disabled" : ""}>${prOpen ? "refresh pr" : "open pr"}</button>
+      </div>${form}`;
+  };
+  /** Drops the cached payload and reloads it, so WORKSPC re-renders with the new head / dirty count / PR. */
+  const reloadTaskView = (id) => { taskviewCache.delete(id); renderTask(); void loadTaskView(id); };
+  const wsCommitSubmit = async (id) => {
+    const message = ($("wsCommitMsg")?.value ?? wsState.draft);
+    wsState.draft = message;
+    wsState.busy = true; renderTask();
+    try {
+      const done = await api(`/api/review/${encodeURIComponent(id)}/commit`, { message });
+      wsState.commitFor = null; wsState.draft = "";
+      toast(`✓ committed ${String(done.sha ?? "").slice(0, 7)} on ${id}`);
+    } catch (cause) {
+      toast(cause instanceof Error ? cause.message : "commit failed", true);
+    }
+    wsState.busy = false;
+    reloadTaskView(id);
+  };
+  const wsOpenPr = async (id) => {
+    wsState.busy = true; renderTask();
+    try {
+      const done = await api(`/api/review/${encodeURIComponent(id)}/pr`, {});
+      toast(`✓ PR #${done.pr?.number} ${done.pr?.state} — ${done.pr?.url}`);
+    } catch (cause) {
+      toast(cause instanceof Error ? cause.message : "open pr failed", true);
+    }
+    wsState.busy = false;
+    reloadTaskView(id);
+  };
+  const RAIL_TABS = [["sessions", "SESSIONS"], ["changes", "CHANGES"], ["workspace", "WORKSPC"], ["minimap", "MINIMAP"]];
+  const railPanels = (issue, cached) => {
+    const v = cached?.view;
+    const pending = cached === undefined ? `<div class="iempty">loading…</div>` : cached.error ? `<div class="iempty">${esc(cached.error)}</div>` : null;
+    // CHANGES — live from the worktree
+    const changes = v?.changes ?? [];
+    const files = changes.filter((r) => r.kind === "file");
+    const toReview = files.filter((r) => r.needsReview).length;
+    const shown = state.changesFilter === "review" ? changes.filter((r) => r.needsReview) : changes;
+    const changesBody = pending ?? `
+      <div class="rfilters"><button class="pill ${state.changesFilter === "review" ? "" : "on"}" data-cfilter="all">ALL (${files.length})</button><button class="pill ${state.changesFilter === "review" ? "on" : ""}" data-cfilter="review">TO REVIEW (${toReview})</button></div>
+      ${shown.map((r) => r.kind === "dir"
+        ? `<div class="crow dir" style="padding-left:${4 + r.depth * 12}px"><span class="cname">▸ ${esc(r.name)}</span>${r.needsReview ? `<span class="dot" title="something inside still needs review">●</span>` : ""}</div>`
+        : `<a class="crow file" style="padding-left:${4 + r.depth * 12}px" href="${esc(diffUrl(issue.id) + "?file=" + encodeURIComponent(r.path))}" data-open-diff="${esc(r.path)}" title="open the diff at ${esc(r.path)}"><span class="cname mono">${esc(r.name)}</span><span class="pill ${STATUS_PILL[r.status] ?? ""}">${esc(r.status ?? "")}</span>${r.needsReview ? `<span class="dot" title="needs review">●</span>` : ""}</a>`).join("")
+        || `<div class="iempty">${v?.workspace?.branch ? "no changes against base yet" : `no branch yet — <code>tk work ${esc(issue.id)}</code>`}</div>`}
+      <p class="note">live from the worktree — a folder dot means something inside still needs review · click a file or the tab to open the diff</p>`;
+    // SESSIONS — agent runs on the task
+    const sessions = v?.sessions ?? [];
+    const sessionsBody = pending ?? `<div class="rhead">AGENT RUNS ON THE TASK</div>
+      ${sessions.length ? `<table class="stable"><thead><tr><th>STATUS</th><th>SESSION</th><th class="upd">UPD</th></tr></thead><tbody>${sessions.map((r) => {
+        const st = String(r.state ?? "");
+        const tone = st === "done" ? "done" : st === "running" ? "run" : "";
+        return `<tr><td><span class="pill ${tone}">${esc(st.toUpperCase())}</span></td><td class="lbl" title="${esc(r.label)}">${esc(r.label)}</td><td class="upd">${esc(age(r.updatedAt))}</td></tr>`;
+      }).join("")}</tbody></table>` : `<div class="iempty">no agent sessions recorded</div>`}
+      <p class="note">sessions live in the rail — the center column belongs to the work</p>`;
+    // WORKSPC — the worktree contract made visible
+    const ws = v?.workspace;
+    const wsBody = pending ?? `
+      <div class="wsrow"><span class="k">branch</span><span class="v mono" title="${esc(ws?.branch ?? "")}">${ws?.branch ? `${esc(ws.branch)}${ws.base ? ` → ${esc(String(ws.base).slice(0, 7))}` : ""}` : "—"}</span></div>
+      <div class="wsrow"><span class="k">worktree</span><span class="v mono" title="${esc(ws?.worktree ?? "")}">${ws?.worktree ? esc(ws.worktreeLabel || wtLabel(issue.id, ws.worktree)) : "—"}</span></div>
+      <div class="wsrow"><span class="k">host</span><span class="v" title="${esc(ws?.host ?? "")}">${esc(ws?.host ?? "—")}</span></div>
+      <div class="wsrow"><span class="k">state</span>${typeof ws?.dirty === "number" ? (ws.dirty > 0 ? `<span class="pill amber">${ws.dirty} dirty</span>` : `<span class="pill done">clean</span>`) : `<span class="v">—</span>`}</div>
+      ${wsPrRow(ws?.pr)}
+      ${wsActions(issue, ws)}
+      <p class="note">the worktree contract made visible — the task owns it, the rail reports it; the center chips carry the same worktree on narrow views</p>
+      <p class="note">commit = git commit -a in the task worktree (tracked + staged, never untracked, never pushed) · open pr = tk pr create ${esc(issue.id)}</p>`;
+    // MINIMAP — red/green bars per hunk
+    const bars = v?.minimap ?? [];
+    const mapBody = pending ?? `${bars.length ? `<div class="mmap">${bars.map((b) => {
+      const pct = Math.max(8, Math.min(100, Number(b.size) * 100)).toFixed(1);
+      const bg = b.tone === "del" ? "rgb(229 101 94 / 40%)" : "rgb(122 209 154 / 40%)";
+      return `<a class="mbar" style="height:${pct}%;background:${bg}" href="${esc(diffUrl(issue.id) + "?file=" + encodeURIComponent(b.path))}" title="${esc(b.path)} hunk ${Number(b.hunkIndex) + 1}" data-open-diff="${esc(b.path)}" data-hunk="${Number(b.hunkIndex)}"></a>`;
+    }).join("")}</div>` : `<div class="iempty">no hunks yet</div>`}
+      <p class="note">the diff at a glance — red/green bars per hunk; click jumps into the diff</p>`;
+    const bodies = { sessions: sessionsBody, changes: changesBody, workspace: wsBody, minimap: mapBody };
+    const tab = RAIL_TABS.some(([k]) => k === state.railTab) ? state.railTab : "changes";
+    return `<div class="rtabs" role="tablist" aria-label="task rail">${RAIL_TABS.map(([k, label]) =>
+      `<button class="rtab" role="tab" id="rtab-${k}" data-tab="${k}" aria-controls="rpanel-${k}" aria-selected="${k === tab}" tabindex="${k === tab ? 0 : -1}">${label}</button>`).join("")}</div>
+      ${RAIL_TABS.map(([k]) => `<div class="rpanel" id="rpanel-${k}" data-panel="${k}" role="tabpanel" aria-labelledby="rtab-${k}"${k === tab ? "" : " hidden"}>${bodies[k]}</div>`).join("")}`;
+  };
+  /** Shows one rail panel without re-rendering or refetching; the choice lives in state.railTab so board refreshes keep it. */
+  const selectRailTab = (tab) => {
+    state.railTab = tab;
+    $("taskView").querySelectorAll(".rtab").forEach((b) => { const on = b.dataset.tab === tab; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; });
+    $("taskView").querySelectorAll(".rpanel").forEach((p) => { p.hidden = p.dataset.panel !== tab; });
+  };
+  /**
+   * Diff modal over the task view (09-07, D-04): one file of the diff, commentable,
+   * `⤢ full view` routes to /tasks/:id/diff?file=, Esc / `esc close` returns to the
+   * task as it was. The island owns the modal body while it is open, so the task
+   * view is not re-rendered underneath it (that would destroy the island root).
+   */
+  const openDiffModal = (id, path, hunk) => {
+    const box = $("diffModal");
+    if (!box || !window.ReviewIsland) return;
+    state.diffModal = { id, path: path ?? null, hunk: Number.isInteger(hunk) ? hunk : null };
+    // One island root at a time: mounting here unmounts a hidden diff view, so force its remount later.
+    state.reviewKey = "";
+    box.hidden = false;
+    window.ReviewIsland.mount($("diffModalBody"), {
+      mode: "modal",
+      issueId: id,
+      actor: state.actor,
+      theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
+      ...(path ? { initialFile: path } : {}),
+      initialHunk: state.diffModal.hunk,
+      onExpand: (p) => { closeDiffModal(); navigate(diffUrl(id) + "?file=" + encodeURIComponent(p)); },
+      onClose: () => closeDiffModal(),
+      onError: (message) => toast(message, true),
+    });
+  };
+  const closeDiffModal = () => {
+    if (state.diffModal === null) return;
+    state.diffModal = null;
+    window.ReviewIsland?.unmount();
+    const box = $("diffModal");
+    if (box) box.hidden = true;
+    if (state.view === "task") renderTask();
+  };
+  /** The file the CHANGES tab / ◧ open diff opens: the first that still needs review, else the first changed. */
+  const firstDiffPath = (id) => {
+    const files = (taskviewCache.get(id)?.view?.changes ?? []).filter((r) => r.kind === "file");
+    return (files.find((r) => r.needsReview) ?? files[0])?.path ?? null;
+  };
+  /**
+   * The worktree chip / WORKSPC label (09-11): the server's `workspace.worktreeLabel`
+   * (TUI `displayPath` rule) once the taskview payload is cached; before that the
+   * `.worktrees/<name>` tail of the absolute path; else the path itself.
+   */
+  const wtLabel = (issueId, abs) => {
+    const label = taskviewCache.get(issueId)?.view?.workspace?.worktreeLabel;
+    if (typeof label === "string" && label) return label;
+    if (typeof abs !== "string") return abs ?? "";
+    const at = abs.lastIndexOf("/.worktrees/");
+    return at >= 0 ? abs.slice(at + 1) : abs;
+  };
+  /** Same rule as the TUI `workingTasks` (09-10): board order minus closed/archived/deferred, plus the shown task. */
+  const HIDDEN_FROM_TASKS = new Set(["closed", "archived", "deferred"]);
+  const workingTasks = (issues, shownId) => {
+    const rows = issues.filter((i) => !HIDDEN_FROM_TASKS.has(i.status));
+    const shown = issues.find((i) => i.id === shownId);
+    if (shown && !rows.includes(shown)) rows.push(shown);
+    return rows;
+  };
+  const tasksColumn = (issue) => {
+    const rows = workingTasks(state.issues, issue.id).map((t) => {
+      const on = t.id === issue.id;
+      return `<a class="ttask${on ? " on" : ""}" href="${esc(taskUrl(t.id))}" data-task="${esc(t.id)}"${on ? ' aria-current="page"' : ""} title="${esc(t.id)}"><span class="cdot" style="background:${STATUS_COLOR[t.status] ?? "var(--dim)"}"></span><span class="tttitle">${esc(t.title)}</span></a>`;
+    }).join("");
+    return `<nav class="ttasks" aria-label="tasks"><div class="tthead">TASKS</div>${rows}<div class="ttfoot">[ ] switch task</div></nav>`;
+  };
+  /** Switches the task view to another task in place (click or [ / ]); leaving the task closes its diff modal. */
+  const switchTask = (id) => {
+    if (!id || id === state.selected) return;
+    closeDiffModal();
+    navigate(taskUrl(id));
+  };
+  const renderTask = () => {
+    // The modal's island lives inside #taskView; a re-render would destroy it (T-09-17).
+    if (state.diffModal !== null) return;
+    const issue = state.issues.find((i) => i.id === state.selected);
+    if (!issue) { $("taskView").innerHTML = `<div class="iempty">no task ${esc(state.selected ?? "")}</div>`; return; }
+    const m = issue.metadata || {};
+    const worktree = typeof m.worktree === "string" && m.worktree ? m.worktree : null;
+    const base = typeof m.changeset?.base === "string" ? m.changeset.base : null;
+    const cached = taskviewCache.get(issue.id);
+    // The record moved (comment, attach, finish) since the payload was read: refetch once.
+    if (cached !== undefined && cached.updatedAt !== (issue.updatedAt ?? null)) void loadTaskView(issue.id);
+    const inReview = issue.status === "ready-to-review";
+    // A re-render (event burst, reload) must not steal the WORKSPC commit input's focus (11-05).
+    const wsFocused = document.activeElement?.id === "wsCommitMsg";
+    $("taskView").innerHTML = `${tasksColumn(issue)}
+      <div class="tmain">
+        <div class="thead"><span class="id mono">${esc(issue.id)}</span><h2>${esc(issue.title)}</h2>${statchip(issue)}</div>
+        <div class="tchips">
+          ${worktree ? `<span class="fchip2 mono wtchip" title="${esc(worktree)}">worktree ${esc(wtLabel(issue.id, worktree))}</span>` : ""}
+          ${issue.branch && base ? `<span class="fchip2 mono brchip">${esc(issue.branch)} → ${esc(base.slice(0, 7))}</span>` : ""}
+        </div>
+        <div class="topen">${reviewable(issue)
+          ? `<button class="btn primary" id="openDiff">◧ open diff</button>${inReview ? `<span class="note">work already begun — opens the diff</span>` : ""}`
+          : `<span class="fchip2" style="color:var(--faint)">no changes to review yet</span>`}</div>
+        <div class="tdesc ${issue.description ? "" : "none"}">${issue.description ? esc(issue.description) : "no description"}</div>
+        ${artifactsSection(issue, cached)}
+        ${commentsPreview(issue, cached)}
+        ${doorsHtml(issue)}
+      </div>
+      <aside class="trail">${railPanels(issue, cached)}</aside>
+      <div id="diffModal" class="dmodal" hidden><div class="dmodal-card" role="dialog" aria-modal="true" aria-label="diff"><div id="diffModalBody"></div></div></div>`;
+    if (wsFocused) { const input = $("wsCommitMsg"); if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } }
+    $("openDiff")?.addEventListener("click", () => openDiffModal(issue.id, firstDiffPath(issue.id), null));
+    $("diffModal").addEventListener("click", (e) => { if (e.target === e.currentTarget) closeDiffModal(); });
+    const view = $("taskView");
+    view.querySelectorAll(".rtab").forEach((b) => b.addEventListener("click", () => {
+      // Clicking the already-selected CHANGES tab opens the diff (the mock's "click the tab").
+      if (b.dataset.tab === "changes" && state.railTab === "changes" && reviewable(issue)) openDiffModal(issue.id, firstDiffPath(issue.id), null);
+      else selectRailTab(b.dataset.tab);
+    }));
+    view.querySelector(".rtabs")?.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      const ix = RAIL_TABS.findIndex(([k]) => k === state.railTab);
+      const next = RAIL_TABS[(ix + (e.key === "ArrowRight" ? 1 : RAIL_TABS.length - 1)) % RAIL_TABS.length][0];
+      selectRailTab(next);
+      $("rtab-" + next)?.focus();
+    });
+    view.querySelectorAll("[data-cfilter]").forEach((b) => b.addEventListener("click", () => { state.changesFilter = b.dataset.cfilter; renderTask(); }));
+    // In-app links route in place; modifier-clicks still open a new tab.
+    const inPlace = (el, url) => el.addEventListener("click", (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+      e.preventDefault();
+      navigate(url);
+    });
+    view.querySelectorAll("a[data-file]").forEach((a) => inPlace(a, fileUrl(issue.id, a.dataset.file)));
+    view.querySelectorAll("a[data-evidence]").forEach((a) => inPlace(a, evidenceUrl(issue.id, a.dataset.evidence)));
+    // A changed file / MINIMAP bar opens the diff modal (at the bar's hunk); modifier-clicks still open the full diff in a new tab.
+    view.querySelectorAll("a[data-open-diff]").forEach((a) => a.addEventListener("click", (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+      e.preventDefault();
+      const hunk = a.dataset.hunk === undefined ? null : Number(a.dataset.hunk);
+      openDiffModal(issue.id, a.dataset.openDiff, hunk);
+    }));
+    view.querySelectorAll("[data-view]").forEach((el) => el.addEventListener("click", () => openViewer(issue, el.dataset.view)));
+    // TASKS column: a plain click switches the task in place; modifier-clicks keep the native link.
+    view.querySelectorAll("a.ttask[data-task]").forEach((a) => a.addEventListener("click", (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      e.preventDefault();
+      switchTask(a.dataset.task);
+    }));
+  };
+
+  // WORKSPC actions (11-05): delegated once on #taskView so board refreshes that re-render the rail keep working.
+  $("taskView").addEventListener("click", (e) => {
+    const btn = e.target instanceof Element ? e.target.closest("[data-ws-act]") : null;
+    if (!btn || btn.disabled || state.view !== "task" || !state.selected) return;
+    const id = state.selected;
+    const act = btn.dataset.wsAct;
+    if (act === "commit") {
+      wsState.commitFor = id; renderTask();
+      $("wsCommitMsg")?.focus();
+    } else if (act === "commit-cancel") {
+      wsState.commitFor = null; wsState.draft = ""; renderTask();
+    } else if (act === "commit-submit") void wsCommitSubmit(id);
+    else if (act === "pr") void wsOpenPr(id);
+  });
+  $("taskView").addEventListener("input", (e) => { if (e.target?.id === "wsCommitMsg") wsState.draft = e.target.value; });
+  $("taskView").addEventListener("keydown", (e) => {
+    if (e.target?.id !== "wsCommitMsg") return;
+    // stopPropagation: the submit re-renders the panel (the input leaves the DOM), so the document-level
+    // Enter → openModal handler would otherwise see no focused field and open the task modal.
+    if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); if (!wsState.busy && state.selected) void wsCommitSubmit(state.selected); }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); wsState.commitFor = null; wsState.draft = ""; renderTask(); }
+  });
+
+  /* ---------- router: /tasks/:id (task) · /tasks/:id/diff (diff) · /tasks/:id/file?path= (artifact) ---------- */
+  const routeFromLocation = () => {
+    const m = /^\/tasks\/([^/]+)(?:\/(diff|file))?\/?$/.exec(location.pathname);
+    if (!m) return { view: null, id: null, file: null, path: null, evidence: null };
+    let id = m[1]; try { id = decodeURIComponent(m[1]); } catch { /* keep raw */ }
+    const params = new URLSearchParams(location.search);
+    const view = m[2] === "diff" ? "review" : m[2] === "file" ? "file" : "task";
+    return { view, id, file: params.get("file"), path: params.get("path"), evidence: view === "file" ? params.get("evidence") : null };
+  };
+  const applyRoute = (route) => {
+    if (route.view === null) {
+      state.route = null;
+      const back = history.state?.view;
+      if (typeof back === "string" && back !== "task") state.view = back;
+      else if (state.view === "task" || state.view === "file") state.view = "board";
+      render();
+      return;
+    }
+    if (!state.issues.some((i) => i.id === route.id)) { toast(`no task ${route.id}`, true); return; }
+    // /tasks/:id/file without a ?path= has no file to show — land on the task view.
+    if (route.view === "file" && !route.path && !route.evidence) route = { ...route, view: "task" };
+    state.route = route;
+    state.selected = route.id;
+    state.view = route.view;
+    closeModal();
+    render();
+    if (state.view === "task") void loadTaskView(route.id);
+  };
+  const navigate = (url) => { history.pushState(null, "", url); applyRoute(routeFromLocation()); };
+  window.addEventListener("popstate", () => applyRoute(routeFromLocation()));
 
   /* ---------- frame ---------- */
   const FILTERS = ["all", "open", "in_progress", "ready-to-review", "closed", "archived"];
@@ -649,6 +1260,8 @@
 
   const render = () => {
     const issues = visible();
+    // Leaving the task (route, view switch, another task) closes its diff modal.
+    if (state.diffModal !== null && (state.view !== "task" || state.selected !== state.diffModal.id)) closeDiffModal();
     railCounts(state.issues);
     // Chips only make sense where the filter applies; TUI shows them on list/board/insights only.
     if (["list", "board", "insights"].includes(state.view)) {
@@ -657,22 +1270,31 @@
     } else {
       $("filterbar").style.display = "none";
     }
-    for (const v of ["board", "list", "graph", "insights", "review"]) {
-      $(v + "View").style.display = state.view === v ? "flex" : "none";
+    for (const v of ["board", "list", "graph", "insights", "review", "task"]) {
+      // The artifact view ("file") shares #reviewView with the diff — one island, two modes.
+      $(v + "View").style.display = state.view === v || (v === "review" && state.view === "file") ? "flex" : "none";
       if (v === "list" || v === "graph" || v === "insights") $(v + "View").style.display = state.view === v ? "block" : "none";
     }
     if (state.view === "board") renderBoard(issues);
     if (state.view === "list") renderList(issues);
     if (state.view === "graph") renderGraph();
     if (state.view === "insights") renderInsights(issues);
-    if (state.view === "review") renderReview();
+    if (state.view === "review" || state.view === "file") renderReview();
+    if (state.view === "task") renderTask();
     document.querySelectorAll(".navitem[data-view]").forEach((el) => {
       el.classList.toggle("active", el.dataset.view === state.view);
     });
     document.title = `tk web · ${state.view}`;
   };
 
-  const switchView = (view) => { state.view = view; render(); };
+  // Sidebar/key view switches leave a routed /tasks/... URL for "/" so reload and back stay honest.
+  const switchView = (view) => {
+    if (location.pathname !== "/") history.pushState({ view }, "", "/");
+    else history.replaceState({ view }, "", location.pathname + location.search);
+    state.route = null;
+    state.view = view;
+    render();
+  };
   document.querySelectorAll(".navitem[data-view]").forEach((el) => {
     el.addEventListener("click", () => switchView(el.dataset.view));
   });
@@ -700,6 +1322,33 @@
 
   /* ---------- evidence + attachments ---------- */
   const isImage = (mime) => typeof mime === "string" && mime.startsWith("image/");
+  /* ---------- review record: agent line, two doors, comments row (mirrors @tasks/domain review-record) ---------- */
+  const agentLine = (issue) => {
+    const m = issue.metadata || {};
+    if (typeof m.agent_session !== "string" || m.agent_session === "") return "";
+    const harness = typeof m.agent_harness === "string" && m.agent_harness ? m.agent_harness : ((state.harnesses || [])[0]?.id ?? "omp");
+    const fin = typeof m.finished_at === "string" ? ` finished ${m.finished_at.slice(0, 16).replace("T", " ")}` : "";
+    return `agent ${harness} · session ${m.agent_session}${fin}`;
+  };
+  const doorsFor = (issue) => ({ tui: `tk review ${issue.id}`, web: `${location.origin}/tasks/${issue.id}` });
+  // Mirrors commentsLine/commentSummary in @tasks/domain: stored status (legacy resolved:true -> resolved, else open); open+sent = open; dismissed settles.
+  const THREAD_STATUSES = ["open", "sent", "resolved", "dismissed"];
+  const commentsLine = (issue) => {
+    const threads = issue.metadata?.reviewThreads?.threads;
+    let open = 0, done = 0, dismissed = 0;
+    if (Array.isArray(threads)) for (const t of threads) {
+      if (!t || typeof t !== "object" || Array.isArray(t)) continue;
+      const status = THREAD_STATUSES.includes(t.status) ? t.status : t.resolved === true ? "resolved" : "open";
+      if (status === "resolved") done++; else if (status === "dismissed") dismissed++; else open++;
+    }
+    const total = Math.max(issue.commentCount ?? 0, (issue.comments || []).length);
+    if (open + done + dismissed > 0 && open === 0) return `comments ${total} · All resolved · ${done} ✓`;
+    return `comments ${total} · ${open} open ${done} ✓`;
+  };
+  const doorsHtml = (issue) => {
+    const d = doorsFor(issue), agent = agentLine(issue);
+    return `<div class="fieldrow" id="mDoors">${agent ? `<span class="fchip2" id="mAgent">${esc(agent)}</span>` : ""}<span class="fchip2">review TUI <b class="mono">${esc(d.tui)}</b></span><span class="fchip2">web <a class="mono" href="${esc(d.web)}">${esc(d.web)}</a></span></div>`;
+  };
   const blobUrl = (issue, att) => `/api/issue/${encodeURIComponent(issue.id)}/blob/${encodeURIComponent(att.id)}`;
   const fmtSize = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
   const blobAtts = (issue) => (issue.attachments ?? []).filter((a) => a.id !== undefined);
@@ -859,10 +1508,11 @@
       ${blobAtts(issue).length ? `<div class="attrow">${blobAtts(issue).map((a) => isImage(a.mime)
         ? `<button class="atchip" data-view="${a.id}" title="open in viewer"><img src="${blobUrl(issue, a)}" alt=""> ${esc(a.name)}</button>`
         : `<a class="atchip" href="${blobUrl(issue, a)}" target="_blank" rel="noopener">📎 ${esc(a.name)} · ${esc(a.mime)} · ${fmtSize(a.size)}</a>`).join("")}</div>` : ""}
+      ${doorsHtml(issue)}
       <div class="fieldrow">
         <span class="fchip2">labels <b>${esc(issue.labels.join(", ") || "none")}</b></span>
         <span class="fchip2">deps <b>${issue.dependencyCount}</b></span>
-        <span class="fchip2">comments <b>${issue.commentCount}</b></span>
+        <span class="fchip2" id="mCommentsRow">${esc(commentsLine(issue))}</span>
       </div>
       <div class="comments">${issue.comments.map((c) => `<div class="comment"><span class="who">${esc(c.author)}</span><span class="at">${age(c.createdAt)} ago</span><br>${renderBody(issue, c.text)}</div>`).join("")}</div>
       <div class="cbox"><input id="mComment" placeholder="Add a comment…"><button class="btn" id="mCommentBtn">Comment</button></div>
@@ -966,8 +1616,10 @@
       { glyph: "+", label: "new issue", group: "global", run: () => openNew() },
       { glyph: "/", label: "search issues", group: "global", run: () => $("searchInput").focus() },
     ];
+    // D-03: work on a ready-to-review task has begun — offer its diff, never start-work.
+    const rtr = issue?.status === "ready-to-review";
     if (issue) rows.push(
-      { glyph: "⚡", label: `start ${issue.id}`, group: "status", run: () => moveIssue(issue.id, "in_progress") },
+      rtr ? { glyph: "◧", label: `open diff ${issue.id}`, group: "task", run: () => navigate(diffUrl(issue.id)) } : { glyph: "⚡", label: `start ${issue.id}`, group: "status", run: () => moveIssue(issue.id, "in_progress") },
       { glyph: "👀", label: `send ${issue.id} to review`, group: "status", run: () => moveIssue(issue.id, "ready-to-review") },
       { glyph: "☑", label: `reopen ${issue.id}`, group: "status", run: () => moveIssue(issue.id, "open") },
       { glyph: "✓", label: `close ${issue.id}`, group: "status", run: () => moveIssue(issue.id, "closed") },
@@ -1013,6 +1665,8 @@
       if (inField) document.activeElement.blur();
       return;
     }
+    // The diff modal owns the keyboard while open (Esc / C are handled by the island).
+    if (state.diffModal !== null) return;
     if (viewerOpen() && !inField) {
       if (e.key === "ArrowLeft") { e.preventDefault(); stepViewer(-1); return; }
       if (e.key === "ArrowRight") { e.preventDefault(); stepViewer(1); return; }
@@ -1020,6 +1674,16 @@
       if (e.key === "-") { e.preventDefault(); zoomViewer(1 / 1.25); return; }
     }
     if (inField) return;
+    // Task view: [ / ] step through the working tasks (TASKS column, 09-11), wrapping.
+    if ((e.key === "[" || e.key === "]") && state.view === "task" && !e.metaKey && !e.ctrlKey && !e.altKey && !viewerOpen()
+      && ![$("modalOverlay"), $("newOverlay"), $("paletteOverlay")].some((o) => o?.classList.contains("show"))) {
+      const list = workingTasks(state.issues, state.selected);
+      if (list.length < 2) return;
+      const ix = Math.max(0, list.findIndex((i) => i.id === state.selected));
+      e.preventDefault();
+      switchTask(list[(ix + (e.key === "]" ? 1 : list.length - 1)) % list.length].id);
+      return;
+    }
     if (e.key === ":" || (e.key === "k" && (e.metaKey || e.ctrlKey))) { e.preventDefault(); openPalette(); }
     else if (e.key === "1") switchView("list");
     else if (e.key === "2") switchView("board");
@@ -1031,14 +1695,21 @@
   });
 
   /* ---------- data loop ---------- */
+  let routed = false;
   const refresh = async () => {
     try {
       const data = await api("/api/board");
       state.issues = data.issues ?? [];
+      state.harnesses = data.harnesses ?? [];
       state.actor = data.actor ?? "—";
       state.activeSprint = data.activeSprint ?? null;
+      if (!routed) {
+        // First load: the record's web door /tasks/:id lands on the task view; /tasks/:id/diff on the diff.
+        routed = true;
+        const route = routeFromLocation();
+        if (route.view !== null) applyRoute(route);
+      }
       $("actorName").textContent = state.actor;
-      $("conn").classList.remove("stale");
       if (modalIssue && $("modalOverlay").classList.contains("show")) {
         const fresh = state.issues.find((i) => i.id === modalIssue.id);
         const focusKept = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
@@ -1046,13 +1717,10 @@
         else if (!fresh) closeModal();
       }
       render();
-    } catch {
-      $("conn").classList.add("stale");
-    }
+    } catch { /* the stream's next frame or reconnect refreshes again; #conn tracks the stream */ }
   };
 
   await refresh();
-  setInterval(refresh, 2000);
   // Workspace picker — from /api/status (it carries the full known list, not
   // just the board payload's root). Choosing one repoints the shared instance
   // (POST /api/open); the server broadcasts a reload and every open page
@@ -1069,6 +1737,7 @@
     paintWorkspaces(s);
     // ?path=<workspace> deep-link: repoint the shared instance, then drop the
     // param so a reload doesn't re-open it.
+    if (routeFromLocation().view !== null) return; // /tasks/:id/file?path= is a file, not a workspace
     const wanted = new URLSearchParams(location.search).get("path");
     if (wanted === null || wanted.length === 0) return;
     history.replaceState(null, "", location.pathname);
@@ -1080,9 +1749,82 @@
       api("/api/status").then(paintWorkspaces).catch(() => {});
     });
   });
+  /* ---------- live board: the event wire (D-03, WIRE-03) ---------- */
+  // Every line appended to the served workspace's event log arrives as an SSE
+  // `task` frame (any writer: terminal tk, TUI, agents, this page). A burst
+  // refreshes the board/list/modal once; review moments also toast. Toast text
+  // goes through toast() → textContent only (T-10-22).
+  const clip = (text, max) => {
+    const flat = String(text ?? "").replace(/\s+/g, " ").trim();
+    return flat.length > max ? flat.slice(0, max - 1) + "…" : flat;
+  };
+  const taskToast = (kind, id, data) => {
+    if (id === null) return null;
+    if (kind === "task.status") {
+      if (data.to === "ready-to-review") return `${id} ready for review`;
+      if (data.to === "approved") return `${id} approved`;
+      if (data.to === "rejected") return `${id} rejected`;
+      return null;
+    }
+    if (kind !== "task.comment") return null;
+    if (data.kind === "note") return `${id} · ${clip(data.author ?? data.actor ?? "someone", 40)}: ${clip(data.body, 80)}`;
+    if (data.kind === "review" && data.to === "open" && data.from !== "open") {
+      const at = typeof data.location === "string" && data.location !== ""
+        ? data.location
+        : typeof data.file === "string" ? data.file + (typeof data.line === "number" ? `:${data.line}` : "") : "the task";
+      return `${id} · review comment at ${clip(at, 80)}`;
+    }
+    return null;
+  };
+  let taskBurst = null;
+  const flushTaskBurst = () => {
+    const burst = taskBurst;
+    taskBurst = null;
+    if (burst === null) return;
+    void refresh();
+    if (state.view === "task" && state.selected !== null && burst.comments.has(state.selected)) void loadTaskView(state.selected);
+    for (const [id, n] of burst.sent) toast(`${id} · ${n} review comment${n === 1 ? "" : "s"} sent`);
+  };
+  const onTaskEvent = (event) => {
+    if (event === null || typeof event !== "object" || typeof event.kind !== "string") return;
+    const id = typeof event.issueId === "string" ? event.issueId : null;
+    const data = event.data !== null && typeof event.data === "object" ? event.data : {};
+    if (taskBurst === null) {
+      taskBurst = { comments: new Set(), sent: new Map() };
+      setTimeout(flushTaskBurst, 100);
+    }
+    if (id !== null && event.kind === "task.comment") taskBurst.comments.add(id);
+    if (id !== null && (event.kind === "task.comment" || event.kind === "task.update")) window.ReviewIsland?.refresh?.(id);
+    if (id !== null && event.kind === "task.comment" && data.kind === "review" && data.to === "sent") {
+      taskBurst.sent.set(id, (taskBurst.sent.get(id) ?? 0) + 1);
+      return;
+    }
+    const note = taskToast(event.kind, id, data);
+    if (note !== null) toast(note);
+  };
   if ("EventSource" in window) {
     const events = new EventSource("/events");
+    let streamDropped = false;
+    events.onopen = () => {
+      $("conn").classList.remove("stale");
+      // The stream has no backlog: after a drop, reconcile once with a fresh board.
+      if (streamDropped) { streamDropped = false; void refresh(); }
+    };
+    events.onerror = () => { streamDropped = true; $("conn").classList.add("stale"); };
     events.onmessage = (m) => { if (m.data === "reload") location.reload(); };
+    events.addEventListener("task", (m) => {
+      let event = null;
+      try { event = JSON.parse(m.data); } catch { return; }
+      onTaskEvent(event);
+    });
+    events.addEventListener("review", (m) => {
+      let id = null;
+      try { id = JSON.parse(m.data)?.id; } catch { return; }
+      if (typeof id !== "string") return;
+      window.ReviewIsland?.refresh?.(id);
+      // D-02 carried to the task view: refetch its payload (CHANGES is live from the worktree).
+      if (state.view === "task" && state.selected === id) void loadTaskView(id);
+    });
   }
 </script>
 </body>
