@@ -8,6 +8,13 @@ matching section as its release notes — add a section for every new version
 
 ## [Unreleased]
 
+### Added
+
+- The `tkd` daemon speaks MCP (revision 2026-07-28 plus legacy `initialize`
+  clients) on its existing unix socket, via `@modelcontextprotocol/server`: one
+  tool per RPC verb, workspace root set with `transport.bind` or a per-call
+  `root` argument.
+
 ## [0.7.0] - 2026-11-12
 
 ### Added

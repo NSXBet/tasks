@@ -17,6 +17,7 @@ import {
 import { PortBusyError } from '@tasks/web';
 import { cleanStaleSocket, daemonSocketPath, socketAlive } from './socket.js';
 import { asWatchKinds, createEventsHost, eventsSubscribeError, type EventsSubscribeParams } from './events.js';
+import { serveMcp } from './mcp.js';
 import { createWebHost, type WebStartParams } from './web.js';
 
 /** Rejected when a daemon is already listening on the global socket. */
@@ -126,6 +127,9 @@ export const startDaemon = async (options: DaemonOptions = {}): Promise<DaemonHa
     if (!socket.destroyed) socket.write(`${JSON.stringify(response)}\n`);
   };
 
+  /** Default root per connection, set by the daemon-intercepted `transport.bind`; cleared on close. */
+  const boundRoots = new Map<net.Socket, string>();
+
   const handleFrame = async (socket: net.Socket, line: string): Promise<void> => {
     let request: RpcRequest;
     try {
@@ -178,6 +182,16 @@ export const startDaemon = async (options: DaemonOptions = {}): Promise<DaemonHa
       writeResponse(socket, { v: PROTOCOL_VERSION, ...(request.id === undefined ? {} : { id: request.id }), ok: true, value: {} });
       return;
     }
+    if (request.method === 'transport.bind') {
+      const root = (request.params as { root?: unknown } | undefined)?.root;
+      if (typeof root !== 'string' || root.trim() === '') {
+        writeResponse(socket, { v: PROTOCOL_VERSION, ...(request.id === undefined ? {} : { id: request.id }), ok: false, error: { kind: 'root_invalid', message: 'transport.bind: root must be a non-empty workspace path' } });
+        return;
+      }
+      boundRoots.set(socket, root);
+      writeResponse(socket, { v: PROTOCOL_VERSION, ...(request.id === undefined ? {} : { id: request.id }), ok: true, value: { root } });
+      return;
+    }
     if (request.method === 'daemon.ping') {
       writeResponse(socket, { v: PROTOCOL_VERSION, ...(request.id === undefined ? {} : { id: request.id }), ok: true, value: status() });
       return;
@@ -198,17 +212,35 @@ export const startDaemon = async (options: DaemonOptions = {}): Promise<DaemonHa
       idleTimer = undefined;
     }
     let buffer = '';
-    socket.on('data', (chunk: Buffer) => {
+    const onData = (chunk: Buffer): void => {
       buffer += chunk.toString('utf8');
       let newline = buffer.indexOf('\n');
       while (newline >= 0) {
         const line = buffer.slice(0, newline).trim();
+        if (line !== '') {
+          let jsonrpc = false;
+          try {
+            const parsed: unknown = JSON.parse(line);
+            jsonrpc = typeof parsed === 'object' && parsed !== null && 'jsonrpc' in parsed;
+          } catch {}
+          if (jsonrpc) {
+            // The first `jsonrpc` line fixes the connection to MCP for good (RPC lines before it,
+            // such as the `transport.bind` establishment step, were served as RPC). Hand the socket
+            // over with this line and anything buffered after it.
+            socket.off('data', onData);
+            serveMcp(socket, buffer, { root: () => boundRoots.get(socket), provide, ctx: { actor: process.env['USER'] ?? 'unknown' } });
+            buffer = '';
+            return;
+          }
+        }
         buffer = buffer.slice(newline + 1);
         newline = buffer.indexOf('\n');
         if (line !== '') void handleFrame(socket, line);
       }
-    });
+    };
+    socket.on('data', onData);
     socket.on('close', () => {
+      boundRoots.delete(socket);
       connections.delete(socket);
       events.drop(socket);
       idleCheck();

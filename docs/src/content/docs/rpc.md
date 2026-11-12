@@ -11,7 +11,7 @@ Every tk client — the CLI, the web UI, the pi extension — talks to the same 
 
 | Transport | Used by | Lifetime |
 |---|---|---|
-| `tkd` unix-socket daemon | CLI (`tk web`, watchers), pi extension | One daemon per workspace; spawned on first connect, idles out after 10 min with zero connections and nothing hosted (`idleMs: 0` disables) |
+| `tkd` unix-socket daemon | CLI (`tk web`, watchers), pi extension, MCP clients (see [MCP on the daemon](#mcp-on-the-daemon)) | One daemon per workspace; spawned on first connect, idles out after 10 min with zero connections and nothing hosted (`idleMs: 0` disables) |
 | In-process dispatcher | web server routes | Web server owns a memoized surface lease per workspace |
 | Web HTTP (`POST /api/rpc`, `GET /api/events`) | `@tasks/lua` Luau client (`packages/lua/luau/tk`) — lune scripts and Tern plugins such as `examples/tern/tk-board` | Talks to whatever `tk web` hosts; discovery reads the hosted-web row from `<root>/.tasks/runtime.json` |
 
@@ -87,6 +87,7 @@ The daemon intercepts these frames itself; everything else falls through to the 
 | Method | Params | Result |
 |---|---|---|
 | `daemon.ping` | — | `{ pid, socketPath, roots, connections, eventSubscriptions, idleMs, uptimeMs }` — `roots` are the workspace roots currently holding open surfaces |
+| `transport.bind` | `{ root }` | `{ root }` — sets this connection's default workspace root for MCP tool calls (see [MCP on the daemon](#mcp-on-the-daemon)); `root_invalid` when empty. Stored per socket, dropped on close |
 | `daemon.stop` | — | Stops the daemon: hosted web, event subscriptions, and the registry row all shut down |
 | `web.start` | `{ root, port?, open? }` | Hosts the web UI for one workspace inside the daemon (port `0` binds ephemeral — tests); returns the live server (`url`, …). A live host is left running; `tk web` repoints it per workspace |
 | `web.status` | — | `{ hosting: false }` or `{ hosting: true, url, … }` |
@@ -147,6 +148,20 @@ Legacy kind names are still accepted in `kinds` and expand to log types; they ar
 VERBS 5 (from 4): event kinds became the log types, `seq` became the log seq, and `events.subscribe` gained `after`.
 
 VERBS 6 (from 5): `task.pr` and `task.report` event kinds (the `issue.updated` alias covers both).
+
+## MCP on the daemon
+
+The same `tkd` socket also speaks the Model Context Protocol, served by the official SDK (`@modelcontextprotocol/server` 2.x, `packages/daemon/src/mcp.ts`). MCP over a unix socket reuses the stdio binding's framing — newline-delimited JSON-RPC — which is exactly the daemon's ndjson framing.
+
+**Revisions.** The daemon uses the SDK's `serveStdio` entry over a custom `SocketTransport` (`ReadBuffer` + `serializeMessage`). The opening MCP message picks the era per connection: a 2026-07-28 request (per-request `_meta` envelope with `io.modelcontextprotocol/protocolVersion` and `io.modelcontextprotocol/clientCapabilities`, `server/discover`) is served stateless; a legacy `initialize` (e.g. 2025-06-18) is served as a normal handshake (`legacy: 'serve'`, the SDK default). The SDK fills `resultType`, `_meta.serverInfo`, and `ttlMs`/`cacheScope` on `tools/list`.
+
+**One protocol per connection.** RPC frames are served until the first line whose JSON carries `"jsonrpc"`; from then on the connection is MCP for its lifetime and RPC frames on it are ignored (and the reverse: a connection that never sends a `jsonrpc` line stays RPC). This lets a bridge send `transport.bind` as an RPC establishment step before its first MCP line. MCP connections count as connections for idle accounting.
+
+**Tools.** One tool per `VERB_TABLE` entry, named by `mcpToolName` (`issue.create` becomes `issue_create`), in sorted order, with the verb's `description` and its typebox `params` as the JSON input schema. The SDK's `fromJsonSchema` helper wraps the schema; no zod is involved. `web.*`, `events.*`, `daemon.*`, and `transport.bind` are not tools.
+
+**Root.** MCP forbids relying on earlier requests for context, so the workspace root is a property of the transport binding (like a stdio process's cwd): `transport.bind { root }` sets the connection default, and every tool accepts an optional `root` string argument that overrides it per call. With neither, the call returns a tool error `root_invalid`.
+
+**Results.** A call dispatches through `dispatchRpc`. Success returns `content: [{ type: 'text', text: <JSON, indent 1> }]`, `structuredContent` (the value; non-object values are wrapped as `{ value }`), `isError: false`. A failure returns `isError: true` with text `error <kind>: <message>` (tool errors are results, not JSON-RPC errors).
 
 ## Verb table
 
