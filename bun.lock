@@ -125,9 +125,13 @@
         "@tasks/domain": "workspace:*",
         "@tasks/surface": "workspace:*",
         "chokidar": "^4.0.3",
+        "diff": "^9.0.0",
+        "get-east-asian-width": "^1.7.0",
         "react": "^19.2.0",
+        "string-width": "^8.3.0",
       },
       "devDependencies": {
+        "@tasks/git": "workspace:*",
         "@types/react": "^19.2.0",
         "bun-types": "^1.4.0",
       },
@@ -194,6 +198,7 @@
         "@tasks/git": "workspace:*",
         "@tasks/review": "workspace:*",
         "@tasks/surface": "workspace:*",
+        "@tasks/terminal-image": "workspace:*",
         "@tasks/workspace": "workspace:*",
         "react": "^19.2.0",
       },
@@ -214,8 +219,8 @@
         "@tasks/rpc": "workspace:*",
         "@tasks/surface": "workspace:*",
         "@tasks/workspace": "workspace:*",
-        "react": "^19.2.0",
-        "react-dom": "^19.2.0",
+        "react": "19.2.8",
+        "react-dom": "19.2.8",
       },
       "devDependencies": {
         "@types/react": "^19.2.0",
@@ -440,7 +445,7 @@
 
     "fsevents": ["fsevents@2.3.3", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/fsevents/-/fsevents-2.3.3.tgz", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
 
-    "get-east-asian-width": ["get-east-asian-width@1.6.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/get-east-asian-width/-/get-east-asian-width-1.6.0.tgz", {}, "sha512-QRbvDIbx6YklUe6RxeTeleMR0yv3cYH6PsPZHcnVn7xv7zO1BHN8r0XETu8n6Ye3Q+ahtSarc3WgtNWmehIBfA=="],
+    "get-east-asian-width": ["get-east-asian-width@1.7.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/get-east-asian-width/-/get-east-asian-width-1.7.0.tgz", {}, "sha512-XjH1AECxf0giL2V1aU8vKyRR2ppRUb5c0EvT7zuJTokQ74bNo52zOtghqdWIqrhUD79fo3x0WfKZdOqxF6LG1Q=="],
 
     "hast-util-to-html": ["hast-util-to-html@9.0.5", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/hast-util-to-html/-/hast-util-to-html-9.0.5.tgz", { "dependencies": { "@types/hast": "^3.0.0", "@types/unist": "^3.0.0", "ccount": "^2.0.0", "comma-separated-tokens": "^2.0.0", "hast-util-whitespace": "^3.0.0", "html-void-elements": "^3.0.0", "mdast-util-to-hast": "^13.0.0", "property-information": "^7.0.0", "space-separated-tokens": "^2.0.0", "stringify-entities": "^4.0.0", "zwitch": "^2.0.4" } }, "sha512-OguPdidb+fbHQSU4Q4ZiLKnzWo8Wwsf5bZfbvu7//a9oTYoqD/fWpe96NuHkoS9h0ccGOTe0C4NGXdtS0iObOw=="],
 
@@ -536,7 +541,7 @@
 
     "react-devtools-core": ["react-devtools-core@7.0.1", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/react-devtools-core/-/react-devtools-core-7.0.1.tgz", { "dependencies": { "shell-quote": "^1.6.1", "ws": "^7" } }, "sha512-C3yNvRHaizlpiASzy7b9vbnBGLrhvdhl1CbdU6EnZgxPNbai60szdLtl+VL76UNOt5bOoVTOz5rNWZxgGt+Gsw=="],
 
-    "react-dom": ["react-dom@19.3.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/react-dom/-/react-dom-19.3.0.tgz", { "dependencies": { "scheduler": "^0.28.0" }, "peerDependencies": { "react": "^19.3.0" } }, "sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q=="],
+    "react-dom": ["react-dom@19.2.8", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/react-dom/-/react-dom-19.2.8.tgz", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.8" } }, "sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ=="],
 
     "react-reconciler": ["react-reconciler@0.33.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/react-reconciler/-/react-reconciler-0.33.0.tgz", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.0" } }, "sha512-KetWRytFv1epdpJc3J4G75I4WrplZE5jOL7Yq0p34+OVOKF4Se7WrdIdVC45XsSSmUTlht2FM/fM1FZb1mfQeA=="],
 
@@ -550,7 +555,7 @@
 
     "rolldown": ["rolldown@1.2.5", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/rolldown/-/rolldown-1.2.5.tgz", { "dependencies": { "@oxc-project/types": "0.146.0", "@rolldown/pluginutils": "1.0.1" }, "optionalDependencies": { "@rolldown/binding-android-arm-eabi": "1.2.5", "@rolldown/binding-android-arm64": "1.2.5", "@rolldown/binding-darwin-arm64": "1.2.5", "@rolldown/binding-darwin-x64": "1.2.5", "@rolldown/binding-freebsd-x64": "1.2.5", "@rolldown/binding-linux-arm-gnueabihf": "1.2.5", "@rolldown/binding-linux-arm64-gnu": "1.2.5", "@rolldown/binding-linux-arm64-musl": "1.2.5", "@rolldown/binding-linux-ppc64-gnu": "1.2.5", "@rolldown/binding-linux-s390x-gnu": "1.2.5", "@rolldown/binding-linux-x64-gnu": "1.2.5", "@rolldown/binding-linux-x64-musl": "1.2.5", "@rolldown/binding-openharmony-arm64": "1.2.5", "@rolldown/binding-win32-arm64-msvc": "1.2.5", "@rolldown/binding-win32-x64-msvc": "1.2.5" }, "bin": { "rolldown": "./bin/cli.mjs" } }, "sha512-VD2IE5PUG4Oj8zz2VGykiYd5wbnjdIiSsNQb8Qu5B+noEp+A78mu2iVvpp27g8es14Tk9rofNs5Tku9iQCS4fA=="],
 
-    "scheduler": ["scheduler@0.28.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/scheduler/-/scheduler-0.28.0.tgz", {}, "sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw=="],
+    "scheduler": ["scheduler@0.27.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/scheduler/-/scheduler-0.27.0.tgz", {}, "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=="],
 
     "shell-quote": ["shell-quote@1.10.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/shell-quote/-/shell-quote-1.10.0.tgz", {}, "sha512-w1aiOKwKuRgtwAReIIj89puqg+I7GvX4IbLrvmhXbzQsj1+Zwi4VO3+fa6ZF91TWSjIxoEkKnMeHcLEODK5ZXA=="],
 
@@ -568,7 +573,7 @@
 
     "std-env": ["std-env@4.2.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/std-env/-/std-env-4.2.0.tgz", {}, "sha512-oCUKSupKTHX53EyjDtuZQ64pjLJ6yYCtpmEw0goYxtjG9KpbRe8KAsl2tBUGU9DyMcJ0RwJ8GqJAFzMXcXW1Rw=="],
 
-    "string-width": ["string-width@7.2.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/string-width/-/string-width-7.2.0.tgz", { "dependencies": { "emoji-regex": "^10.3.0", "get-east-asian-width": "^1.0.0", "strip-ansi": "^7.1.0" } }, "sha512-tsaTIkKW9b4N+AEj+SVA+WhJzV7/zMhcSu78mLKWSk7cXMOSHsBKFWUs0fWwq8QyK3MgJBQRX6Gbi4kYbdvGkQ=="],
+    "string-width": ["string-width@8.3.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/string-width/-/string-width-8.3.0.tgz", { "dependencies": { "get-east-asian-width": "^1.5.0", "strip-ansi": "^7.1.2" } }, "sha512-ZbmZM0JCihQN91dWnxoipT2KOEyHqEyfRXUyjuRhW8b/xnqPDoq4gWEVApTVa9db2wN8mmoikgFBbjh71+cGeQ=="],
 
     "stringify-entities": ["stringify-entities@4.0.4", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/stringify-entities/-/stringify-entities-4.0.4.tgz", { "dependencies": { "character-entities-html4": "^2.0.0", "character-entities-legacy": "^3.0.0" } }, "sha512-IwfBptatlO+QCJUo19AqvrPNqlVMpW9YEL2LIVY+Rpv2qsjCGxaDLNRgeGsQWJhfItebuJhsGSLjaBbNSQ+ieg=="],
 
@@ -620,17 +625,19 @@
 
     "zwitch": ["zwitch@2.0.4", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/zwitch/-/zwitch-2.0.4.tgz", {}, "sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A=="],
 
+    "@opentui/core/string-width": ["string-width@7.2.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/string-width/-/string-width-7.2.0.tgz", { "dependencies": { "emoji-regex": "^10.3.0", "get-east-asian-width": "^1.0.0", "strip-ansi": "^7.1.0" } }, "sha512-tsaTIkKW9b4N+AEj+SVA+WhJzV7/zMhcSu78mLKWSk7cXMOSHsBKFWUs0fWwq8QyK3MgJBQRX6Gbi4kYbdvGkQ=="],
+
     "@types/pg/@types/node": ["@types/node@26.2.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@types/node/-/node-26.2.0.tgz", { "dependencies": { "undici-types": "8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
 
     "bun-types/@types/node": ["@types/node@26.2.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@types/node/-/node-26.2.0.tgz", { "dependencies": { "undici-types": "8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
 
     "react-devtools-core/ws": ["ws@7.5.13", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/ws/-/ws-7.5.13.tgz", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": "^5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-rsKI6xDBFVf4r/x8XyChGK04QR/XHroxs/jUcoWvtEZM8TPU/X/uIY9B1CsSzYws9ZJb/6bbBu7dPhFW00CAoA=="],
 
-    "react-reconciler/scheduler": ["scheduler@0.27.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/scheduler/-/scheduler-0.27.0.tgz", {}, "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=="],
-
     "vite/@types/node": ["@types/node@26.2.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@types/node/-/node-26.2.0.tgz", { "dependencies": { "undici-types": "8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
 
     "vitest/@types/node": ["@types/node@26.2.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/@types/node/-/node-26.2.0.tgz", { "dependencies": { "undici-types": "8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
+
+    "@opentui/core/string-width/get-east-asian-width": ["get-east-asian-width@1.6.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/get-east-asian-width/-/get-east-asian-width-1.6.0.tgz", {}, "sha512-QRbvDIbx6YklUe6RxeTeleMR0yv3cYH6PsPZHcnVn7xv7zO1BHN8r0XETu8n6Ye3Q+ahtSarc3WgtNWmehIBfA=="],
 
     "@types/pg/@types/node/undici-types": ["undici-types@8.3.0", "https://orbit-flutter-af768sf2xs.fbr.land/npm/npm-proxy/undici-types/-/undici-types-8.3.0.tgz", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
 
