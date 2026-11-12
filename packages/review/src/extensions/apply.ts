@@ -76,9 +76,8 @@ export interface ResolvedExtensionVcsAdapters {
 /**
  * Filter user-extension VCS adapters down to the ones Hunk will actually consult.
  *
- * Shipped ids are reserved: an extension may add `hg`, but it may not replace
- * `git`, `jj`, or `sl` — the last two are reserved by the bundled tier, which
- * registers through this same API but is loaded with core adapter resolution.
+ * Base-catalog ids are reserved: an extension may add `hg`, but it may not
+ * replace any id the base catalog already owns (such as `git`).
  * Duplicate ids between extensions resolve to the first registration so load
  * order stays the tiebreaker everywhere.
  */

@@ -5,7 +5,11 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./opentui": "./src/opentui/index.ts"
+    "./opentui": "./src/opentui/index.ts",
+    "./headless": "./src/headless.ts",
+    "./watch": "./src/watch.ts",
+    "./lifecycle": "./src/core/review/lifecycle.ts",
+    "./taskview": "./src/core/taskview/model.ts"
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",
@@ -17,12 +21,16 @@
     "@opentui/core": "0.5.11",
     "@opentui/react": "0.5.11",
     "@pierre/diffs": "1.3.5",
-    "react": "^19.2.0",
-    "chokidar": "^4.0.3",
     "@tasks/domain": "workspace:*",
-    "@tasks/surface": "workspace:*"
+    "@tasks/surface": "workspace:*",
+    "chokidar": "^4.0.3",
+    "diff": "^9.0.0",
+    "get-east-asian-width": "^1.7.0",
+    "react": "^19.2.0",
+    "string-width": "^8.3.0"
   },
   "devDependencies": {
+    "@tasks/git": "workspace:*",
     "@types/react": "^19.2.0",
     "bun-types": "^1.4.0"
   }

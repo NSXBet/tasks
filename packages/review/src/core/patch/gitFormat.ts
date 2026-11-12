@@ -1,7 +1,7 @@
 /**
  * Helpers for sanitizing Git-format patch syntax.
  *
- * These helpers are not tied to Git repositories: Jujutsu and other VCS backends can emit
+ * These helpers are not tied to Git repositories: other VCS backends can emit
  * the same `diff --git` patch format, so the app loader and public OpenTUI API share them.
  */
 

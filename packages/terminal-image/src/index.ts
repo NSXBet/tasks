@@ -53,3 +53,18 @@ export const terminalImageEscape = (image: TerminalImageSource, io?: TerminalIma
 	if (kind === "kitty" && image.mime !== "image/png") return null;
 	return kind === "kitty" ? kittyImageEscape(image.bytes) : osc1337ImageEscape(image);
 };
+
+/** How the TUI paints an evidence image: native kitty graphics, or half-block cells. */
+export type InlineImageMode = "kitty" | "blocks";
+
+/**
+ * The decision the TUI makes before painting an evidence image through
+ * OpenTUI `<image>` (the TUI owns the paint; raw escapes above serve the CLI
+ * only, since they bypass the renderer's cell buffer). Any `image/*` paints
+ * via kitty graphics when the renderer advertises them, else as blocks on a
+ * TTY. `null` means show the commentable `evidence:<id>` row instead.
+ */
+export const inlineImageMode = (input: { mime: string; isTTY: boolean; kittyGraphics: boolean }): InlineImageMode | null => {
+	if (!input.isTTY || !input.mime.trim().toLowerCase().startsWith("image/")) return null;
+	return input.kittyGraphics ? "kitty" : "blocks";
+};

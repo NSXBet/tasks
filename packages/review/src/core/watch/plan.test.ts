@@ -3,14 +3,14 @@ import { posix, win32 } from "node:path";
 
 import type { CliInput } from "../run/commandInputs";
 import { createVcsCatalog } from "../vcs";
-// Bundled git adapter is deferred to the packages/git fold (plan build step 4/7).
+// packages/review bundles no VCS adapter; tests register their own fakes.
 const STUB_VCS_CATALOG = createVcsCatalog([], "git");
 import type { VcsAdapter } from "../vcs/types";
 import { resolveWatchPlan as resolveCoreWatchPlan, type WatchPlanContext } from "./plan";
 
 const cwd = posix.join("/", "workspace", "review");
 
-/** Resolve with the app's bundled catalog unless a test supplies another. */
+/** Resolve with an empty catalog unless a test supplies another. */
 function resolveWatchPlan(input: CliInput, context: WatchPlanContext) {
   return resolveCoreWatchPlan(input, { vcsCatalog: STUB_VCS_CATALOG, ...context });
 }
@@ -29,8 +29,7 @@ function entries(
   };
 }
 
-// Bundled git adapter is deferred to the packages/git fold (plan build step 4/7).
-describe.skip("resolveWatchPlan", () => {
+describe("resolveWatchPlan", () => {
   test.each([
     {
       name: "diff",
@@ -204,19 +203,26 @@ describe.skip("resolveWatchPlan", () => {
   });
 
   test("uses poll-only plans for adapters without event targets and adds file sidecars", () => {
-    // `jj` resolves through the bundled extension tier: if watch planning did
-    // not see bundled adapters, this would fail with "Unsupported VCS: jj".
-    const vcsInput = { kind: "vcs", staged: false, options: { vcs: "jj" } } satisfies CliInput;
+    // A test-registered adapter whose operations expose no watch plan.
+    const load = async () => ({ repoRoot: cwd, sourceLabel: cwd, title: "fake", patchText: "" });
+    const adapter: VcsAdapter = {
+      id: "fake",
+      name: "Fake",
+      detect: () => null,
+      operations: { "working-tree-diff": { load }, "revision-show": { load } },
+    };
+    const vcsCatalog = createVcsCatalog([adapter], "fake", []);
+    const vcsInput = { kind: "vcs", staged: false, options: { vcs: "fake" } } satisfies CliInput;
     const showInput = {
       kind: "show",
-      options: { vcs: "jj", agentContext: "agent.json" },
+      options: { vcs: "fake", agentContext: "agent.json" },
     } satisfies CliInput;
 
-    expect(resolveWatchPlan(vcsInput, { cwd, platform: "linux" })).toEqual({
+    expect(resolveWatchPlan(vcsInput, { cwd, platform: "linux", vcsCatalog })).toEqual({
       coverage: "poll-only",
       targets: [],
     });
-    expect(resolveWatchPlan(showInput, { cwd, platform: "linux" })).toEqual({
+    expect(resolveWatchPlan(showInput, { cwd, platform: "linux", vcsCatalog })).toEqual({
       coverage: "hybrid",
       targets: [entries(cwd, [posix.join(cwd, "agent.json")], ["sidecar"])],
     });

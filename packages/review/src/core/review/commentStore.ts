@@ -14,12 +14,23 @@
 /** Which side of the diff a thread hangs on. */
 export type ReviewCommentSide = "old" | "new";
 
-/** The one diff line a thread is anchored to. */
+/**
+ * Where a comment lives, as data: a file (optionally a line or `line..endLine`
+ * range) or an evidence image (`filePath` is then `evidence:<id>` and
+ * `evidenceId` carries the bare id).
+ */
 export interface ReviewThreadPlacement {
   readonly filePath: string;
   readonly line?: number;
+  /** Last line of a multi-line range; absent for a single line. */
+  readonly endLine?: number;
   readonly side?: ReviewCommentSide;
+  readonly evidenceId?: string;
 }
+
+/** Comment lifecycle: open -> sent (batched) -> resolved | dismissed. */
+export type ReviewCommentStatus = "open" | "sent" | "resolved" | "dismissed";
+export const reviewCommentStatuses: readonly ReviewCommentStatus[] = ["open", "sent", "resolved", "dismissed"];
 
 export interface ReviewThreadComment {
   readonly id: string;
@@ -34,6 +45,9 @@ export interface ReviewThreadComment {
 export interface ReviewThread extends ReviewThreadPlacement {
   readonly id: string;
   readonly resolved: boolean;
+  readonly status: ReviewCommentStatus;
+  /** ISO 8601 instant of the batched send; present once sent. */
+  readonly sentAt?: string;
   /** ISO 8601 instant; present exactly when resolved. */
   readonly resolvedAt?: string;
   readonly resolvedBy?: string;
@@ -55,10 +69,24 @@ export interface SetResolvedInput {
   readonly actor?: string;
 }
 
+/** Status counts a view renders as `N open · K ✓`. */
+export interface ReviewThreadCounts {
+  readonly total: number;
+  readonly open: number;
+  readonly sent: number;
+  readonly resolved: number;
+  readonly dismissed: number;
+  /** open + sent. */
+  readonly unresolved: number;
+  /** `N open · K ✓` (N = unresolved, K = resolved). */
+  readonly label: string;
+}
+
 export interface ReviewThreadList {
   readonly threads: readonly ReviewThread[];
-  /** True only when at least one thread exists and every thread is resolved. */
+  /** True only when at least one thread exists and none is unresolved (all resolved or dismissed). */
   readonly allResolved: boolean;
+  readonly counts: ReviewThreadCounts;
 }
 
 /** The whole capability review consumers are granted over comment storage. */
@@ -69,7 +97,25 @@ export interface ReviewCommentStore {
   editThreadComment(issueId: string, threadId: string, commentId: string, body: string): Promise<ReviewThread>;
   /** Flips (or clears) a thread's resolve state. */
   setThreadResolved(issueId: string, threadId: string, input: SetResolvedInput): Promise<ReviewThread>;
+  /** Moves a thread to resolved, dismissed, or back to open. `sent` is reached only through sendOpen. */
+  setThreadStatus(issueId: string, threadId: string, status: ReviewCommentStatus, actor?: string): Promise<ReviewThread>;
+  /** Batched send: every open thread becomes sent, returned as agent cards. */
+  sendOpen(issueId: string, only?: readonly string[]): Promise<ReviewSendResult>;
   listThreads(issueId: string): Promise<ReviewThreadList>;
+}
+
+/** The card an agent receives for one sent comment. */
+export interface ReviewCommentCardView {
+  readonly id: string;
+  /** `file:line`, `file:line-endLine`, `file`, or `evidence:<id>`. */
+  readonly location: string;
+  readonly author: string;
+  readonly body: string;
+}
+
+export interface ReviewSendResult {
+  readonly sent: readonly ReviewCommentCardView[];
+  readonly counts: ReviewThreadCounts;
 }
 
 export class ReviewCommentStoreError extends Error {
@@ -80,9 +126,25 @@ export class ReviewCommentStoreError extends Error {
   }
 }
 
-/** Every thread resolved and at least one thread present. */
+/** At least one thread present and none unresolved (every thread resolved or dismissed). */
 export function reviewAllThreadsResolved(threads: readonly ReviewThread[]): boolean {
-  return threads.length > 0 && threads.every((thread) => thread.resolved);
+  return threads.length > 0 && threads.every((thread) => thread.status === "resolved" || thread.status === "dismissed");
+}
+
+/** Counts per status plus the `N open · K ✓` label. */
+export function reviewThreadCounts(threads: readonly ReviewThread[]): ReviewThreadCounts {
+  const count = (status: ReviewCommentStatus): number => threads.filter((thread) => thread.status === status).length;
+  const open = count("open");
+  const sent = count("sent");
+  const resolved = count("resolved");
+  return { total: threads.length, open, sent, resolved, dismissed: count("dismissed"), unresolved: open + sent, label: `${open + sent} open · ${resolved} ✓` };
+}
+
+/** `file:line`, `file:line-endLine`, `file`, or `evidence:<id>`. */
+export function reviewLocationLabel(placement: ReviewThreadPlacement): string {
+  if (placement.evidenceId !== undefined) return `evidence:${placement.evidenceId}`;
+  if (placement.line === undefined) return placement.filePath;
+  return placement.endLine === undefined ? `${placement.filePath}:${placement.line}` : `${placement.filePath}:${placement.line}-${placement.endLine}`;
 }
 
 /**
@@ -96,10 +158,14 @@ export interface ReviewThreadRecord {
   readonly id: string;
   readonly filePath: string;
   readonly line?: number;
+  readonly endLine?: number;
   readonly side?: ReviewCommentSide;
+  readonly evidenceId?: string;
   readonly rootCommentId: string;
   readonly replyCommentIds: readonly string[];
   readonly resolved: boolean;
+  readonly status: ReviewCommentStatus;
+  readonly sentAt?: string;
   readonly resolvedAt?: string;
   readonly resolvedBy?: string;
   readonly editedAtByCommentId: Readonly<Record<string, string>>;
@@ -121,12 +187,14 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 
 const asString = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
 
-const asPlacement = (record: Record<string, unknown>): Omit<ReviewThreadRecord, "id" | "rootCommentId" | "replyCommentIds" | "resolved" | "editedAtByCommentId"> | null => {
+const asPlacement = (record: Record<string, unknown>): Pick<ReviewThreadRecord, "filePath" | "line" | "endLine" | "side" | "evidenceId"> | null => {
   const filePath = asString(record.filePath);
   if (!filePath) return null;
   const line = typeof record.line === "number" && Number.isInteger(record.line) && record.line > 0 ? record.line : undefined;
+  const endLine = line !== undefined && typeof record.endLine === "number" && Number.isInteger(record.endLine) && record.endLine > line ? record.endLine : undefined;
   const side = record.side === "old" || record.side === "new" ? record.side : undefined;
-  return { filePath, line, side };
+  const evidenceId = asString(record.evidenceId);
+  return { filePath, line, endLine, side, evidenceId };
 };
 
 export function parseReviewThreadRegistry(metadata: Readonly<Record<string, unknown>>): ReviewThreadRegistry {
@@ -146,8 +214,12 @@ export function parseReviewThreadRegistry(metadata: Readonly<Record<string, unkn
         if (typeof editedAt === "string") editedAtByCommentId[commentId] = editedAt;
       }
     }
-    const resolved = entry.resolved === true;
+    // Legacy records carry only `resolved`; a stored status wins, and `resolved` stays its mirror.
+    const status: ReviewCommentStatus = reviewCommentStatuses.includes(entry.status as ReviewCommentStatus) ? (entry.status as ReviewCommentStatus) : entry.resolved === true ? "resolved" : "open";
+    const resolved = status === "resolved";
     threads.push({
+      status,
+      sentAt: asString(entry.sentAt),
       id,
       rootCommentId,
       replyCommentIds,
@@ -170,7 +242,11 @@ export function serializeReviewThreadRegistry(registry: ReviewThreadRegistry): S
       replyCommentIds: [...record.replyCommentIds],
       resolved: record.resolved,
       editedAtByCommentId: { ...record.editedAtByCommentId },
+      status: record.status,
       filePath: record.filePath,
+      ...(record.sentAt === undefined ? {} : { sentAt: record.sentAt }),
+      ...(record.evidenceId === undefined ? {} : { evidenceId: record.evidenceId }),
+      ...(record.endLine === undefined ? {} : { endLine: record.endLine }),
       ...(record.line === undefined ? {} : { line: record.line }),
       ...(record.side === undefined ? {} : { side: record.side }),
       ...(record.resolvedAt === undefined ? {} : { resolvedAt: record.resolvedAt }),
@@ -185,7 +261,7 @@ export function serializeReviewThreadRegistry(registry: ReviewThreadRegistry): S
  */
 export function formatReviewThreadComment(kind: "root" | "reply", placement: ReviewThreadPlacement, body: string): string {
   if (kind === "reply") return `[review reply] ${body}`;
-  const location = placement.line === undefined ? placement.filePath : `${placement.filePath}:${placement.line}`;
+  const location = reviewLocationLabel(placement);
   const side = placement.side === "old" ? " (old)" : "";
   return `[review ${location}${side}] ${body}`;
 }
@@ -230,8 +306,12 @@ export function joinThreadRecords(records: readonly ReviewThreadRecord[], commen
       id: record.id,
       filePath: record.filePath,
       ...(record.line === undefined ? {} : { line: record.line }),
+      ...(record.endLine === undefined ? {} : { endLine: record.endLine }),
+      ...(record.evidenceId === undefined ? {} : { evidenceId: record.evidenceId }),
       ...(record.side === undefined ? {} : { side: record.side }),
       resolved: record.resolved,
+      status: record.status,
+      ...(record.sentAt === undefined ? {} : { sentAt: record.sentAt }),
       ...(record.resolvedAt === undefined ? {} : { resolvedAt: record.resolvedAt }),
       ...(record.resolvedBy === undefined ? {} : { resolvedBy: record.resolvedBy }),
       comments: [root, ...replies],

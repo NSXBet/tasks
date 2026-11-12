@@ -12,7 +12,11 @@ export { taskStoreCommentStore } from "./app/taskStoreCommentStore.js";
 export type {
   AppendReplyInput,
   CreateThreadInput,
+  ReviewCommentCardView,
   ReviewCommentSide,
+  ReviewCommentStatus,
+  ReviewSendResult,
+  ReviewThreadCounts,
   ReviewCommentStore,
   ReviewThread,
   ReviewThreadComment,
@@ -26,4 +30,7 @@ export type {
 export {
   ReviewCommentStoreError,
   reviewThreadRegistryKey,
+  reviewCommentStatuses,
+  reviewThreadCounts,
+  reviewLocationLabel,
 } from "./core/review/commentStore.js";

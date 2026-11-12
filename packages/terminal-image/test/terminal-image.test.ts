@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { kittyImageEscape, osc1337ImageEscape, terminalImageEscape, terminalImageKind } from "../src/index.js";
+import { inlineImageMode, kittyImageEscape, osc1337ImageEscape, terminalImageEscape, terminalImageKind } from "../src/index.js";
 
 const png = (size = 4): Uint8Array => Uint8Array.from({ length: size }, (_, index) => index % 256);
 const b64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64");
@@ -79,5 +79,17 @@ describe("terminalImageEscape", () => {
       if (descriptor === undefined) delete (process.stdout as { isTTY?: boolean }).isTTY;
       else Object.defineProperty(process.stdout, "isTTY", descriptor);
     }
+  });
+});
+
+describe("inlineImageMode", () => {
+  it.each([
+    ["png with kitty graphics", { mime: "image/png", isTTY: true, kittyGraphics: true }, "kitty"],
+    ["jpeg on a tty without kitty", { mime: "image/jpeg", isTTY: true, kittyGraphics: false }, "blocks"],
+    ["png piped (no tty)", { mime: "image/png", isTTY: false, kittyGraphics: true }, null],
+    ["pdf is not an image", { mime: "application/pdf", isTTY: true, kittyGraphics: true }, null],
+    ["mime case and parameters are tolerated", { mime: "Image/PNG; charset=binary", isTTY: true, kittyGraphics: false }, "blocks"],
+  ] as const)("%s", (_label, input, expected) => {
+    expect(inlineImageMode(input)).toBe(expected);
   });
 });

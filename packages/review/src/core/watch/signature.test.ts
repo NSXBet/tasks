@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import type { CliInput } from "../run/commandInputs";
 import { createVcsCatalog } from "../vcs";
-// Bundled git adapter is deferred to the packages/git fold (plan build step 4/7).
+// packages/review bundles no VCS adapter; tests register their own fakes.
 const STUB_VCS_CATALOG = createVcsCatalog([], "git");
 import type { VcsAdapter } from "../vcs/types";
 import {
@@ -15,7 +15,7 @@ import {
 
 const tempDirs: string[] = [];
 
-/** Compute with the app's bundled catalog unless a test supplies another. */
+/** Compute with an empty catalog unless a test supplies another. */
 function computeWatchSignature(input: CliInput, context: WatchSignatureContext) {
   return computeCoreWatchSignature(input, {
     vcsCatalog: STUB_VCS_CATALOG,
@@ -32,59 +32,19 @@ function cleanupTempDirs() {
   }
 }
 
-function git(cwd: string, ...cmd: string[]) {
-  const proc = Bun.spawnSync(["git", ...cmd], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    stdin: "ignore",
-  });
-
-  if (proc.exitCode !== 0) {
-    const stderr = Buffer.from(proc.stderr).toString("utf8");
-    throw new Error(stderr.trim() || `git ${cmd.join(" ")} failed`);
-  }
-
-  return Buffer.from(proc.stdout).toString("utf8");
-}
-
-function createTempRepo(prefix: string) {
+function createTempDir(prefix: string) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   tempDirs.push(dir);
-
-  git(dir, "init", "--initial-branch", "master");
-  git(dir, "config", "user.name", "Test User");
-  git(dir, "config", "user.email", "test@example.com");
-  git(dir, "config", "commit.gpgsign", "false");
-
   return dir;
-}
-
-function createGitInput({
-  options,
-  ...overrides
-}: {
-  options?: Partial<Extract<CliInput, { kind: "vcs" }>["options"]>;
-} & Partial<Omit<Extract<CliInput, { kind: "vcs" }>, "kind" | "options">> = {}) {
-  return {
-    kind: "vcs",
-    staged: false,
-    ...overrides,
-    options: {
-      mode: "auto",
-      ...options,
-    },
-  } as Extract<CliInput, { kind: "vcs" }>;
 }
 
 afterEach(() => {
   cleanupTempDirs();
 });
 
-// Bundled git adapter is deferred to the packages/git fold (plan build step 4/7).
-describe.skip("computeWatchSignature", () => {
+describe("computeWatchSignature", () => {
   test("resolves direct files, patch files, and agent sidecars against the supplied cwd", async () => {
-    const dir = createTempRepo("hunk-watch-files-cwd-");
+    const dir = createTempDir("hunk-watch-files-cwd-");
     writeFileSync(join(dir, "left.ts"), "one\n");
     writeFileSync(join(dir, "right.ts"), "two\n");
     writeFileSync(join(dir, "review.patch"), "patch\n");
@@ -108,49 +68,6 @@ describe.skip("computeWatchSignature", () => {
     expect(direct).toContain(join(dir, "right.ts"));
     expect(direct).toContain(join(dir, "agent.json"));
     expect(patch).toContain(join(dir, "review.patch"));
-  });
-
-  test("does not embed full untracked file contents in git watch signatures", async () => {
-    const dir = createTempRepo("hunk-watch-untracked-");
-
-    writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
-    git(dir, "add", "tracked.ts");
-    git(dir, "commit", "-m", "initial");
-
-    const largeMarker = "UNTRACKED-CONTENT-".repeat(1024);
-    const untrackedPath = join(dir, "large-untracked.txt");
-    writeFileSync(untrackedPath, largeMarker);
-
-    const initialSignature = await computeWatchSignature(createGitInput(), { cwd: dir });
-    writeFileSync(untrackedPath, `${largeMarker}changed`);
-    const changedSignature = await computeWatchSignature(createGitInput(), { cwd: dir });
-
-    expect(initialSignature).not.toContain(largeMarker);
-    expect(changedSignature).not.toContain(largeMarker);
-    expect(changedSignature).not.toEqual(initialSignature);
-  });
-
-  test("ignores untracked file changes when the git input excludes them", async () => {
-    const dir = createTempRepo("hunk-watch-exclude-untracked-");
-
-    writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
-    git(dir, "add", "tracked.ts");
-    git(dir, "commit", "-m", "initial");
-
-    const untrackedPath = join(dir, "note.txt");
-    writeFileSync(untrackedPath, "first\n");
-
-    const initialSignature = await computeWatchSignature(
-      createGitInput({ options: { excludeUntracked: true } }),
-      { cwd: dir },
-    );
-    writeFileSync(untrackedPath, "second\n");
-    const changedSignature = await computeWatchSignature(
-      createGitInput({ options: { excludeUntracked: true } }),
-      { cwd: dir },
-    );
-
-    expect(changedSignature).toEqual(initialSignature);
   });
 
   test("signs a review through an async extension adapter and forwards cancellation", async () => {
@@ -191,40 +108,36 @@ describe.skip("computeWatchSignature", () => {
   });
 
   test("rejects unsupported watch operations before invoking adapter signatures", async () => {
+    let signed = false;
+    const adapter: VcsAdapter = {
+      id: "fake",
+      name: "Fake",
+      detect: () => null,
+      operations: {
+        "working-tree-diff": {
+          load: async () => ({
+            repoRoot: "/repo",
+            sourceLabel: "/repo",
+            title: "fake",
+            patchText: "",
+          }),
+          watchSignature: async () => {
+            signed = true;
+            return "fake";
+          },
+        },
+      },
+    };
+
     await expect(
       computeWatchSignature(
         {
           kind: "stash-show",
-          options: { mode: "auto", vcs: "jj" },
+          options: { mode: "auto", vcs: "fake" },
         },
-        { cwd: process.cwd() },
+        { cwd: process.cwd(), vcsCatalog: createVcsCatalog([adapter], "fake", []) },
       ),
-    ).rejects.toThrow("`hunk stash show` requires Git VCS mode.");
-  });
-
-  test("tracks untracked file changes when diff compares the working tree against one ref", async () => {
-    const dir = createTempRepo("hunk-watch-ref-untracked-");
-
-    writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
-    git(dir, "add", "tracked.ts");
-    git(dir, "commit", "-m", "initial");
-    git(dir, "branch", "main");
-
-    writeFileSync(join(dir, "tracked.ts"), "export const tracked = 2;\n");
-    git(dir, "add", "tracked.ts");
-    git(dir, "commit", "-m", "second");
-
-    const untrackedPath = join(dir, "note.txt");
-    writeFileSync(untrackedPath, "first\n");
-
-    const initialSignature = await computeWatchSignature(createGitInput({ range: "main" }), {
-      cwd: dir,
-    });
-    writeFileSync(untrackedPath, "second\n");
-    const changedSignature = await computeWatchSignature(createGitInput({ range: "main" }), {
-      cwd: dir,
-    });
-
-    expect(changedSignature).not.toEqual(initialSignature);
+    ).rejects.toThrow("Fake does not support stash-show.");
+    expect(signed).toBe(false);
   });
 });

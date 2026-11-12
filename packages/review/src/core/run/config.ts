@@ -55,9 +55,9 @@ export interface ExtensionsConfig {
   /**
    * False when `--no-extensions` or `[extensions] enabled = false` disables loading.
    *
-   * Scoped to user extensions. Hunk's bundled tier — the Jujutsu and Sapling
-   * backends — always loads: these switches exist to triage extensions you
-   * installed, not to drop VCS support.
+   * Scoped to user extensions. VCS access in tk comes from the caller-supplied
+   * patch (tk derives it through @tasks/git), so disabling extensions never
+   * removes diff input: these switches exist to triage extensions you installed.
    */
   enabled: boolean;
   /** Exact extension identities disabled by the user config layer. */
@@ -404,7 +404,7 @@ export const CONFIG_REFERENCE_OPTIONS: readonly ConfigReferenceOption[] = [
     key: "vcs",
     property: "vcs",
     type: "string",
-    accepted: "`git`, `jj`, `sl`, or an id a loaded extension backend registers",
+    accepted: "`git` or an id a loaded extension backend registers",
     defaultValue: "detected from the checkout (Git fallback)",
     description:
       "Select the version-control adapter explicitly. An explicit id outranks detection; an id no loaded backend owns falls back to detection with a startup notice.",

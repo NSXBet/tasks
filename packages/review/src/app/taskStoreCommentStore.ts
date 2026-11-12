@@ -10,13 +10,17 @@
  */
 
 import type { Issue } from "@tasks/domain";
-import { getOrThrow, type SurfaceStore } from "@tasks/surface";
+import { appendReviewCommentLog, getOrThrow, reviewCommentSend, transitionReviewComment, withLegacyHunkImport, type SurfaceStore } from "@tasks/surface";
 import {
   ReviewCommentStoreError,
   formatReviewThreadComment,
   joinThreadRecords,
   parseReviewThreadRegistry,
   reviewAllThreadsResolved,
+  reviewThreadCounts,
+  reviewCommentStatuses,
+  type ReviewCommentStatus,
+  type ReviewSendResult,
   reviewThreadRegistryKey,
   serializeReviewThreadRegistry,
   type AppendReplyInput,
@@ -49,10 +53,13 @@ const threadRecord = (threadId: string, placement: ReviewThreadPlacement): Revie
   id: threadId,
   filePath: placement.filePath,
   ...(placement.line === undefined ? {} : { line: placement.line }),
+  ...(placement.line === undefined || placement.endLine === undefined || placement.endLine <= placement.line ? {} : { endLine: placement.endLine }),
   ...(placement.side === undefined ? {} : { side: placement.side }),
+  ...(placement.evidenceId === undefined ? {} : { evidenceId: placement.evidenceId }),
   rootCommentId: threadRootCommentId(threadId),
   replyCommentIds: [],
   resolved: false,
+  status: "open",
   editedAtByCommentId: {},
 });
 
@@ -69,12 +76,15 @@ interface PendingCommentBody {
 interface RegistryRewrite {
   readonly registry: ReviewThreadRegistry;
   readonly commentBodies: readonly PendingCommentBody[];
+  /** Status moves to append to the task.comment log (creation is `null -> open`). */
+  readonly log?: readonly { readonly commentId: string; readonly file: string; readonly line: number | null; readonly actor: string }[];
 }
 
 /** Apply one registry rewrite plus its comment bodies in a single transaction. */
 const withRegistry = async (store: SurfaceStore, rawIssueId: string, rewrite: (registry: ReviewThreadRegistry, issue: Issue) => RegistryRewrite): Promise<Issue> => {
   const outcome = await store.transact(async (uow) => {
-    const issue = await getOrThrow(uow, rawIssueId);
+    // Legacy Hunk-synced comments become threads before the rewrite sees the registry.
+    const issue = await withLegacyHunkImport(uow, await getOrThrow(uow, rawIssueId));
     const planned = rewrite(parseReviewThreadRegistry(issue.metadata), issue);
     const comments = [...issue.comments];
     for (const pending of planned.commentBodies) {
@@ -83,9 +93,13 @@ const withRegistry = async (store: SurfaceStore, rawIssueId: string, rewrite: (r
       if (existing === undefined) comments.push({ id: pending.id, issueId: issue.id, author: pending.author, text: pending.body, createdAt: new Date(), wireUnknown: { reviewThread: pending.threadId } });
       else comments[comments.indexOf(existing)] = { ...existing, text: pending.body };
     }
+    let metadata: Record<string, unknown> = { ...issue.metadata, [reviewThreadRegistryKey]: serializeReviewThreadRegistry(planned.registry) };
+    for (const entry of planned.log ?? []) {
+      metadata = appendReviewCommentLog(metadata, { commentId: entry.commentId, from: null, to: "open", actor: entry.actor, at: new Date().toISOString(), file: entry.file, line: entry.line });
+    }
     const saved = await uow.save({
       ...issue,
-      metadata: { ...issue.metadata, [reviewThreadRegistryKey]: serializeReviewThreadRegistry(planned.registry) },
+      metadata: metadata as Issue["metadata"],
       comments,
       commentCount: comments.length,
       updatedAt: new Date(),
@@ -115,9 +129,9 @@ const storedComment = (comment: Issue["comments"][number]): StoredCommentRecord 
   wire: comment.wireUnknown,
 });
 
-/** Read one issue in a short transaction. */
+/** Read one issue in a short transaction, persisting the one-time legacy Hunk comment import. */
 const readIssue = async (store: SurfaceStore, rawIssueId: string): Promise<Issue> => {
-  const outcome = await store.transact(async (uow) => getOrThrow(uow, rawIssueId));
+  const outcome = await store.transact(async (uow) => withLegacyHunkImport(uow, await getOrThrow(uow, rawIssueId)));
   if (!outcome.ok) throw new ReviewCommentStoreError(outcome.error.message);
   return outcome.value;
 };
@@ -126,7 +140,7 @@ const readIssue = async (store: SurfaceStore, rawIssueId: string): Promise<Issue
 const threadList = (issue: Issue): ReviewThreadList => {
   const registry = parseReviewThreadRegistry(issue.metadata);
   const threads = joinThreadRecords(registry.threads, issue.comments.map(storedComment));
-  return { threads, allResolved: reviewAllThreadsResolved(threads) };
+  return { threads, allResolved: reviewAllThreadsResolved(threads), counts: reviewThreadCounts(threads) };
 };
 
 /** The joined thread, or a typed failure when the merge dropped it. */
@@ -161,7 +175,8 @@ export const taskStoreCommentStore = (store: SurfaceStore): ReviewCommentStore =
   async createThread(rawIssueId: string, input: CreateThreadInput): Promise<ReviewThread> {
     const threadId = freshThreadId(parseReviewThreadRegistry((await readIssue(store, rawIssueId)).metadata));
     const issue = await withRegistry(store, rawIssueId, (registry) => ({
-      registry: { version: 1, threads: [...registry.threads, threadRecord(threadId, input)] },
+      registry: { version: 1, threads: [...registry.threads, threadRecord(threadId, input.evidenceId === undefined ? input : { ...input, filePath: `evidence:${input.evidenceId}` })] },
+      log: [{ commentId: threadId, file: input.evidenceId === undefined ? input.filePath : `evidence:${input.evidenceId}`, line: input.line ?? null, actor: input.author ?? store.actor }],
       commentBodies: [{
         id: threadRootCommentId(threadId),
         body: formatReviewThreadComment("root", input, input.body),
@@ -209,13 +224,32 @@ export const taskStoreCommentStore = (store: SurfaceStore): ReviewCommentStore =
   },
 
   async setThreadResolved(rawIssueId: string, threadId: string, input: SetResolvedInput): Promise<ReviewThread> {
-    const issue = await withRegistry(store, rawIssueId, (registry) => ({
-      registry: withThreadRecord(registry, threadId, (entry) => input.resolved
-        ? { ...entry, resolved: true, resolvedAt: new Date().toISOString(), resolvedBy: input.actor ?? store.actor }
-        : { ...entry, resolved: false, resolvedAt: undefined, resolvedBy: undefined }),
-      commentBodies: [],
-    }));
-    return requireThread(issue, threadId);
+    return this.setThreadStatus(rawIssueId, threadId, input.resolved ? "resolved" : "open", input.actor);
+  },
+
+  async setThreadStatus(rawIssueId: string, threadId: string, status: ReviewCommentStatus, actor?: string): Promise<ReviewThread> {
+    if (!reviewCommentStatuses.includes(status)) throw new ReviewCommentStoreError(`invalid comment status: ${String(status)}`);
+    if (status === "sent") throw new ReviewCommentStoreError("comments become sent only through sendOpen");
+    const outcome = await store.transact(async (uow) => {
+      const issue = await withLegacyHunkImport(uow, await getOrThrow(uow, rawIssueId));
+      requireRecord(parseReviewThreadRegistry(issue.metadata), threadId);
+      // Pure lifecycle rewrite shared with the RPC verbs; null = no-op move.
+      const metadata = transitionReviewComment(issue.metadata, threadId, status, actor ?? store.actor, new Date());
+      if (metadata !== null) {
+        const saved = await uow.save({ ...issue, metadata: metadata as Issue["metadata"], updatedAt: new Date() });
+        if (!saved.ok) throw new ReviewCommentStoreError(`failed to persist review threads: ${describeSaveFailure(saved.error)}`);
+      }
+      return getOrThrow(uow, rawIssueId);
+    });
+    if (!outcome.ok) throw new ReviewCommentStoreError(outcome.error.message);
+    return requireThread(outcome.value, threadId);
+  },
+
+  async sendOpen(rawIssueId: string, only?: readonly string[]): Promise<ReviewSendResult> {
+    const outcome = await reviewCommentSend(store, rawIssueId, only);
+    if (!outcome.ok) throw new ReviewCommentStoreError(outcome.error.message);
+    const { sent, counts } = outcome.value;
+    return { sent: sent.map((card) => ({ id: card.id, location: card.location, author: card.author, body: card.body })), counts: { total: counts.total, open: counts.open, sent: counts.sent, resolved: counts.resolved, dismissed: counts.dismissed, unresolved: counts.unresolved, label: counts.label } };
   },
 
   async listThreads(rawIssueId: string): Promise<ReviewThreadList> {

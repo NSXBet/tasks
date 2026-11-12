@@ -38,10 +38,6 @@ function createRepo(dir: string) {
   mkdirSync(join(dir, ".git"), { recursive: true });
 }
 
-function createJjRepo(dir: string) {
-  mkdirSync(join(dir, ".jj"), { recursive: true });
-}
-
 function createPatchPagerInput(overrides: Partial<CliInput["options"]> = {}): CliInput {
   return {
     kind: "patch",
@@ -1101,7 +1097,7 @@ describe("config resolution", () => {
   test("defaults to git VCS mode and accepts registered VCS modes from config", () => {
     const home = createTempDir("hunk-config-home-");
     mkdirSync(join(home, ".config", "hunk"), { recursive: true });
-    writeFileSync(join(home, ".config", "hunk", "config.toml"), 'vcs = "jj"\n');
+    writeFileSync(join(home, ".config", "hunk", "config.toml"), 'vcs = "hg"\n');
 
     const cwd = createTempDir("hunk-config-cwd-");
     const defaultResolved = resolveConfiguredCliInput(
@@ -1122,61 +1118,7 @@ describe("config resolution", () => {
     );
 
     expect(defaultResolved.input.options.vcs).toBe("git");
-    expect(configuredResolved.input.options.vcs).toBe("jj");
-  });
-
-  test.skip("auto-detects registered VCS checkouts before falling back to git mode", () => {
-    const home = createTempDir("hunk-config-home-");
-    const jjRepo = createTempDir("hunk-config-jj-repo-");
-    const colocatedRepo = createTempDir("hunk-config-colocated-repo-");
-    const gitRepo = createTempDir("hunk-config-git-repo-");
-    const parentJjRepo = createTempDir("hunk-config-parent-jj-");
-    const gitRepoInsideParentJj = join(parentJjRepo, "git-project");
-    const plainDir = createTempDir("hunk-config-no-repo-");
-
-    createJjRepo(jjRepo);
-    createRepo(colocatedRepo);
-    createJjRepo(colocatedRepo);
-    createRepo(gitRepo);
-    createJjRepo(parentJjRepo);
-    createRepo(gitRepoInsideParentJj);
-
-    const input = {
-      kind: "vcs",
-      staged: false,
-      options: {},
-    } satisfies CliInput;
-    const resolveIn = (cwd: string) =>
-      resolveConfiguredCliInput(input, {
-        cwd,
-        env: { HOME: home },
-      }).input.options.vcs;
-
-    expect(resolveIn(jjRepo)).toBe("jj");
-    expect(resolveIn(colocatedRepo)).toBe("jj");
-    expect(resolveIn(gitRepo)).toBe("git");
-    expect(resolveIn(gitRepoInsideParentJj)).toBe("git");
-    expect(resolveIn(plainDir)).toBe("git");
-  });
-
-  test("explicit config overrides auto-detected jj mode", () => {
-    const home = createTempDir("hunk-config-home-");
-    const repo = createTempDir("hunk-config-jj-repo-");
-    createJjRepo(repo);
-
-    mkdirSync(join(repo, ".hunk"), { recursive: true });
-    writeFileSync(join(repo, ".hunk", "config.toml"), 'vcs = "git"\n');
-
-    const resolved = resolveConfiguredCliInput(
-      {
-        kind: "vcs",
-        staged: false,
-        options: {},
-      },
-      { cwd: repo, env: { HOME: home } },
-    );
-
-    expect(resolved.input.options.vcs).toBe("git");
+    expect(configuredResolved.input.options.vcs).toBe("hg");
   });
 
   test("loadAppBootstrap exposes resolved initial preferences to the UI", async () => {
