@@ -90,8 +90,7 @@ tk tui [workspace] ['tk://route']  # Launch the terminal UI; deep-link boots int
 tk watch [--kinds a,b] [--ids x,y]   # Stream issue-change events as NDJSON (foreground)
 tk tree [--all] [--depth N]  # Tree view: epics, subtasks, dependency fan-out
 tk search <text>              # Full-text search
-tk hunk <id> [--print]        # Open a Hunk review of the issue's branch/WIP
-tk hunk <id> sync             # Import live Hunk review comments into the issue
+tk review <id>                # Open the task's review (diff + comments) in the TUI
 tk export                     # Export all as JSONL
 tk update                     # Self-update the binary (--latest for nightlies, --check to inspect)
 tk agent create <name> [opts]  # Register an agent (see Agents and runs below)
@@ -268,22 +267,19 @@ existing path replaces its metadata.
 system — it attaches the file with `kind: "plan"` metadata and replaces any
 prior plan attachment, leaving other attachments untouched.
 
-### Hunk integration
-
-[Hunk](https://github.com/modem-dev/hunk) is a review-first terminal diff viewer. Link the
-issue branch and review it in one command:
+### Review
 
 ```bash
 tk update tk-abc --branch feature/auth     # link the issue branch
-tk hunk tk-abc                            # opens Hunk in that branch's worktree, diffed from its merge base
-tk hunk tk-abc --print                    # print the underlying Hunk command instead of launching it
-tk hunk tk-abc -- --mode split            # forward extra flags to Hunk after `--`
+tk review tk-abc                           # open the task's diff review in the TUI
 ```
 
-The issue's title and description are injected as a Hunk `--agent-context` sidecar, so they render beside
-the diff. With a live Hunk session open on the repo, `tk hunk tk-abc sync` imports the review comments as
-task comments (`[hunk file:line] summary`); a `hunkComments` list in the issue's metadata keeps repeated
-syncs idempotent.
+`tk review <id>` opens tk's own diff component (`packages/review`, vendored from Hunk and rendered with
+OpenTUI) over the task's tk-derived diff — the recorded `base...branch` range, resolved through `@tasks/git`.
+Reviewer line/file comments and their resolve state are written straight to the task record
+(`metadata.reviewThreads`) by the TUI and the web UI alike; there is no separate `hunk` binary to install and no
+sync step. Comments imported earlier by the removed Hunk sync command are carried into review threads
+automatically the first time the task's review is read.
 
 ### Agent skill
 

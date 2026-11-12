@@ -34,10 +34,12 @@ curl -X POST http://localhost:21579/api/rpc \
 Watch events are served at `GET /api/events?after=<seq>&kinds=a,b` (kinds filter optional, comma-separated):
 
 ```jsonc
-{ "events": [ { "seq": 7, "kind": "issue.updated", "at": "…", "issue": { "id": "tasks-3", … } } ], "dropped": 0 }
+{ "events": [ { "seq": 7, "kind": "task.update", "at": "…", "issueId": "tasks-3", "data": { "actor": "…", … } } ], "dropped": 0, "workspace": "/path/to/repo" }
 ```
 
-`events` are watch frames re-sequenced by the server with monotonically increasing `seq`; pass the highest `seq` you have seen back as `after` to skip already-delivered events. `dropped` is a cumulative host-level counter of events evicted from the server's bounded ring (512 events, 5-minute TTL) before you read them — on a nonzero value, reconcile with a fresh `issue.list` rather than replaying.
+The page is read straight from the served workspace's event log (`.tasks/events.jsonl`, the same wire `tk watch` and the daemon tail) — no in-memory buffer. Each event is one log line as a `WatchEvent`, and `seq` is that line's durable log seq: pass the highest `seq` you have seen back as `after` to resume. A page holds at most 512 events (the first 512 after `after`); keep paging while a full page comes back. `kinds` accepts the spec kinds (`task.created`, `task.status`, `task.comment`, …) and the legacy names through the alias table (`issue.status_changed` → `task.status`, etc.). Since nothing is ever evicted, `dropped` is always `0`; it stays in the payload for client compatibility. `workspace` names the log being read: after a `POST /api/open` repoint it changes and seqs belong to the new workspace's log, so a client that sees a different `workspace` restarts from `after=0` (or reconciles with a fresh `issue.list`).
+
+The browser shell gets the same events pushed: `GET /events` (SSE) carries a named `event: task` frame with the `WatchEvent` JSON for every line appended to the served workspace's log, from any writer (CLI, TUI, agents, the web itself). It sits beside the existing unnamed `data: reload` frames (dev shell edits, repoints) and named `event: review` frames (live worktree/branch diff); after a repoint the stream carries only the new workspace's events.
 
 ## Envelope
 
@@ -61,7 +63,7 @@ One JSON object per line (NDJSON). Requests and responses both carry `v: 2` (`PR
 Call `hello` first. It returns the contract versions and the full method list:
 
 ```jsonc
-{ "tk": "tk", "protocol": 2, "verbs": 2, "methods": ["board.get", "deps.add", …] }
+{ "tk": "tk", "protocol": 2, "verbs": 5, "methods": ["board.get", "deps.add", …] }
 ```
 
 Clients must fail loudly on drift — `expectContract()` throws `ContractMismatch` when either version differs. `protocol` bumps on envelope changes (fields, error kinds); `verbs` bumps when methods, params, or result shapes change.
@@ -97,20 +99,54 @@ The daemon intercepts these frames itself; everything else falls through to the 
 ```jsonc
 {
   "subscription": "my-tag",        // required, non-empty; re-subscribing replaces the old loop
-  "kinds": ["issue.updated"],      // optional filter, WatchEventKind union
+  "kinds": ["task.status"],        // optional filter: log types, or legacy aliases (below)
   "ids": ["tasks-1"],              // optional filter, issue ids
-  "label": "session-x",            // optional
-  "interval": 5000                 // optional poll interval, positive integer ms
+  "label": "session-x",            // optional, issues carrying this label
+  "after": 120,                    // optional: replay every log line with seq > after first
+  "interval": 5000                 // optional fallback poll interval, positive integer ms
 }
 ```
 
 Event frames share the connection, one per line:
 
 ```jsonc
-{ "v": 2, "subscription": "my-tag", "event": { "seq": 42, "kind": "issue.updated", "at": "2026-10-18T19:33:00.000Z", "issueId": "tasks-1", "counts": { "open": 3, "blocked": 1, "readyToReview": 1 }, "data": { "actor": "yuri" } } }
+{ "v": 2, "subscription": "my-tag", "event": { "seq": 42, "kind": "task.status", "at": "2026-10-18T19:33:00.000Z", "issueId": "tasks-1", "counts": { "open": 3, "blocked": 1, "readyToReview": 1 }, "data": { "from": "in-progress", "to": "ready-to-review", "actor": "yuri" } } }
 ```
 
-`seq` is per-subscription monotonic — the ordering authority, never timestamps. `kind` is one of `issue.created`, `issue.updated`, `issue.status_changed`, `issue.commented`, `issue.deleted`, `ready.changed`, `counts.changed`, `run.changed`; `data.from`/`data.to` accompany status changes and `data.runId` accompanies `run.changed`. A subscription's watch loop restarts automatically if it exits on its own; dropping the socket ends it.
+**Source: the event log.** Events are the lines of `.tasks/events.jsonl` — one append-only log per workspace, written in-process by the command that made the change (CLI, web, TUI, any surface caller). There is no daemon broker: the daemon hosts each subscription as a tail of that log (`runWatchLoop`), the same reader `tk watch`, web `/events`, the TUI and the pi extension use. Each log line carries the envelope `{ seq, host, ts, task, type, actor, session?, data }`, and an event maps it 1:1: `kind` = `type`, `at` = `ts`, `issueId` = `task`, `seq` = the log `seq`, `data` = the line's `data` plus `actor` and (when set) `session`. `counts` (board counters) is attached to every delivered event.
+
+| `kind` | written when | `data` |
+|---|---|---|
+| `task.created` | a task is created | `title`, `status`, `owner`, `assignee` |
+| `task.status` | status changes (approvals are `to: approved\|rejected`) | `from`, `to`; `tk finish` adds `session`, `finishedAt`; a repeat finish is `from = to` with `refinish: true` |
+| `task.owner` | owner or assignee changes (one event each) | `field` (`owner`\|`assignee`), `from`, `to` |
+| `task.comment` | a plain comment is added (`kind: "note"`), or a review comment moves (`kind: "review"`, one per transition; a batched send is one `to: "sent"` per card) | note: `comment`, `author`, `body` · review: `comment` (also as deprecated `commentId`), `from`, `to`, `file`, `line`, `location`, `author`, `body` |
+| `task.evidence` | an evidence blob is attached | `id`, `name`, `mime` |
+| `task.worktree` | the worktree path or branch changes | `path`, `branch` |
+| `task.pr` | `metadata.pr` changes — only the `tk pr` verbs write it; gh is never polled. `op` is `create` when a PR first appears (or its number changes), `close` when its state moves to closed, `state` for any other state move; a url-only change emits nothing | `op` (`create`\|`state`\|`close`), `number`, `url`, `state` (`open`\|`closed`\|`merged`), `head` (the task branch) |
+| `task.report` | the counts-only `metadata.report` stamp changes (`tk finish`, `tk pr create`/`sync`, the web/TUI commit action) — the stat card data, never a diff | `changes` `{commits, files, additions, deletions}`, `head`, `at` |
+| `task.update` | any other field changes | `fields` (sorted names; uncovered metadata keys as `metadata.<key>`) |
+| `task.deleted` | a task is deleted | `title` |
+| `run.changed` | a run is created or changes state | `runId`, `from`, `to` |
+
+`seq` is the log's sequence number: monotonic and gap-free in the log, so a filtered subscription sees gaps — that is normal. Ordering authority is `seq`, never timestamps. A subscription starts at the log's current end (the start cursor is pinned before the `events.subscribe` reply, so a later write is never missed); pass `after` to replay first. A subscription's loop restarts automatically if it exits on its own, resuming after the last delivered `seq`; dropping the socket ends it.
+
+Legacy kind names are still accepted in `kinds` and expand to log types; they are never emitted (`ready.changed` and `counts.changed` no longer exist as events — `counts` rides on every event instead):
+
+| legacy name | matches |
+|---|---|
+| `issue.created` | `task.created` |
+| `issue.status_changed` | `task.status` |
+| `issue.commented` | `task.comment` |
+| `issue.deleted` | `task.deleted` |
+| `issue.updated` | `task.update`, `task.owner`, `task.evidence`, `task.worktree`, `task.pr`, `task.report` |
+| `ready.changed`, `counts.changed` | `task.created`, `task.status`, `task.deleted`, `task.update` |
+
+`tk watch` subscribers keep per-subscriber cursors (`{ <host>: <last consumed seq> }` per subscriber name) in `.tasks/cursors.json`. Watch filters are queries: `task=`, `status=`, `owner=`, `type=`, `actor=`, `mine` — comma-joined clauses AND, `|` separates alternatives (`parseEventQuery` / `matchesEvent` in `@tasks/surface`).
+
+VERBS 5 (from 4): event kinds became the log types, `seq` became the log seq, and `events.subscribe` gained `after`.
+
+VERBS 6 (from 5): `task.pr` and `task.report` event kinds (the `issue.updated` alias covers both).
 
 ## Verb table
 
@@ -140,6 +176,9 @@ Shared param schemas:
 | `issue.labelAdd` / `issue.labelRemove` | `{ id, label }` |
 | `issue.note` | `{ id, body }` |
 | `issue.comment` | `{ id, body }` |
+| `comments.list` | `{ id }` → `{ comments, counts }` — review comments of one task as cards `{ id, location, file, line, endLine, evidence, author, body, status, replies }`; `counts` is `{ total, open, sent, resolved, dismissed, unresolved, label, allResolved }` (`label` renders `N open · K ✓`) |
+| `comments.send` | `{ id, ids? }` → `{ sent, counts }` — explicit batched send: every `open` comment (or just `ids`) becomes `sent` in one transaction and is returned as cards; one summary issue comment records the batch. Nothing is delivered per-comment |
+| `comments.status` | `{ id, comment, status }` — move one comment to `open` (reopen), `resolved`, or `dismissed`; `sent` is reachable only through `comments.send` |
 | `issue.duplicate` | `{ id, canonical }` |
 | `issue.supersede` | `{ id, replacement }` |
 | `issue.closeMany` | `{ ids, reason? }` |

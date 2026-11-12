@@ -21,7 +21,7 @@ order: 8
 - Fix approach: Reformat to the `file` adapter's style (one statement per line, doc comments on ports) without changing logic; consider a shared migration-history implementation (`validate_history` logic is copy-pasted in both adapters at `sqlite/src/index.ts:53` and `postgres/src/index.ts:46`).
 
 **Duplicated board/blocked/ready logic between TUI and watch:**
-- Issue: "What is blocked/ready/counts" is implemented twice: pure helpers in `packages/tui/src/store.ts` (`isBlocked`, `unblockGains`, `detectCycles`, counts via `loadBoard`) and independently in `packages/surface/src/watch/core.ts:98-110` (`blockedIds`, `readyIds`, `WatchCounts`). Each has its own poll loop too: TUI polls every 1s via `boardSignature` change detection, watch defaults to 2000ms (`protocol.ts:52`).
+- Issue: "What is blocked/ready/counts" is implemented twice: pure helpers in `packages/tui/src/store.ts` (`isBlocked`, `unblockGains`, `detectCycles`, counts via `loadBoard`) and independently in `packages/surface/src/watch/core.ts:98-110` (`blockedIds`, `readyIds`, `WatchCounts`). Both now refresh from the event log (`.tasks/events.jsonl`): the TUI tails it with `tailEvents` and reloads the board per event burst; `runWatchLoop` reads it too.
 - Files: `packages/tui/src/store.ts`, `packages/surface/src/watch/core.ts`
 - Impact: The two counters can drift when a status rule changes (e.g. adding a terminal status other than `closed` — watch hardcodes `TERMINAL_STATUSES = ['closed']` at `core.ts:15` while TUI uses `board.counts` from its own rules).
 - Fix approach: Move blocked/ready/counts computation into one shared pure module (e.g. `packages/application` or `packages/surface/src/board.ts`) consumed by both.
@@ -173,7 +173,7 @@ No `TODO`/`FIXME`/`HACK`/`XXX` markers exist in `packages/` (verified by grep), 
 - Priority: High
 
 **TUI store logic:**
-- What's not tested: `packages/tui/src/store.ts` (437 lines) — board derivation, `boardSignature` change detection, the 1s poll loop, `detectCycles` — has no `store.test.ts`; `app.test.tsx` tests views with mocked stores, `smoke.ts` runs against real fixtures.
+- What's not tested: `packages/tui/src/store.ts` (437 lines) — board derivation and `detectCycles` — has no `store.test.ts`; `app.test.tsx` tests views with mocked stores, `smoke.ts` runs against real fixtures.
 - Files: `packages/tui/src/store.ts`, `packages/tui/test/`
 - Risk: Counter/blocking drift (see duplicated-logic debt) lands without test failure.
 - Priority: Medium

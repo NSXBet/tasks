@@ -25,6 +25,7 @@ tasks/
 │   ├── postgres/              # @tasks/postgres — Postgres adapter + blob store
 │   ├── s3/                    # @tasks/s3 — S3 blob adapter
 │   ├── beads/                 # @tasks/beads — beads JSONL interop
+│   ├── git/                   # @tasks/git — typed git adapter (the only git spawner)
 │   ├── surface/               # @tasks/surface — TasksSurface facade, watch, discovery
 │   ├── cli/                   # @tasks/cli — tk CLI (bin: tk)
 │   ├── tui/                   # @tasks/tui — tk-tui OpenTUI app (bin: tk-tui)
@@ -73,8 +74,11 @@ packages/<name>/
 - Purpose: the single service facade and shared runtime services.
 - Key files: `packages/surface/src/surface.ts` (facade + `createSurface`), `packages/surface/src/store.ts` (SurfaceStore, transaction wrapper), `packages/surface/src/discover.ts` (`rootFrom`), `packages/surface/src/errors.ts`, `packages/surface/src/envelope.ts`, `packages/surface/src/tree.ts`; `operations/` (create, query, mutate, deps, comments, sprint, attachments, views); `watch/` (child-entry.ts, core.ts, protocol.ts, wakeups.ts); `runtime.ts` (registry).
 
+**`packages/git`:**
+- Purpose: typed git adapter — the only place tk spawns git. `runner.ts` = process runners (async `bunRunner`/`nodeRunner`, sync `spawnSyncRunner`); `commands.ts` = enumerated async git commands; `sync.ts` = enumerated sync commands for git hooks; `porcelain.ts` = output parsing; `resolver.ts` = worktree placement; `hooks.ts` = worktree setup hooks / package-manager setup; `prune.ts` = worktree pruning.
+
 **`packages/cli`:**
-- Purpose: CLI frontends. `tk.ts` = dispatch; `args.ts` = parser; `presentation.ts` = all output formatting; `hooks.ts`/`hooks-json.ts`/`agent-hooks.ts` = hook integrations; `hunk.ts` = Hunk review host glue; `tree.ts` = tree view; `update.ts` = self-update; `skill.ts` = skill install; `git.ts` = git helpers.
+- Purpose: CLI frontends. `tk.ts` = dispatch; `args.ts` = parser; `presentation.ts` = all output formatting; `hooks.ts`/`hooks-json.ts`/`agent-hooks.ts` = hook integrations; `tree.ts` = tree view; `update.ts` = self-update; `skill.ts` = skill install. Git access goes through `@tasks/git`.
 
 **`packages/tui`:**
 - Purpose: terminal UI. `src/main.tsx` = entry/renderer lifecycle; `src/store.ts` = pure board model + graph algorithms (dependency trees, Tarjan cycles, critical chain, kanban grouping); `src/app/` = one file per panel; `src/theme.ts`, `src/format.ts` = styling/format helpers; `src/fixture.ts` = fixture board for tests.

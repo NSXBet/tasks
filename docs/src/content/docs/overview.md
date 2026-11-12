@@ -84,19 +84,22 @@ tk init [--prefix <p>] [--backend ...]  # Initialize .tasks/ workspace (default 
 tk create <title> [opts]      # Create issue
 tk list [--status <s>]        # List issues; shorthands: --open --closed --all --ready-to-review --approved --rejected
 tk ready [--claim]            # List unblocked issues
-tk show <id>                  # Show issue details
+tk show <id>                  # PR-shaped record: agent line, review doors (tk review <id> + web /tasks/<id>), comments row
+tk finish <id> --session <sid> [--harness omp|codex|cursor]  # Hand over for review; records agent session + harness
 tk close <id>                 # Close issue
 tk update <id> [--branch <name>]  # Update fields; link the issue branch
 tk dep <id> add <target>      # Add dependency
 tk attach <id> <path>        # Attach a file path (--attach-metadata k=v,k2=v2)
 tk detach <id> <path>        # Remove an attachment
 tk tui [workspace] ['tk://route']  # Launch the terminal UI; deep-link boots into a state, e.g. 'tk://task/<id>'
-tk watch [--kinds a,b] [--ids x,y]   # Stream issue-change events as NDJSON (foreground)
+tk watch <id> --until "status=approved|rejected"  # Block until the review lands (also --drain, --follow; see below)
 tk daemon [start|status|stop|restart]  # Manage the per-workspace daemon (tk web bootstraps it; status --quiet exits 1 when down)
 tk tree [--all] [--depth N]  # Tree view: epics, subtasks, dependency fan-out
 tk search <text>              # Full-text search
-tk hunk <id> [--print]        # Open a Hunk review of the issue's branch/WIP
-tk hunk <id> sync             # Import live Hunk review comments into the issue
+tk review <id>                # Open the task's review (diff + comments) in the TUI
+tk changes <id>               # Stat card: N commits · +A −D · F files + changes-view links (never a diff)
+tk pr create|sync|close|merge <id>  # The task's one PR via gh (see Pull requests); tk pr <id> reads the record
+tk comments <id>              # Review comments: location, status, author, body (send|resolve|dismiss|reopen)
 tk export                     # Export all as JSONL
 tk update                     # Self-update the binary (--latest for nightlies, --check to inspect)
 tk agent create <name> [opts]  # Register an agent (see Agents and runs below)
@@ -266,10 +269,24 @@ Four views (`1-4`), a persistent nav rail with live counts, and a statusbar:
 | Board | `2` | kanban columns (Open / In Progress / Review / Closed, Parked when non-empty), `h/l/j/k` movement, in-place status moves (`s/r/o/d`) |
 | Graph | `3` | dependency tree centered on selection, `▲ BLOCKED BY` / `▼ BLOCKS` sections, `(cycle)` markers |
 | Insights | `4` | ready picks, blocked panel with unblock-gain, critical chain, cycles / DAG health |
+| Task | `5` | the task view (`tk://task`): a `TASKS` column of working tasks on the left, the work in the center, a tabbed rail on the right — see below |
+| Artifact | `6` | one artifact of the task opened as a file (`tk://artifact`): code, doc or evidence, with line, block and whole-file comments — see below |
 
 
 
 
+
+**Task view (`5`).** The center column leads with the work: the title, a meta line (`<id> · <status> · @<assignee> · <priority>`), a chips row `[ worktree <path> ]  [ <branch> → <base> ]` (the path relative to the workspace root when under it; `[ no worktree — tk work <id> ]` before `tk work`), the primary action `◧ v open diff` (`V` diff modal, `c` comment), the description, `ARTIFACTS — evidence on the task` with typed counts (`N src · N edit · N new · N other`) and the `IN CHANGES` / `UNREFERENCED` groups (each row ends in `● N` open comments or `—`; `J`/`K` select a row, `o` opens it in the artifact view), then `COMMENTS · N` with up to five `author: first line → location` rows, and the review doors. The right rail is tabbed `SESSIONS │ CHANGES │ WORKSPC │ MINIMAP` (`tab` / `shift+tab`, `j`/`k` row, `↵` opens the diff modal on the CHANGES file or MINIMAP hunk): SESSIONS lists the task's agent runs and `tk finish` session (`STATUS  SESSION  UPD`); CHANGES is the worktree's live change tree, a row ending in `●` while it still needs review (no thread, or an open/sent one), and it re-renders when the worktree changes (the panel shows `live from the worktree ●` while the watch runs); WORKSPC shows `branch`, `worktree`, `host`, `state N dirty | clean` and `pr  PR #<n> · <state>` (`—` before a PR), with the hint `[C] commit  [P] open pr`: on the WORKSPC tab `C` opens a `commit <id>` composer and commits the worktree's tracked + staged changes with that message (the same commit as the web `commit` button, below), and `P` runs `tk pr create <id>` in-process (`✓ PR #<n> <state> — <url>` in the status line; gh / git errors shown verbatim); on the other tabs `C` and `P` do nothing; MINIMAP draws one `█` bar per hunk, sized against the largest hunk, green when it mostly adds and red when it mostly deletes. A left `TASKS` column sits between the VIEWS nav and the center column: it lists the working tasks (every board task that is not `closed`, `archived` or `deferred`, in board order, plus the shown task), one `●` status dot and title per row, the shown task highlighted with the `▎` band. `[` / `]` step to the previous / next working task (wrapping) and a click on a row opens that task; the whole view follows it (header, chips, ARTIFACTS, COMMENTS, rail, review session) and the rail tab and cursors reset. When the worktree and branch chips do not fit side by side, the branch chip wraps to its own line. Below 130 columns the TASKS column is hidden; below 100 columns the rail is hidden and the chips row keeps only the worktree chip. The task view has no start-work key. In the list, `v` opens the highlighted task's diff; on a `ready-to-review` task the detail footer offers `v:open diff` instead of `s:start`, and `s` only toasts `ready-to-review — v opens the diff`. The board task modal and the `:` command palette follow the same rule: on a `ready-to-review` task the modal footer reads `v open diff · r/o status` (`v` opens the diff, `s` only toasts) and the palette lists `open diff [v]` instead of `start (in progress)`.
+
+**Diff modal and evidence.** `↵` on a CHANGES file row (or a MINIMAP bar) opens the diff in a modal over the task view at that file (and hunk); `↵` on a directory row, or `V`, opens it at the first file that still needs review. The task view stays drawn behind it. The header reads `<id> / <path> [M] +a −d` with `f ⤢ full view · esc close`; the body is that file's diff with its comment threads below. `j`/`k` move hunks, `c` comments on the selected hunk's line, `C` on the whole file (no line); both land on the task record (`tk show <id>` REVIEW). `f` closes the modal and opens the full diff view on the same file and hunk; `esc` returns to the task view with the rail tab and cursor unchanged. Hunk editing (`e`) and `x`/`D`/`S` stay full-page only. The full diff view lists `EVIDENCE · N` under the files (`▣ <name> · 💬 N`, the selected entry marked `▌`); `]` past the last file's last hunk (or `.`) walks into the evidence entries and `[` walks back. An entry renders in the diff flow as an inline image when the terminal can paint one (`inlineImageMode` from `@tasks/terminal-image`: kitty graphics when the renderer advertises them, half blocks on any other TTY), always followed by the caption row `▣ evidence:<id> · <name> · 💬 N`; off a TTY only the caption row renders. `c` on an entry comments at `evidence:<id>`, which lists in that entry's thread rail, in `tk comments <id>` and in `tk show <id>` REVIEW.
+
+**Artifact view (`6`).** Any artifact of the task opens as a file, separate from the diff: `o` on an ARTIFACTS row in the task view, `o` on a CHANGES file row after moving the rail cursor with `j`/`k`, or `o` on the selected file (or evidence entry) in the full diff view. The header reads `<id> / <path>` with the artifact's `N OPEN · K ✓` count and a mode tag; the right panel, `COMMENTS · …`, lists every comment on the artifact (whole-file first, then by line). Three modes:
+
+- `CODE`: the whole file as numbered lines (`12 │ …`) with a cursor (`j`/`k`, `g`/`G`). `c` comments on the cursor line (`path:line`), `C` on the whole file (`path`). Line comments render inline under their line (`▸ author: body · open`).
+- `DOC` (`.md` / `.markdown`): headings, bullets, quotes and code fences shaped like the detail pane. The cursor (`▌`) moves by block (a paragraph, a list, a fence); `c` comments on the block's line range (`path:3-4`), `C` on the whole file.
+- `EVIDENCE`: the image (when the terminal can paint one) and its `▣ evidence:<id> · <name> · 💬 N` row; `c` / `C` comment at `evidence:<id>`.
+
+Every comment lands on the task record (`tk show <id>` REVIEW, `tk comments <id>`). Files are read from the task worktree (the workspace root when the task has none) through the same path guard as hunk edits: a path that escapes the root, absolute or through a symlink, shows `refused: outside the worktree` and nothing is read; a missing file shows `not in the worktree: <path>`, and files over 2 MB are not rendered. `esc` returns to the task view. With no artifact chosen, `6` shows the review's selected file.
 
 Global surfaces: `:` command palette (fuzzy-filtered commands with keycaps), `/` search,
 `n` new issue, `?` key reference, `ctrl+c`/`ctrl+q` quit. Confirmation prompts take
@@ -289,29 +306,268 @@ existing path replaces its metadata.
 system — it attaches the file with `kind: "plan"` metadata and replaces any
 prior plan attachment, leaving other attachments untouched.
 
-### Hunk integration
-
-[Hunk](https://github.com/modem-dev/hunk) is a review-first terminal diff viewer. Link the
-issue branch and review it in one command:
+### Review
 
 ```bash
-tk update tk-abc --branch feature/auth     # link the issue branch
-tk hunk tk-abc                            # opens Hunk in that branch's worktree, diffed from its merge base
-tk hunk tk-abc --print                    # print the underlying Hunk command instead of launching it
-tk hunk tk-abc -- --mode split            # forward extra flags to Hunk after `--`
+tk work tk-abc     # worktree + branch tk/tk-abc, base pinned
+tk review tk-abc   # open the task's diff review in the TUI
+
+tk comments tk-abc                 # list review comments: REVIEW (n) · N open · K ✓
+tk comments send tk-abc            # hand every open comment to the agent as one batch
+tk comments resolve tk-abc <cid>   # ✓ done
+tk comments dismiss tk-abc <cid>   # ✕ remove
+tk comments reopen tk-abc <cid>    # back to open
 ```
 
-The issue's title and description are injected as a Hunk `--agent-context` sidecar, so they render beside
-the diff. With a live Hunk session open on the repo, `tk hunk tk-abc sync` imports the review comments as
-task comments (`[hunk file:line] summary`); a `hunkComments` list in the issue's metadata keeps repeated
-syncs idempotent.
+`tk comments` works the review comments from a shell. Every review comment carries its location as data (a
+file, `file:line`, a line range `file:line-end`, or `evidence:<id>`) and a status: open → sent → resolved /
+dismissed (resolved and dismissed may reopen). `send` is explicit and batched: every open comment — or only the
+comment ids named after the task id — becomes `sent` in one transaction and is printed as cards
+`location · author · body`, with one `[review sent] N comments` summary comment added to the task; nothing is
+sent per comment, and a send with nothing open writes nothing. The verb may also follow the task id
+(`tk comments tk-abc send`, `tk comments tk-abc resolve <cid>`). An unknown comment id fails with
+`comment not found: <cid>` before anything is written; `resolve`/`dismiss`/`reopen` take exactly one comment id.
+Each move is logged in `metadata.reviewCommentLog` (actor and time) and surfaces as a `task.comment` event on
+`tk watch`; an agent picks sent cards up with `tk watch <id> --until "type=task.comment"` (see
+[Waiting for review](#waiting-for-review)). `--json` returns
+`{ comments, counts }` for the list and the status moves and `{ sent, counts }` for `send`, matching the
+`comments.list` / `comments.send` RPC verbs. Plain task comments (`tk comment <id> <body>`) are not review
+comments: they stay on `tk show <id>` (`--json` `.comments`).
+
+The review views drive the same loop on the same record. In the TUI diff view `x` marks the selected comment
+✓ done, `D` ✕ removes (dismisses) it, the same key on a done/removed comment reopens it, and `S` sends every
+open comment to the agent in one batch; the rail header reads `COMMENTS · N open · K ✓` or `All resolved`. The
+web diff and artifact views (`tk web`) give every comment card its status pill (`open`, `→ sent`, `✓ resolved`,
+`✕ dismissed`) and the same `✓ done` / `✕ remove` / `↺ reopen` buttons, show the same header, and carry one
+`send to agent (N)` button (disabled when nothing is open) that sends the batch and lists the sent cards as
+`location · author · body`. Displayed comment bodies drop the stored `[review <loc>]` / `[review reply]`
+prefix. Sent comments still count as open until resolved or dismissed. The agent picks the batch up from the
+event log with `tk watch` (below).
+
+**Web task view (`tk web`, `/tasks/<id>`).** The web page mirrors the TUI task view with the same names. The
+center column leads with the work: the title and status, the `worktree <path>` and `<branch> → <base>` chips
+(the worktree chip and the WORKSPC `worktree` row show the short label, e.g. `.worktrees/<repo>-<id>`, with the
+full absolute path on hover),
+`◧ open diff`, the description, then `ARTIFACTS — evidence on the task` (typed `src · edit · new · other` counts,
+`IN CHANGES` / `UNREFERENCED` groups, a `● N` or `—` comment pill per row) before `COMMENTS · N`
+(`author first line → location`) and the review doors. The right rail is tabbed `SESSIONS · CHANGES · WORKSPC ·
+MINIMAP` (CHANGES by default) and refreshes live from the worktree. WORKSPC adds a `pr` row when the task has a PR
+(`PR #<n> · <state>`, a link opening in a new tab) and two buttons from the mock: `commit` and `open pr`. `commit`
+reveals an inline message field (Enter commits, Esc cancels; no browser dialog) and runs `git commit --all
+--message=<msg>` in the task's recorded worktree: staged and tracked changes only, untracked files are never added,
+hooks run, nothing is amended and nothing is pushed. It is refused with a clear message, and no commit, for an empty
+message, a missing worktree (`no worktree for <id> — run tk work <id>`), a worktree that is the main checkout, a
+worktree on a branch other than the task's, or nothing tracked to commit; a successful commit restamps the task's
+`metadata.report` and toasts `✓ committed <sha7> on <id>`. `commit` is disabled with no worktree or a clean one.
+`open pr` is `tk pr create <id>` (push, then create / adopt / refresh; `refresh pr` once a PR is open) and toasts
+`✓ PR #<n> <state> — <url>`. A `ready-to-review` task shows `open diff`
+and no start control (the palette lists `open diff <id>` instead of `start <id>`). At 860px and narrower the
+rail stacks under the main column, and the worktree chip stays while the branch chip hides. A left `TASKS`
+column sits between the app sidebar (List/Board/Graph/Insights/Review, unchanged) and the work: the same working
+tasks as the TUI (not `closed`, `archived` or `deferred`, board order, plus the shown task), a status dot and
+title per row, the shown task highlighted. A click on a row, or `[` / `]` outside a text field (previous / next,
+wrapping), switches the task view to that task in place, with no page load; switching closes an open diff
+modal. The column is hidden at 1100px and narrower.
+
+- **Diff modal:** `◧ open diff`, a CHANGES file row, a click on the already-selected CHANGES tab, or a MINIMAP
+  bar (at its hunk) opens that file's diff in a modal over the task view, with the URL unchanged. Click a line
+  to comment on it, or use `＋ comment on this file`. `⤢ full view` opens `/tasks/<id>/diff?file=<path>`, and
+  `esc close` (or Esc) returns to the task view as it was.
+- **Evidence in the diff:** the full diff view lists `EVIDENCE` under the files and renders each image after
+  the file diff, with its comment cards and a `comment on the evidence…` box; those comments are stored at
+  `evidence:<id>`.
+- **Artifact view** (`/tasks/<id>/file`): every ARTIFACTS row opens its artifact as its own commentable view
+  (the thumbnail still opens the image viewer). The header reads `<id> / <path>` with a mode tag and
+  `N open · K ✓`; the right panel lists the artifact's comments with `＋ comment on file` for a whole-file
+  comment. Three modes, as in the TUI:
+  - `CODE` (`?path=<file>`): the file as highlighted code; click a line to comment at `path:line`.
+  - `DOC` (`?path=<doc>.md`): the markdown rendered as a document, one block per paragraph, list, heading or
+    fence, each with a `＋` gutter that comments on the block's line range (`path:3-4`). Raw HTML in the doc is
+    shown as text and only `http(s)`, `mailto`, `#` and relative links are kept.
+  - `EVIDENCE` (`?evidence=<ev id>`): the image (or a name · mime chip), its comments, and a composer that
+    stores comments at `evidence:<id>`.
+
+Every web comment lands on the same task record as the TUI's: `tk comments <id>` and `tk show <id>` REVIEW.
+
+**Live web board.** The web page does not poll: it listens on the server's `GET /events` stream, which carries
+one `task` frame per line appended to the served workspace's event log, whoever wrote it (a terminal `tk`,
+the TUI, an agent, or the page itself). Each burst of frames refreshes the board, the list, an open task
+modal and the task view on screen once (100ms debounce), and a reconnect after a dropped stream refreshes
+once to catch up; the sidebar dot turns red while the stream is down. Review moments show a toast:
+`<id> ready for review`, `<id> approved`, `<id> rejected`, `<id> · <author>: <comment>` for a note,
+`<id> · review comment at <location>` for a new review comment, and `<id> · N review comments sent` for a sent
+batch. Repointing the page at another workspace switches the stream to that workspace's log.
+
+`tk review <id>` opens tk's own diff component (`packages/review`, vendored from Hunk and rendered with
+OpenTUI) over the task's tk-derived diff — the task worktree's working tree against the pinned base, resolved
+through `@tasks/git`. The session is live, editable and commentable:
+
+- **Live:** the diff re-derives as commits and edits land in the worktree (vendored watch controller, debounced);
+  there is no refresh key, and the selected file is kept by path. While the watcher runs, the page shows
+  `watching worktree — re-derives as commits land ●`; a branchless or errored review shows no such line.
+- **Editable:** `]` selects a hunk and `e` edits it inline (`ctrl+s` save, `esc` cancel); the save writes the
+  worktree file, path-guarded to stay inside the worktree.
+- **Commentable:** `c` comments on the selected file/hunk, `R` replies, `E` edits the last comment, `x` marks
+  the selected comment ✓ done and `D` ✕ removes it (dismissed; either key on a resolved/dismissed comment
+  reopens it), and `S` sends every open comment to the agent in one batch (rows flip to `→ sent`) — all on the
+  task record, which `tk show <id>` prints in its `REVIEW` section. The notes rail is headed
+  `COMMENTS · N open · K ✓` over all of the task's comments (`All resolved` once none is open or sent), with
+  `S send N to agent` while open comments wait; each row shows its status (`open`, `→ sent`, `✓ resolved`,
+  `✕ dismissed`).
+- **Branch-scoped:** a task with no branch shows `no branch yet — run tk work <id>`; the workspace is never diffed.
+
+Keys (hunk's own):
+
+| key | action |
+|---|---|
+| `]` / `[` | next / previous hunk in the selected file |
+| `.` / `,` | next / previous changed file (clamped) |
+| `1` / `2` | unified / split layout |
+| `g` / `G` | first / last hunk |
+| `c` | note (comment) on the selected file/hunk |
+| `R` | reply to the selected thread |
+| `E` | edit the selected thread's last note |
+| `e` | edit the selected hunk inline |
+| `x` | ✓ done (resolve) / reopen the selected comment |
+| `D` | ✕ remove (dismiss) / reopen the selected comment |
+| `S` | send every open comment to the agent (one batch) |
+| `J` / `K` | next / previous thread |
+| `s` | hide / show the files pane |
+| `l` | hide / show line numbers |
+| `z` | expand / restore context for the whole diff (re-derived with `--unified=25`) |
+| `/` | search files: select the next changed file whose path contains the query |
+| `v` | start / end a hunk-range selection at the selected hunk (`]`/`[` extend it; `esc` clears it) |
+| `y` | copy the selected hunks (else the selected hunk, else the file patch) through OSC 52 |
+| `a` | hide / show the notes (thread) rail |
+| `t` | cycle the diff theme |
+| `q` | quit |
+| `?` | help |
+
+Where tk's TUI differs from hunk: `z` expands context for the whole diff, not one hunk (the vendored view has no
+per-hunk gap expansion). `v`/`y` select whole hunks, because the view has no line cursor. `a` toggles the notes
+rail, because tk has no separate agent-rationale notes. `t` cycles the bundled themes and has no selector popup.
+`/` is file search, which hunk leaves unbound in the review view. Live refreshes and inline edit saves keep the
+expanded context. `y` needs a terminal that accepts OSC 52 clipboard writes; otherwise it toasts
+`clipboard unavailable`.
+
+`j` / `k` (step the hunk selection) and `p` (split) stay as tk aliases. There is no `r` refresh key: hunk binds
+`r` to refresh, but the review re-renders live, so `r` is unbound. In the diff view `1`, `2` and
+`g` belong to the review, not the shell's view switches; `3`..`7`, `b` and `i` still switch views. In the
+artifact view only `g` (first line or block) is taken; every other view key switches as usual. `o` in the full
+diff view opens the selected file (or evidence entry) in the artifact view.
+
+Reviewer line/file comments and their resolve state are written straight to the task record
+(`metadata.reviewThreads`) by the TUI and the web UI alike; there is no separate `hunk` binary to install and no
+sync step. Comments imported earlier by the removed Hunk sync command are carried into review threads
+automatically the first time the task's review is read.
+
+### Waiting for review
+
+Every committed `tk` write (CLI, TUI, web, daemon, agent extension) appends one line per change to
+`.tasks/events.jsonl`: `{ seq, host, ts, task, type, actor, session?, data }`, with a gap-free `seq`. The types
+are `task.created`, `task.status` (approvals are `to: approved|rejected`; `tk finish` adds `session`),
+`task.owner`, `task.comment` (plain notes and every review-comment move, one line per sent card),
+`task.update`, `task.evidence`, `task.worktree`, `task.deleted` and `run.changed`. There is no daemon in the
+loop: `tk watch` reads the file and sleeps on it until it grows.
+
+```bash
+tk watch tk-abc --until "status=approved|rejected"     # block until the verdict; prints it, exit 0
+tk watch tk-abc --until "type=task.comment" --timeout 2h
+tk watch --drain                                       # everything since my cursor (session start)
+tk watch --follow "owner=me,type=task.comment" --json  # stream NDJSON until Ctrl-C / SIGTERM / stdin closes
+```
+
+- **Query:** comma = AND, `|` = alternatives. Keys: `task=`, `status=` (a `task.status` line's `to`),
+  `type=` (legacy `issue.*` names are accepted), `actor=`, `owner=` (`me` = you), and the bare word `mine`
+  (owned by or assigned to you). Positional ids add `task=<id>|<id>`.
+- **Modes:** `--until` prints the first match and exits 0, or exits **124** after `--timeout` (default
+  `30m`; `90s`, `2h` and plain ms work too) with `no matching event within <t>`. `--drain` prints every match
+  past the cursor and exits. `--follow` streams matches as they append. Pick one; with none, `tk watch` keeps
+  the NDJSON frame protocol (`ready`/`event`/`error` frames, `--kinds/--ids/--label/--interval/--after`) that
+  the pi/omp extension uses.
+- **Cursors:** each subscriber keeps its own read position in `.tasks/cursors.json`, so any number of
+  watchers run at once and an offline one drains the whole gap later. The name is `--as <name>`, else
+  `session:$TK_SESSION`, else `cli:<actor>`. A fresh subscriber starts at seq 0 for `--until`/`--drain` and
+  at the log end for `--follow`; `--from <seq>` overrides, `--peek` reads without moving the cursor.
+- **No missed verdicts:** `tk finish <id> --session <sid>` seeds cursor `session:<sid>` at its own finish
+  line, so a comment or approval made before the agent's first `tk watch` is still delivered. An `--until`
+  with `status=` and task ids first checks the tasks themselves: a task already in a listed status returns
+  at once (a `task.status` line with `data.current: true`), and an approval from an earlier round does not
+  match once the task has moved on.
+- Output is one line per event (`#<seq> <hh:mm:ss> <task> <type> <summary>`); `--json` prints the raw log
+  line. An unknown task id exits 1 with `issue not found: <id>`, a bad query with `invalid watch query: …`.
+
+### Task worktrees
+
+```bash
+tk work tk-abc                 # claim + create/enter <repoRoot>/.worktrees/<repoName>-tk-abc on branch tk/tk-abc
+tk worktree create spike       # ad-hoc worktree at <repoRoot>/.worktrees/spike
+```
+
+- `tk work <id>` and `tk worktree create <name>` share one resolver and always resolve against the
+  **main** repo root — running either from inside a task worktree never nests a new worktree under it.
+- Placement precedence: per-task `worktree_dir` metadata > `worktree.dir` in `.tasks/config.json`
+  (`{name}` expands, otherwise the name is appended) > the default in-repo pool `<repoRoot>/.worktrees/`.
+- When the default pool is used, tk appends `/.worktrees/` once to the repo-local `.git/info/exclude`
+  (never the tracked `.gitignore`, and skipped if the path is already ignored), so the pool never shows
+  up as untracked in `git status`.
+- If `tk work` created `tk/<id>` and `git worktree add` then fails, the branch is removed again; a
+  pre-existing branch is never deleted. `tk worktree create <name> --branch <existing>` checks the
+  existing branch out instead of failing.
+- **Merge-aware removal.** One predicate decides whether a branch is merged: it is an ancestor of
+  the base, or the pinned base sits on the default branch's tip and the branch is an ancestor of
+  that tip, or every commit landed patch-equivalent (rebase / cherry-pick merge — `git cherry`
+  reports no `+` line). It guards `tk worktree remove <name>` (an unmerged branch is refused with
+  the branch and base named; `--force` overrides) and every prune path below.
+- **Auto-prune on close.** `tk close` (and `duplicate`, `supersede`, `todo done`) removes a merged,
+  clean worktree and its `tk/<id>` branch and records the outcome in `metadata.worktreePruned`. A
+  refusal (unmerged, dirty, stashed) never fails the close; the human line ends in
+  `— worktree pruned` or `— worktree kept: <reason>`. The frozen changeset keeps `tk show` and
+  review working after the worktree and branch are gone.
+- **`tk worktree clean [--dry-run | --yes]`.** Dry-run by default: lists every closed task whose
+  worktree is merged and clean as eligible, and the rest with the reason they are kept; tasks
+  already pruned are not listed. `--yes` removes each eligible worktree once and records
+  `metadata.worktreePruned` on its task; `--dry-run --yes` is rejected.
+
+#### Lifecycle hooks and dependency setup
+
+```json
+{
+  "worktree": {
+    "post_start": "cp ../.env .env",
+    "post_checkout": "direnv allow",
+    "pre_end": "docker compose down",
+    "install": false
+  }
+}
+```
+
+- Hooks are shell strings in `.tasks/config.json`, run with `sh -c` from inside the worktree. The
+  camelCase spellings (`postStart`, `postCheckout`, `preEnd`) are accepted too; setting both
+  spellings of one hook to different values is a config error. `pmSetup` is a legacy alias of
+  `install`. Unknown `worktree` keys are rejected.
+- `post_start` fires when tk creates a worktree on a **new** branch (`tk work` creating `tk/<id>`,
+  `tk worktree create` with a branch that does not exist yet).
+- `post_checkout` fires when tk creates a worktree for a branch that **already exists** (`tk work`
+  re-provisioning a task whose `tk/<id>` survived, `tk worktree create --branch <existing>`).
+- Re-entering an existing worktree (`tk work` on a task whose worktree is present) fires neither.
+- `pre_end` fires just before every removal (`tk worktree remove`, close auto-prune, `tk worktree
+  clean --yes`). On a prune a failing `pre_end` vetoes the removal (the worktree is kept with the
+  hook's error as the reason); on `tk worktree remove` it is only a note.
+- **Dependency install** runs after creation, inside the new worktree, by default. The package
+  manager is detected from the main worktree's lockfile with precedence bun (`bun.lock` /
+  `bun.lockb`) → pnpm (`pnpm-lock.yaml`) → yarn (`yarn.lock`) → npm (`package-lock.json`);
+  no lockfile, no install. `"install": false` disables it.
+- Hook and install failures never fail the tk command: they are reported in the JSON `hooks`
+  field and the human line's suffix (e.g. `post_start hook failed`, `package install failed (bun)`).
 
 ### Agent skill
 
 tk ships an LLM-facing skill — the authoritative machine docs for every op and
-flag (ops table, attachment/plan semantics, JSON contracts). Like Hunk's
-`hunk-review` skill, it is printed or installed from the CLI so guidance never
-drifts from the binary:
+flag (ops table, attachment/plan semantics, JSON contracts). The skill ships
+with the binary and is printed or installed from the CLI, so guidance never
+drifts from the binary. It is one of the surfaces that carry the workflow
+contract; see [Agent injection — the workflow contract](#agent-injection--the-workflow-contract):
 
 ```bash
 tk skill                     # print the full SKILL.md
@@ -501,3 +757,53 @@ bun packages/tui/test/smoke.ts                            # pty E2E via tmux (re
 ## Credits
 
 Inspired by [beads](https://github.com/steveyegge/beads) by Steve Yegge. Restructured as a multi-adapter TypeScript library with pluggable storage.
+
+### The review record
+
+`tk show` (and every surface that shows a task: the human-output footer of `tk list`/`ready`/`query`/`children`/`search`/`blocked`/`stale`/`agent issues` when at least one task is listed, the TUI task view plus a footer line for the focused row/card/issue in the TUI list, kanban and detail pane, and the web task modal, board cards and list-view rows) carries the **review doors**: the TUI command `tk review <id>` and the web URL `<web base>/tasks/<id>` (web base = the registered web runtime, else `http://localhost:21579`, the web server's default port; resolved by `resolveWebBase` in `@tasks/surface` from `<tasksDir>/runtime.json` without probing — one rule for the CLI and TUI; the TUI re-reads it on every board poll; the web UI uses its own origin). `--json` list output carries no doors footer; `tk show --json` carries `review_doors`. `tk show` also renders:
+
+- `agent <harness> · session <id> finished <time>`, from `tk finish --session <sid> [--harness <id>]` (or `TK_SESSION` / `TK_HARNESS`). The harness is looked up in the harness registry (`HARNESS_REGISTRY` in `packages/domain/src/review-record.ts`: omp first, codex and cursor planned) — adding a harness type is a registry entry. The harness is always recorded as `metadata.agent_harness`, chosen by precedence: `--harness` > `TK_HARNESS` > detected from the harness session env > `omp` (the registry default). Detection reads each registry entry's `env` list (omp `PI_SESSION_ID`, codex `CODEX_THREAD_ID`, cursor `CURSOR_CONVERSATION_ID` / `CURSOR_AGENT`), so adding a harness and its detection is one entry; a non-default match wins over omp in nested shells. Older records finished with no harness still render as `omp`.
+- `comments N · M open K ✓`: total comments, open and resolved review comments (read from `metadata.reviewThreads`, written by the TUI and web review alike; zero when absent). Each comment's stored status decides: `open` and `sent` count as open, `resolved` as ✓, `dismissed` settles without counting either way (legacy records with only `resolved: true` read as resolved). Once at least one comment exists and none is open or sent, the row reads `comments N · All resolved · K ✓`. The TUI task view and the web task modal use the same rule.
+- `REVIEW (N) · M open · K ✓` (or `REVIEW (N) · All resolved`): one row per review comment, `○` open, `→` sent, `✓` resolved, `–` dismissed, followed by its location (`file:line`, `file:line-endLine`, `file`, or `evidence:<id>`), the author and the first line of the body (control characters stripped). Legacy Hunk comments appear here too, imported on read. The section is omitted when the task has no review comments.
+
+`tk show --json` adds a `review_doors` object and a `review` object: `{ comments: [cards], counts }`, where each card carries `id`, `location`, `file`, `line`, `endLine`, `evidence`, `author`, `body`, `status` and `replies`, and `counts` carries `total`, `open`, `sent`, `resolved`, `dismissed`, `unresolved`, `label` and `allResolved`. It is the same shape the `comments.list` RPC verb returns.
+
+### Changes and the stat card
+
+Chat-facing output never carries a diff. `tk finish` (human and `--json`), `tk changes <id>` and `tk show` (when the branch is out of reach) report a task's changes as one **stat card**:
+
+```
+Changes · <id>  N commits · +A −D · F files  → <web base>/tasks/<id>/diff · tk review <id>
+```
+
+The counts are commits, added and deleted lines, and files changed; the links open the changes view in the web (`/tasks/<id>/diff`) and the TUI (`tk review <id>`). `--json` carries `changes: { source, stale, at, stat: { commits, files, additions, deletions }, links: { tui, web } }` (`tk changes --json` returns `{ id, changes }`, `changes: null` when nothing is recorded; human output then reads `no changes recorded`).
+
+The counts come from the first rung that answers (`resolveChanges` in `@tasks/surface`):
+
+1. a **closed** task with a frozen snapshot → `snapshot` (no git calls);
+2. a live derivation from the recorded branch and pinned base → `live`;
+3. the **finish report** cache `metadata.report` → `report`, stale — the card adds `· stale — from finish report <at>`;
+4. a frozen snapshot on a reopened task → `snapshot`, stale (`· frozen at close`);
+5. nothing → `no changes recorded`.
+
+`tk finish` stamps `metadata.report = { changes: { commits, files, additions, deletions }, head, at }` (counts only, never a patch or file list) so a host that cannot reach the branch — deleted, pruned, or on another machine — still shows the numbers. Finish still never freezes the changeset; only close does. `tk show` keeps its commit and file listing while the branch or snapshot answers; when neither does and a report exists, its `CHANGES` section shows the stale stat card and `--json` `changeset` is the counts-only `{ source: "report", stale: true, counts, commits, files }`.
+
+
+### Pull requests
+
+A task has at most one PR, recorded as `metadata.pr = { number, url, state }`. It is managed by explicit verbs that call the GitHub CLI (`gh`); tk never polls GitHub.
+
+```bash
+tk pr create <id>   # push tk/<id> to origin, open the PR (base = default branch) and record it
+tk pr sync <id>     # one `gh pr view`; updates the recorded state (open → merged/closed)
+tk pr merge <id>    # gh pr merge <n> --merge (or --squash / --rebase); branch kept, then tk close <id>
+tk pr close <id>    # gh pr close <n>; branch and worktree kept
+tk pr <id>          # the recorded PR from the local mirror (also `tk pr show <id>`); no gh call
+```
+
+- `tk pr create` needs a worked task (`tk work <id>`). It pushes first; a failed push stops before any gh call. It is idempotent: a recorded open PR is refreshed (`(already open)`), an open PR already on GitHub for the branch is adopted, and only otherwise is `gh pr create --head <branch> --base <default>` run. The title is the task title (`--title` overrides) and the body is `tk: <id>`, the first paragraph of the description and the stat card (`--body` overrides) — never a diff. A record whose PR is `closed` or `merged` refuses: one PR per task.
+- `tk pr merge <id> [--merge|--squash|--rebase]` (default `--merge`; more than one fails with `pick one of --merge, --squash, --rebase`) and `tk pr close <id>` first run `gh pr view` (gh is the remote truth), then the mutating gh call only when the remote state differs from the target, then one more `gh pr view`, and record the result. Merging an already merged PR or closing an already closed one is a no-op that still syncs once and reports the state. Closing a merged PR or merging a closed one refuses. Neither passes `--delete-branch` or `--admin`, and neither touches the branch, the worktree or the task status: merge does not close the task (human output ends `next: tk close <id>`), and `tk close` prunes the worktree and `tk/<id>` once the branch is merged. Without a recorded PR both fail with `no PR on <id> — run tk pr create <id>`.
+- The handoff card: `tk finish` prints, under the stat card, the recorded PR (`PR #7 · open · <url>`) or, when there is none, `next: tk pr create <id>`; `tk finish --json` carries `pr` (the record or `null`) next to `changes`. `tk changes <id>` also prints the PR line when one is recorded (no hint). Both read the local mirror only and never run gh — run `tk pr sync <id>` for a fresh state.
+- `--json`: create/sync/close/merge return `{ id, op, pr }` (`op` is `create`, `adopt`, `refresh`, `sync`, `close` or `merge`); `tk pr <id> --json` returns `{ id, pr }` (`pr: null` when none, human output `no PR — run tk pr create <id>`).
+- Both writing verbs restamp `metadata.report` (the stat-card cache) when the branch is reachable.
+- Errors: a missing gh prints `gh not found — install GitHub CLI (https://cli.github.com) or set TK_GH`; a failing gh prints `gh <subcommand> failed: <first stderr line>`. Nothing is written on failure. `TK_GH` points tk at another gh binary (tests use a fake).
