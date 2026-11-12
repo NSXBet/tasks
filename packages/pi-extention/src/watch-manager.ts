@@ -1,23 +1,28 @@
 /**
- * Watch lifecycle for the extension: runs the watch poll loop IN-PROCESS per
+ * Watch lifecycle for `tasks_watch_start`: runs the watch loop IN-PROCESS per
  * subscription (the previous spawn-a-child design broke under omp, whose
- * execPath is the omp binary, not bun), coalesces and delivers notifications
- * to the host session, and keeps the above-editor widget in sync.
+ * execPath is the omp binary, not bun), delivers notifications to the host
+ * session, and keeps the above-editor widget in sync.
  *
- * Opt-in daemon transport (`useDaemon`, i.e. `TK_EVENTS=daemon`): each
- * subscription rides the tkd socket instead (`events.subscribe`), so the poll
- * cost lives in the shared daemon. Daemon death mid-session falls back to the
+ * Both transports tail the event log `.tasks/events.jsonl` — no polling of the
+ * board. In-process is the default; the opt-in daemon transport (`useDaemon`,
+ * i.e. `TK_EVENTS=daemon`) rides the tkd socket (`events.subscribe`), whose
+ * daemon tails the same log. Daemon death mid-session falls back to the
  * in-process loop transparently.
+ *
+ * The automatic inbox (comments / verdicts on followed tasks) is separate:
+ * see inbox.ts.
  *
  * Notification primitive (verified identical on both hosts):
  *   pi.sendUserMessage(text, { deliverAs: "followUp" })
  * Queued after the current run while streaming; starts a turn when idle.
  */
 import type { WatchCounts, WatchEvent, WatchSubscription } from "@tasks/surface";
-import { runWatchLoop } from "@tasks/surface";
+import { DEFAULT_WEB_BASE, changesLinks, readReportStat, runWatchLoop, statCardLine } from "@tasks/surface";
 import { openSurfaceStore, type SurfaceStore } from "@tasks/surface";
 import { connectOrSpawn } from "@tasks/daemon";
 import { renderWatchWidgetLines, type WatchRow } from "./widget.ts";
+import { sanitize } from "./inbox.ts";
 
 export interface WatchManagerOptions {
   readonly root: string;
@@ -27,6 +32,8 @@ export interface WatchManagerOptions {
   readonly notify: (text: string) => void;
   readonly refreshWidget: () => void;
   readonly hasUI: () => boolean;
+  /** Web base for stat card links (resolved once at session_start); DEFAULT_WEB_BASE when absent. */
+  readonly webBase?: string;
 }
 
 interface ActiveWatch {
@@ -198,7 +205,7 @@ export class WatchManager {
     if (event.counts !== undefined) this.#counts = event.counts;
     const watch = this.#watches.get(id);
     if (watch !== undefined) watch.lastEvent = event;
-    this.#options.notify(formatEvent(event, this.#counts));
+    this.#options.notify(formatEvent(event, this.#counts, this.#options.webBase));
     this.#options.refreshWidget();
   }
 
@@ -235,33 +242,81 @@ const watchId = (subscription: WatchSubscription): string => {
 export const formatCounts = (counts: WatchCounts): string =>
   `🟢 ${counts.open} open · ⛔ ${counts.blocked} blocked · 👀 ${counts.readyToReview} ready-to-review`;
 
-/** One-line human summary; steered into the session as a followUp message. */
-export const formatEvent = (event: WatchEvent, counts?: WatchCounts | null): string => {
+const truncate = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+const val = (value: unknown, empty = "∅"): string => (value === null || value === undefined || value === "" ? empty : sanitize(value));
+
+/**
+ * One-line human summary; steered into the session as a followUp message.
+ * Every user-authored field is sanitised (ANSI escapes, C0/C1 controls).
+ * Kinds are the log types; legacy names stay for events relayed by older hosts.
+ */
+export const formatEvent = (event: WatchEvent, counts?: WatchCounts | null, webBase?: string): string => {
   const at = event.at.slice(11, 19);
-  const id = event.issueId ?? "";
+  const id = sanitize(event.issueId ?? "");
+  const data = (event.data ?? {}) as Record<string, unknown>;
   const board = counts === undefined ? (event.counts === undefined ? null : formatCounts(event.counts)) : (counts === null ? null : formatCounts(counts));
   const suffix = board === null ? "" : ` · ${board}`;
-  switch (event.kind) {
+  const by = data["actor"] === undefined ? "" : ` by ${val(data["actor"])}`;
+  switch (event.kind as string) {
+    case "task.created": {
+      const title = data["title"] === undefined ? "" : ` "${truncate(val(data["title"], ""), 120)}"`;
+      return `📋 tasks: ${id} created${title}${by} (${at})${suffix}`;
+    }
+    case "task.status": {
+      const transition = data["from"] !== undefined || data["to"] !== undefined ? ` ${val(data["from"])} → ${val(data["to"])}` : "";
+      return `🔁 tasks: ${id} status${transition}${by} (${at})${suffix}`;
+    }
+    case "task.comment": {
+      const author = val(data["author"] ?? data["actor"], "someone");
+      const body = truncate(val(data["body"], ""), 200);
+      if (data["kind"] === "review") {
+        const where = data["location"] === undefined || data["location"] === null ? "" : ` ${val(data["location"])}`;
+        return `💬 tasks: ${id} review comment ${val(data["comment"])} → ${val(data["to"])}${where} — ${author}: ${body} (${at})${suffix}`;
+      }
+      return `💬 tasks: ${id} comment — ${author}: ${body} (${at})${suffix}`;
+    }
+    case "task.owner":
+      return `👤 tasks: ${id} ${val(data["field"], "owner")} ${val(data["from"], "none")} → ${val(data["to"], "none")}${by} (${at})${suffix}`;
+    case "task.update": {
+      const fields = Array.isArray(data["fields"]) ? ` (${data["fields"].map((field) => sanitize(field)).join(", ")})` : "";
+      return `📝 tasks: ${id} updated${fields}${by} (${at})${suffix}`;
+    }
+    case "task.evidence":
+      return `📎 tasks: ${id} evidence ${val(data["name"], "attached")}${by} (${at})${suffix}`;
+    case "task.worktree":
+      return `🌿 tasks: ${id} worktree ${val(data["branch"], "-")} ${val(data["path"], "-")} (${at})${suffix}`;
+    case "task.pr": {
+      // Only the integer, the closed state enum and an http(s) url reach the session (T-11-15).
+      const url = typeof data["url"] === "string" && /^https?:\/\//.test(data["url"]) ? ` (${sanitize(data["url"])})` : "";
+      const number = typeof data["number"] === "number" && Number.isInteger(data["number"]) ? data["number"] : "?";
+      return `🔀 tasks: PR #${number} for ${id} — ${val(data["state"], "unknown")}${url}${suffix}`;
+    }
+    case "task.report": {
+      // The stat card from the event data alone: counts + links, never a diff (D-02).
+      const report = readReportStat({ report: data as never });
+      if (report === null) return `📊 tasks: ${id} report (${at})${suffix}`;
+      const card = statCardLine({ id, source: "report", stale: false, at: report.at, stat: report.stat, links: changesLinks(id, webBase ?? DEFAULT_WEB_BASE) });
+      return `📊 tasks: ${card}${suffix}`;
+    }
+    case "task.deleted":
+      return `🗑 tasks: ${id} deleted${by} (${at})${suffix}`;
+    case "run.changed":
+      return `🏃 tasks: run ${val(data["runId"], "")} for ${id} — ${val(data["from"])} → ${val(data["to"])} (${at})${suffix}`;
     case "issue.created":
-      return `📋 tasks: issue ${id} created (${at})${suffix}`;
+      return `📋 tasks: ${id} created (${at})${suffix}`;
     case "issue.updated":
-      return `📝 tasks: issue ${id} updated (${at})${suffix}`;
+      return `📝 tasks: ${id} updated (${at})${suffix}`;
     case "issue.status_changed":
-      return `🔁 tasks: issue ${id} status changed (${at})${suffix}`;
+      return `🔁 tasks: ${id} status changed (${at})${suffix}`;
     case "issue.commented":
-      return `💬 tasks: issue ${id} received a comment (${at})${suffix}`;
+      return `💬 tasks: ${id} received a comment (${at})${suffix}`;
     case "issue.deleted":
-      return `🗑 tasks: issue ${id} deleted (${at})${suffix}`;
+      return `🗑 tasks: ${id} deleted (${at})${suffix}`;
     case "ready.changed":
       return `✅ tasks: ready set changed — call tasks_ready when idle (${at})${suffix}`;
     case "counts.changed":
       return `📊 tasks: board counts changed — ${board ?? formatCounts(event.counts ?? { open: 0, blocked: 0, readyToReview: 0 })} (${at})`;
-    case "run.changed": {
-      const runId = event.data?.runId ?? "";
-      const transition = event.data?.from !== undefined && event.data?.to !== undefined ? `${event.data.from} → ${event.data.to}` : (event.data?.to ?? "");
-      return `🏃 tasks: run ${runId} for issue ${id} — ${transition} (${at})${suffix}`;
-    }
     default:
-      return `📋 tasks: ${event.kind} ${id} (${at})${suffix}`;
+      return `📋 tasks: ${sanitize(event.kind)} ${id} (${at})${suffix}`;
   }
 };

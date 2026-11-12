@@ -23,15 +23,18 @@ Work runs as one loop over the issue's status. Each action emits an event (`task
 | approved → closed | reviewer | `tk close <id> --reason "<report>"` |
 | rejected | reviewer | comments land on the record; the loop restarts at `tk work <id>` |
 
-**The contract: work in `tk work <id>`; finish with `tk finish <id> --session <id>`; never mark done — the recorded worktree, branch, and derived diff are the evidence; review with `tk review <id>`.**
+**The contract: work in `tk work <id>` and commit there; finish with `tk finish <id> --session <sid>`; never mark done — the recorded worktree, branch, and derived diff are the evidence; wait for the verdict with `tk watch <id> --until "status=approved|rejected"`; review with `tk review <id>` and `tk comments <id>`.**
 
 1. **Find or receive work.** `tk ready --json` lists unblocked claimable work. When the user hands you a change, create the task first — the title seeds the branch name. Clarify only if ambiguity is material: one round, asked in a comment so the question stays on the record, then commit to a reading.
 2. **Claim, then isolate.** `tk work <id>` claims the task and opens a worktree + branch (shared `.tasks/` workspace); the worktree path, branch, and pinned changeset base are recorded on the task as the evidence of work. `tk note <id> "…"` posts progress while you work.
 3. **Prove the before state.** Capture current behavior — screenshot, log, output — and attach it: `tk attach <id> --evidence shot.png`. The record carries the proof, not your memory.
 4. **Implement.** Commits are the evidence of the work. Attach after-shots of the new state as you go (`task.evidence`).
-5. **Hand over.** `tk finish <id> --session <sid>` (or `TK_SESSION` env) stamps the session and finish time, derives the changeset from the recorded worktree/branch/base, and moves the task to `ready-to-review` — the single completion path. Never mark done by hand; the recorded evidence is the proof of work. You're back at step 1 — `tk ready`.
-6. **Review rides the record.** `tk review <id>` reviews the recorded worktree, branch, and derived diff; reviewer comments and verdicts land on the task (`tk comments <id>` reads them). TUI and web show the same record.
+5. **Hand over.** `tk finish <id> --session <sid>` (or `TK_SESSION` env) stamps the session and finish time, derives the changeset from the recorded worktree/branch/base, and moves the task to `ready-to-review` — the single completion path. It prints a stat card (`N commits · +A −D · F files` plus the changes-view link) — relay that, never paste a diff into chat; `tk changes <id>` reprints it (stale counts from the finish report when the branch is out of reach). One PR per task: `tk pr create <id>` pushes the branch and opens it via gh (recorded on the task); `tk pr sync <id>` pulls its state — only when asked, never polled; `tk pr merge <id>` / `tk pr close <id>` act on it via gh and keep the branch (`tk close <id>` prunes). Never mark done by hand; the recorded evidence is the proof of work. You're back at step 1 — `tk ready`.
+   **After `tk finish`, the verdict comes to you.** Either block on it with the `tasks_wait` tool — `{ ids: ["<id>"], query: "status=approved|rejected" }` or `{ ids: ["<id>"], query: "type=task.comment" }`, the tool form of `tk watch <id> --until "status=approved|rejected"` — or keep working and rely on the inbox: the reviewer's sent comments, plain comments, approvals and rejections on your tasks arrive as followUp messages on their own, each naming the next command. Act on that command: `tk close <id>` on approval, `tk work <id>` on rejection or a comment, address sent cards then `tk comments resolve <id> <cid>`. At session start the inbox briefs you (`📬 while you were away`) on what you missed.
+6. **Review rides the record.** `tk review <id>` reviews the recorded worktree, branch, and derived diff; reviewer comments and verdicts land on the task (`tk comments <id>` lists review comments with location and status; `tk comments send <id>` hands the open ones to the agent as one batch). TUI and web show the same record.
 7. **Report on close.** Approved → `tk close <id> --reason "<what changed, where, evidence ids>"`. Rejected → read the comments, `tk work <id>` again, fix, `tk finish`, re-hand over. "Done" is a report on the record, not a chat message.
+
+Lifecycle: `tk close` prunes the task's worktree and `tk/<id>` branch when merged and clean (a refusal is a note on the close line; the close still succeeds); `tk worktree clean` lists leftover worktrees of closed tasks, `--yes` removes them.
 
 ## Verbs
 
@@ -70,10 +73,32 @@ Attachments are **references, not copies** — they store a path plus optional m
 - Re-attach with the same file name replaces the prior evidence entry in place (same id, new bytes).
 - Reference evidence from comments as `evidence:<id>` (e.g. `see evidence:ev-a1b2c3`); `tk detach <id> <name-or-id>` removes the entry and its stored bytes.
 
+## Leases — shared resources
+
+Parallel sessions share physical resources a worktree can't isolate (simulator,
+dev ports, a seeded DB). Before touching a shared resource, hold a lease; the
+book is `<workspace>/.tasks/leases.json` and every session can see it.
+
+```bash
+tk lease acquire ios-sim --purpose "verify accounts" --task tk-abc1   # hold (TTL 15 min default)
+tk lease list                                                         # who holds what, time left
+tk lease renew ios-sim                                                # extend your hold
+tk lease release ios-sim                                              # drop it when done
+```
+
+- One holder per name: a second acquire fails naming the holder and time
+  remaining; `--wait <ms>` queues instead of failing (cap 5 min).
+- `--task <id>` ties the hold to an issue — typos fail at acquire time.
+- Holds expire on their own, so a crashed session never deadlocks a resource;
+  `renew` in long windows.
+- This is coordination by convention, not enforcement: bypassing a lease is a
+  reviewable violation, like bypassing the issue loop.
+
 ## Rules
 
 - One issue per deliverable; `parent` for subtasks of an epic, `dep` for blockers.
 - Never close an issue whose acceptance criteria are not visibly met — say what you did in the close reason.
 - Don't gate the loop on chat: status changes and comments are the handoff; the record is the memory.
 - Prefer `--json` when parsing `tk` output programmatically; `--markdown` renders `## id — title` sections.
+- `tk onboard install|check|remove` manages the marked tk block in `AGENTS.md` (`--file <path>` targets another instruction file; `--tool claude|gemini` selects that agent's default instruction filename). `install` replaces the versioned, hash-stamped section (byte-identical no-op when current), `check` exits 0 only when current, `remove` strips only the managed section. Bare `tk onboard` prints the block. Re-run install after upgrading tk.
 - `tk skill path` prints this skill's installed location; `tk skill install` copies the skill directory into `.agents/skills` (project default) or `~/.agents/skills` (`--global`); `--tool claude|omp|pi|codex` targets that agent's skills root instead (e.g. `.claude/skills`, `~/.omp/agent/skills`); `--force` replaces an existing install. Copies do not track upgrades — re-run the install after upgrading tk.

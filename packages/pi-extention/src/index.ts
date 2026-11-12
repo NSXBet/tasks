@@ -7,13 +7,29 @@
  * - Tool schemas use `typebox` (omp maps it to its internal copy; pi resolves
  *   it from disk — it is a root dependency of this repo).
  * - Registers: `tasks` (full surface via one tool), `tasks_ready`,
- *   `tasks_watch_start/stop/status`, `/tasks` command, and the
+ *   `tasks_watch_start/stop/status`, `tasks_wait`, `/tasks` command, and the
  *   Tasks Watch widget (aboveEditor), copied from the herdr-subagents pattern.
+ * - Inbox (D-04): on `session_start` inside a tasks workspace it tails
+ *   `.tasks/events.jsonl` (cursor `pi:<session>`) and delivers reviewer sends,
+ *   comments, verdicts and PR changes on followed tasks as followUp messages
+ *   (PR and verdict messages end with the stat card). `TK_INBOX=off` disables it.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createSurface, type TasksSurface } from "@tasks/surface";
+import { join } from "node:path";
+import { createSurface, openSurfaceStore, lastEventSeq, parseEventQuery, resolveWebBase, rootFrom, seedCursor, statCardLine, waitUntil, withTasks, type EventQuery, type TasksSurface } from "@tasks/surface";
 import { Type } from "typebox";
 import { WatchManager, formatCounts } from "./watch-manager.ts";
+import { createInbox, inboxSubscriber, type Inbox } from "./inbox.ts";
+
+/** `tasks_wait` timeouts: default 30 min, ceiling 2 h (T-10-31). */
+const WAIT_DEFAULT_MS = 30 * 60_000;
+const WAIT_MAX_MS = 2 * 60 * 60_000;
+
+/** This session's id: `TK_SESSION` › `PI_SESSION_ID` › `pi-<pid>`. */
+const sessionId = (): string => {
+  const pick = (name: string): string | undefined => { const value = process.env[name]?.trim(); return value === undefined || value === "" ? undefined : value; };
+  return pick("TK_SESSION") ?? pick("PI_SESSION_ID") ?? `pi-${process.pid}`;
+};
 
 type SurfaceOutcome = { ok: true; value: unknown } | { ok: false; error: { kind: string; message: string } };
 
@@ -42,6 +58,22 @@ export default function tasksExtension(pi: ExtensionAPI) {
   let surfaceFactory: (() => Promise<TasksSurface>) | null = null;
   let manager: WatchManager | null = null;
   let widgetTimer: ReturnType<typeof setInterval> | null = null;
+  let inbox: Inbox | null = null;
+  let session = sessionId();
+  /** Web base for stat card links, resolved once per session_start (undefined → the default port). */
+  let webBase: string | undefined;
+  /** Ids touched before the inbox started (or while it is off) still count once it runs. */
+  const touched = new Set<string>();
+  const follow = (ids: readonly (string | undefined)[]): void => {
+    const kept = ids.filter((id): id is string => typeof id === "string" && id.trim() !== "");
+    for (const id of kept) touched.add(id);
+    inbox?.follow(kept);
+  };
+  const stopInbox = async (): Promise<void> => {
+    const current = inbox;
+    inbox = null;
+    await current?.stop();
+  };
 
   const resolveSurface = async (): Promise<TasksSurface> => {
     if (surfaceFactory === null) surfaceFactory = async () => {
@@ -54,11 +86,13 @@ export default function tasksExtension(pi: ExtensionAPI) {
   const ensureManager = (hasUI: boolean): WatchManager => {
     if (manager !== null) return manager;
     manager = new WatchManager({
+      root,
       notify: (text) => {
         void pi.sendUserMessage(text, { deliverAs: "followUp" });
       },
       refreshWidget: () => updateWidget(),
       hasUI: () => hasUI,
+      ...(webBase === undefined ? {} : { webBase }),
       // Opt-in daemon transport: TK_EVENTS=daemon rides the tkd socket.
       useDaemon: process.env["TK_EVENTS"] === "daemon",
     });
@@ -92,14 +126,36 @@ export default function tasksExtension(pi: ExtensionAPI) {
 
   let latestCtx: { hasUI: boolean; ui: { setWidget(key: string, content: undefined | (() => unknown), options?: { placement: "aboveEditor" | "belowEditor" }): void } } | null = null;
 
-  pi.on("session_start", (_event, ctx) => {
-    root = ctx.cwd;
+  pi.on("session_start", async (_event, ctx) => {
+    const workspace = await rootFrom(ctx.cwd).catch(() => null);
+    root = workspace ?? ctx.cwd;
+    session = sessionId();
     surfaceFactory = null;
     latestCtx = ctx;
+    webBase = workspace === null ? undefined : await resolveWebBase(join(workspace, ".tasks")).catch(() => undefined);
     updateWidget();
+    await stopInbox();
+    if (workspace === null || process.env["TK_INBOX"] === "off") return;
+    const next = createInbox({
+      root: workspace,
+      session,
+      cwd: ctx.cwd,
+      notify: (text) => { void pi.sendUserMessage(text, { deliverAs: "followUp" }); },
+      // The stat card via the changes ladder (stale report/snapshot when the worktree is out of reach); counts + links only.
+      card: async (task) => withSurface(workspace, async (s) => {
+        const view = await s.changes(task);
+        return view.ok && view.value !== null ? statCardLine(view.value) : null;
+      }),
+    });
+    inbox = next;
+    next.follow([...touched]);
+    await next.start().catch((cause: unknown) => {
+      if (inbox === next) void pi.sendUserMessage(`⚠ tasks inbox failed to start: ${cause instanceof Error ? cause.message : String(cause)}`, { deliverAs: "followUp" });
+    });
   });
 
-  pi.on("session_shutdown", () => {
+  pi.on("session_shutdown", async () => {
+    await stopInbox();
     stopWidgetTimer();
     manager?.stopAll();
     void manager?.close();
@@ -132,6 +188,7 @@ export default function tasksExtension(pi: ExtensionAPI) {
     Type.Literal("archive"), Type.Literal("unarchive"),
     Type.Literal("runtime-list"), Type.Literal("runtime-activity"),
     Type.Literal("inbox"), Type.Literal("inbox-read"), Type.Literal("inbox-archive"),
+    Type.Literal("changes"),
   ]);
   const Id = Type.Optional(Type.String({ description: "Issue id (e.g. tk-abc). Required for id-scoped ops like show, update and status." }));
 
@@ -155,6 +212,7 @@ export default function tasksExtension(pi: ExtensionAPI) {
       "sprint-list() · sprint-start(name, carry?) · sprint-close() · sprint-add(id) · sprint-remove(id) · sprint-move(id, sprint) — sprint focus: one active sprint; lists scope via list(sprint: 'active'|'backlog'|slug)",
       "archive(id) · unarchive(id) — icebox without deleting; archived issues vanish from default views (list all/archived:true to see them)",
       "runtime-list() · runtime-activity(limit?) · inbox(all?) · inbox-read(runId) · inbox-archive(runId) — watcher registry, activity trail, and the run inbox (unread first; inbox-read/inbox-archive take id=runId)",
+      "changes(id) → stat card data {source, stale, stat{commits,files,additions,deletions}, links{tui,web}} — never a diff",
     ].join("\n"),
     parameters: Type.Object({
       op: Op,
@@ -298,9 +356,11 @@ export default function tasksExtension(pi: ExtensionAPI) {
             case "inbox": return s.inbox({ all: p["all"] === true });
             case "inbox-read": return s.inboxRead(id ?? "");
             case "inbox-archive": return s.inboxArchive(id ?? "");
+            case "changes": return s.changes(id ?? "");
             default: return { ok: false, error: { kind: "validation", message: `unknown op: ${op}` } } as never;
           }
         });
+        if ((outcome as SurfaceOutcome).ok) follow([id, ...((p["ids"] as readonly string[] | undefined) ?? [])]);
         return toolResult(outcomeText(outcome as SurfaceOutcome));
       } catch (error) {
         return toolResult(`tasks ${String((params as Record<string, unknown>)["op"])} failed: ${error instanceof Error ? error.message : String(error)}`, true);
@@ -322,15 +382,19 @@ export default function tasksExtension(pi: ExtensionAPI) {
 
   // ── watcher tools ──
   const Kinds = Type.Optional(Type.Array(Type.Union([
+    Type.Literal("task.created"), Type.Literal("task.status"), Type.Literal("task.owner"), Type.Literal("task.update"),
+    Type.Literal("task.evidence"), Type.Literal("task.worktree"), Type.Literal("task.deleted"),
+    Type.Literal("task.pr"), Type.Literal("task.report"),
+    // Legacy names: accepted as aliases (see KIND_ALIASES in @tasks/surface).
     Type.Literal("issue.created"), Type.Literal("issue.updated"), Type.Literal("issue.status_changed"),
     Type.Literal("issue.commented"), Type.Literal("issue.deleted"), Type.Literal("ready.changed"),
-    Type.Literal("counts.changed"), Type.Literal("run.changed"),
-  ]), { description: "Event kinds to subscribe to (default all)." }));
+    Type.Literal("counts.changed"), Type.Literal("run.changed"), Type.Literal("task.comment"),
+  ]), { description: "Event kinds to subscribe to (default all): task.created, task.status, task.comment, task.owner, task.update, task.evidence, task.worktree, task.pr, task.report, task.deleted, run.changed. task.report arrives as the stat card (counts + links, never a diff). Legacy issue.*/ready.changed/counts.changed names are accepted and map to them." }));
 
   pi.registerTool({
     name: "tasks_watch_start",
     label: "Tasks watch start",
-    description: "Start a workspace watcher (in-process poll loop). Notifies this session (followUp message, new turn when idle) on each matching change: issue created/updated/deleted, status changes, comments, ready set or board counts (🟢 open · ⛔ blocked · 👀 ready-to-review) changing. Filters: kinds, ids, label, intervalMs.",
+    description: "Start a workspace watcher: tails the event log (.tasks/events.jsonl) in-process — no polling of the board. Notifies this session (followUp message, new turn when idle) on each matching line: task created/status/comment/owner/update/evidence/worktree/pr/deleted, run.changed, task.report as the stat card (counts + links, never a diff), with board counts (🟢 open · ⛔ blocked · 👀 ready-to-review). Filters: kinds, ids (also followed by the inbox), label, intervalMs. Review comments and verdicts on your own tasks already arrive through the inbox without a watcher.",
     parameters: Type.Object({ kinds: Kinds as never, ids: Type.Optional(Type.Array(Type.String(), { description: "Only these issue ids." })), label: Type.Optional(Type.String({ description: "Only issues with this label." })), intervalMs: Type.Optional(Type.Number({ description: "Poll interval ms (default 2000, min 250)." })) }),
     async execute(_id, params) {
       const hasUI = latestCtx?.hasUI ?? false;
@@ -338,12 +402,58 @@ export default function tasksExtension(pi: ExtensionAPI) {
       const p = params as Record<string, unknown>;
       const subscription: Record<string, unknown> = {};
       if (p["kinds"] !== undefined) subscription["kinds"] = p["kinds"];
-      if (p["ids"] !== undefined) subscription["ids"] = p["ids"];
+      if (p["ids"] !== undefined) { subscription["ids"] = p["ids"]; follow(p["ids"] as readonly string[]); }
       if (p["label"] !== undefined) subscription["label"] = p["label"];
       if (p["intervalMs"] !== undefined) subscription["interval"] = p["intervalMs"];
       const watchId2 = await m.start(subscription as never);
       updateWidget();
       return toolResult(JSON.stringify({ started: true, watcher: watchId2 }));
+    },
+  });
+
+  pi.registerTool({
+    name: "tasks_wait",
+    label: "Tasks wait",
+    description: [
+      "Block until a matching event lands on the event log (like `tk watch --until`), then return it. Many agents can wait at once; each session reads from its own cursor (pi:<session>).",
+      "query: comma = AND, | = alternatives — task=<id>, status=approved|rejected, type=task.comment, owner=me, actor=<name>, mine.",
+      "ids: AND a task=<id>|… clause. A status query on named tasks returns at once when a task is already in that status.",
+      "timeoutMs: default 30 min, max 2 h. Returns {matched:true,event} or {matched:false,timedOut:true}.",
+    ].join("\n"),
+    parameters: Type.Object({
+      query: Type.String({ description: "Watch query, e.g. 'status=approved|rejected' or 'type=task.comment'." }),
+      ids: Type.Optional(Type.Array(Type.String(), { description: "Only these task ids." })),
+      timeoutMs: Type.Optional(Type.Number({ description: "Give up after this many ms (default 1800000, max 7200000)." })),
+    }),
+    async execute(_id, params, signal) {
+      const p = params as { query?: unknown; ids?: unknown; timeoutMs?: unknown };
+      const ids = Array.isArray(p.ids) ? p.ids.filter((id): id is string => typeof id === "string") : [];
+      let query: EventQuery;
+      try {
+        query = withTasks(parseEventQuery(typeof p.query === "string" ? p.query : ""), ids);
+      } catch (cause) {
+        return toolResult(cause instanceof Error ? cause.message : String(cause), true);
+      }
+      const requested = typeof p.timeoutMs === "number" && Number.isFinite(p.timeoutMs) && p.timeoutMs > 0 ? p.timeoutMs : WAIT_DEFAULT_MS;
+      const timeoutMs = Math.min(requested, WAIT_MAX_MS);
+      const workspace = await rootFrom(root).catch(() => null);
+      if (workspace === null) return toolResult("no tasks workspace found; run tk init", true);
+      follow(ids);
+      const store = await openSurfaceStore(workspace, { readonly: true });
+      try {
+        const subscriber = inboxSubscriber(session);
+        // A first wait never replays history: start at the log end.
+        await seedCursor(store.tasksDir, subscriber, await lastEventSeq(store.tasksDir));
+        const event = await waitUntil(store, {
+          query, subscriber, me: store.actor, timeoutMs,
+          ...(signal instanceof AbortSignal ? { signal } : {}),
+        });
+        return toolResult(JSON.stringify(event === null ? { matched: false, timedOut: true } : { matched: true, event }));
+      } catch (cause) {
+        return toolResult(`tasks_wait failed: ${cause instanceof Error ? cause.message : String(cause)}`, true);
+      } finally {
+        await store.close();
+      }
     },
   });
 
