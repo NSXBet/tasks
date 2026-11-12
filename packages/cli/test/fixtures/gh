@@ -1,0 +1,38 @@
+#!/bin/sh
+# Fake GitHub CLI for tests: never talks to GitHub. Logs argv to $FAKE_GH_LOG,
+# keeps PR state in $FAKE_GH_DIR/state. $FAKE_GH_FAIL simulates an auth error;
+# $FAKE_GH_DIR/existing makes `pr list` report an already-open PR #7.
+[ -n "$FAKE_GH_LOG" ] && printf '%s\n' "$*" >> "$FAKE_GH_LOG"
+if [ -n "$FAKE_GH_FAIL" ]; then
+  echo "gh: authentication required" >&2
+  exit 4
+fi
+STATE_FILE="${FAKE_GH_DIR:-.}/state"
+state() { if [ -f "$STATE_FILE" ]; then cat "$STATE_FILE"; else echo OPEN; fi; }
+URL="https://github.com/acme/app/pull/7"
+case "$1 $2" in
+  "pr create")
+    echo OPEN > "$STATE_FILE"
+    echo "$URL"
+    ;;
+  "pr list")
+    if [ -f "${FAKE_GH_DIR:-.}/existing" ]; then
+      printf '[{"number":7,"url":"%s","state":"%s"}]\n' "$URL" "$(state)"
+    else
+      echo "[]"
+    fi
+    ;;
+  "pr view")
+    printf '{"number":7,"url":"%s","state":"%s"}\n' "$URL" "$(state)"
+    ;;
+  "pr close")
+    echo CLOSED > "$STATE_FILE"
+    ;;
+  "pr merge")
+    echo MERGED > "$STATE_FILE"
+    ;;
+  *)
+    echo "fake gh: unsupported: $*" >&2
+    exit 1
+    ;;
+esac

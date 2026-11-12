@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -39,7 +39,7 @@ it("emits large JSON intact through a pipe with a slow reader", async () => {
 
 describe("tk executable", () => {
   it("supports conductor list, show, comment and close paths", () => { const directory = workspace(); json(directory, ["init", "--prefix", "tk"]); const epic = json<{ id: string }>(directory, ["create", "epic", "--type", "epic"]); const child = json<{ id: string }>(directory, ["create", "child", "--parent", epic.id]); expect(json<readonly { id: string }[]>(directory, ["list", "--parent", epic.id])).toHaveLength(1); expect(json<readonly { id: string }[]>(directory, ["show", child.id])[0]!.id).toBe(child.id); expect(json<{ comments: readonly { text: string }[] }>(directory, ["comment", child.id, "--body", "note"]).comments[0]!.text).toBe("note"); expect(json<{ status: string }>(directory, ["close", child.id]).status).toBe("closed"); });
-  it("supports tuicr workspace, comments, dependencies, lifecycle and edits", () => { const directory = workspace(); json(directory, ["init"]); const first = json<{ id: string }>(directory, ["create", "first"]); const second = json<{ id: string }>(directory, ["create", "second"]); expect(json<{ workspace: string }>(directory, ["where"]).workspace).toBe(directory); expect(json<readonly { id: string }[]>(directory, ["show", second.id])[0]!.id).toBe(second.id); json(directory, ["comment", second.id, "--stdin"], "stdin note"); expect(json<readonly { text: string }[]>(directory, ["comments", second.id])[0]!.text).toBe("stdin note"); expect(json<readonly { id: string }[]>(directory, ["list"])).toHaveLength(2); json(directory, ["dep", second.id, "add", first.id]); expect(json<readonly { id: string }[]>(directory, ["dep", second.id, "list"])[0]!.id).toBe(first.id); json(directory, ["dep", second.id, "remove", first.id]); json(directory, ["dep", second.id, "relate", first.id]); json(directory, ["dep", second.id, "unrelate", first.id]); expect(json<{ status: string }>(directory, ["set-state", second.id, "in_progress"]).status).toBe("in_progress"); expect(json<{ title: string; description: string }>(directory, ["update", second.id, "--title", "edited", "--body", "body"]).title).toBe("edited"); expect(json<{ status: string }>(directory, ["close", second.id]).status).toBe("closed"); expect(json<{ status: string }>(directory, ["reopen", second.id]).status).toBe("open"); });
+  it("supports tuicr workspace, comments, dependencies, lifecycle and edits", () => { const directory = workspace(); json(directory, ["init"]); const first = json<{ id: string }>(directory, ["create", "first"]); const second = json<{ id: string }>(directory, ["create", "second"]); expect(json<{ workspace: string }>(directory, ["where"]).workspace).toBe(directory); expect(json<readonly { id: string }[]>(directory, ["show", second.id])[0]!.id).toBe(second.id); json(directory, ["comment", second.id, "--stdin"], "stdin note"); expect(json<readonly { comments: readonly { text: string }[] }[]>(directory, ["show", second.id])[0]!.comments[0]!.text).toBe("stdin note"); expect(json<readonly { id: string }[]>(directory, ["list"])).toHaveLength(2); json(directory, ["dep", second.id, "add", first.id]); expect(json<readonly { id: string }[]>(directory, ["dep", second.id, "list"])[0]!.id).toBe(first.id); json(directory, ["dep", second.id, "remove", first.id]); json(directory, ["dep", second.id, "relate", first.id]); json(directory, ["dep", second.id, "unrelate", first.id]); expect(json<{ status: string }>(directory, ["set-state", second.id, "in_progress"]).status).toBe("in_progress"); expect(json<{ title: string; description: string }>(directory, ["update", second.id, "--title", "edited", "--body", "body"]).title).toBe("edited"); expect(json<{ status: string }>(directory, ["close", second.id]).status).toBe("closed"); expect(json<{ status: string }>(directory, ["reopen", second.id]).status).toBe("open"); });
   it("creates from title flag without positional while keeping positional title", () => { const directory = workspace(); json(directory, ["init"]); expect(json<{ title: string }>(directory, ["create", "--title", "flag title"]).title).toBe("flag title"); expect(json<{ title: string }>(directory, ["create", "positional title"]).title).toBe("positional title"); });
   it("classifies argument-parser failures with JSON error envelope", () => { const directory = workspace(); const result = run(directory, ["create", "--title", "--json"]); expect(result.status).not.toBe(0); expect(JSON.parse(result.stderr)).toEqual({ error: { kind: "parse", message: "--title requires value" } }); });
   it("blocks writes in readonly mode with JSON error envelope", () => { const directory = workspace(); json(directory, ["init"]); const result = run(directory, ["create", "blocked", "--readonly", "--json"]); expect(result.status).not.toBe(0); expect(JSON.parse(result.stderr)).toEqual({ error: { kind: "readonly", message: "readonly mode blocks writes" } }); });
@@ -450,25 +450,16 @@ describe("tk executable", () => {
     expect(json<readonly { branch: string | null }[]>(target, ["show", created.id])[0]!.branch).toBe("feature/review");
   });
 
-  it("hunk --print derives the hunk command from the issue's branch and hunk sync requires a session", () => {
+  it("tk hunk is gone; tk review is the only review door", () => {
     const directory = workspace();
     json(directory, ["init"]);
-    const created = json<{ id: string }>(directory, ["create", "hunk review me"]);
-    // No branch linked: the plan is a plain working-tree diff.
-    const bare = json<{ argv: string[]; cwd: string; mode: string }>(directory, ["hunk", created.id, "--print"]);
-    expect(bare.argv).toEqual(["hunk", "diff", "--agent-context", expect.any(String)]);
-    expect(bare.mode).toBe("diff-worktree");
-    expect(bare.cwd).toBe(directory);
-    // A missing linked branch fails before launching Hunk.
-    json(directory, ["update", created.id, "--branch", "feature/hunk"]);
-    const missing = run(directory, ["hunk", created.id, "--print", "--json"]);
-    expect(missing.status).not.toBe(0);
-    expect(JSON.parse(missing.stderr).error.message).toContain("branch feature/hunk is not checked out");
-    // Sync without a live Hunk session fails with the daemon's message.
-    const failed = run(directory, ["hunk", created.id, "sync", "--json"]);
-    expect(failed.status).not.toBe(0);
-    const message = JSON.parse(failed.stderr).error.message as string;
-    expect(message === "hunk sync requires a git repository" || message.startsWith("hunk session comment list failed") || message.includes("branch feature/hunk is not checked out")).toBe(true);
+    const created = json<{ id: string }>(directory, ["create", "review me"]);
+    const gone = run(directory, ["hunk", created.id, "--json"]);
+    expect(gone.status).not.toBe(0);
+    expect(JSON.parse(gone.stderr).error.message).toBe("unknown command: hunk");
+    const help = run(directory, ["help"]);
+    expect(help.stdout).not.toContain("hunk <id>");
+    expect(help.stdout).toContain("review <id>");
   });
   it("renders epics first with priority-ordered children and dependency fan-out", () => {
     const directory = workspace();
@@ -725,13 +716,19 @@ describe("tk executable", () => {
     const info = json<{ tasks: string; tasks_dir: string | null }>(repo, ["worktree", "info"]);
     expect(info.tasks).toBe("none");
     expect(info.tasks_dir).toBeNull();
-    // create registers the worktree at the sibling default placement:
-    // `<parent-of-repo-root>/<name>` (repo is tmpdir-based, so the parent is
-    // writable). No .gitignore rewrite happens anymore.
+    // create registers the worktree in the in-repo default pool
+    // `<repoRoot>/.worktrees/<name>`; the pool is excluded once via
+    // .git/info/exclude and the tracked .gitignore is never written.
     const created = json<{ name: string; created: boolean; path: string }>(repo, ["worktree", "create", "demo"]);
     expect(created).toMatchObject({ name: "demo", created: true });
+    expect(created.path).toBe(join(realpathSync(repo), ".worktrees", "demo"));
     expect(existsSync(created.path)).toBe(true);
+    json(repo, ["worktree", "create", "second"]);
     expect(existsSync(join(repo, ".gitignore"))).toBe(false);
+    const exclude = readFileSync(join(repo, ".git", "info", "exclude"), "utf8");
+    expect(exclude.split("\n").filter((line) => line === "/.worktrees/")).toHaveLength(1);
+    const status = Bun.spawnSync(["git", "status", "--porcelain"], { cwd: repo, stdout: "pipe" });
+    expect(new TextDecoder().decode(status.stdout)).not.toContain(".worktrees");
     const listed = json<ReadonlyArray<{ name: string }>>(repo, ["worktree", "list"]);
     expect(listed.map((entry) => entry.name)).toContain("demo");
     // --readonly blocks worktree mutation like every other write.
@@ -740,6 +737,43 @@ describe("tk executable", () => {
     expect(blocked.stderr).toContain("readonly");
     const removed = json<{ removed: boolean }>(repo, ["worktree", "remove", "--force", "demo"]);
     expect(removed.removed).toBe(true);
+  });
+
+  it("resolves worktree create against the main root even from inside a linked worktree", () => {
+    const repo = workspace();
+    const git = (...args: readonly string[]) => { const result = Bun.spawnSync(["git", ...args], { cwd: repo, stdout: "pipe", stderr: "pipe" }); expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0); };
+    git("init", "-q");
+    git("-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init");
+    const first = json<{ path: string }>(repo, ["worktree", "create", "a"]);
+    const nested = json<{ path: string }>(first.path, ["worktree", "create", "b"]);
+    expect(nested.path).toBe(join(realpathSync(repo), ".worktrees", "b"));
+    expect(existsSync(join(first.path, ".worktrees", "b"))).toBe(false);
+  });
+
+  it("runs post_start on a new branch and post_checkout on an existing branch for tk worktree create", () => {
+    const repo = workspace();
+    const git = (...args: readonly string[]) => { const result = Bun.spawnSync(["git", ...args], { cwd: repo, stdout: "pipe", stderr: "pipe" }); expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0); return new TextDecoder().decode(result.stdout).trim(); };
+    git("init", "-q");
+    git("-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init");
+    mkdirSync(join(repo, ".tasks"), { recursive: true });
+    writeFileSync(join(repo, ".tasks", "config.json"), JSON.stringify({ worktree: { post_start: `touch "${repo}/.ps"`, post_checkout: `touch "${repo}/.pc"`, install: false } }));
+    const result = run(repo, ["worktree", "create", "h", "--json"]);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).not.toContain("ENOENT");
+    expect(JSON.parse(result.stdout).hooks).toBeUndefined();
+    expect(existsSync(join(repo, ".ps"))).toBe(true);
+    expect(existsSync(join(repo, ".pc"))).toBe(false);
+    rmSync(join(repo, ".ps"));
+    // An existing branch is checked out (no `-b` "already exists" failure) and fires post_checkout only.
+    git("branch", "existing");
+    const other = run(repo, ["worktree", "create", "other", "--branch", "existing", "--json"]);
+    expect(other.status, other.stderr).toBe(0);
+    const created = JSON.parse(other.stdout) as { path: string; branch: string };
+    expect(created.branch).toBe("existing");
+    const head = Bun.spawnSync(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: created.path, stdout: "pipe" });
+    expect(new TextDecoder().decode(head.stdout).trim()).toBe("existing");
+    expect(existsSync(join(repo, ".pc"))).toBe(true);
+    expect(existsSync(join(repo, ".ps"))).toBe(false);
   });
 
   it("places worktrees through worktree.dir config and surfaces git stderr on duplicates", () => {

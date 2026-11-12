@@ -16,7 +16,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { spawnSync } from "node:child_process";
 import { cwd } from "node:process";
 import { VERSION } from "./presentation.js";
-import { gitCommonDir, gitToplevel, mainWorktreeRoot } from "@tasks/git";
+import { gitAddSync, gitCommonDir, gitConfigGetSync, gitConfigSetSync, gitConfigUnsetSync, gitDiffCachedNamesSync, gitIsTrackedSync, gitToplevel, mainWorktreeRoot, type GitSyncResult } from "@tasks/git";
 /** Git hooks managed by tk; content is generated dynamically by generateHookSection(). */
 export const managedHookNames: readonly string[] = ["pre-commit", "post-merge", "pre-push", "post-checkout", "prepare-commit-msg"];
 
@@ -34,15 +34,6 @@ const HOOK_TIMEOUT_SECONDS = 300;
 const exists = async (path: string): Promise<boolean> => access(path).then(() => true, () => false);
 const hookSectionBeginLine = (): string => `${hookSectionBeginPrefix} v${VERSION} ---`;
 const hookSectionEndLine = (): string => `${hookSectionEndPrefix} v${VERSION} ---`;
-
-interface GitOutput { readonly ok: boolean; readonly stdout: string; readonly stderr: string }
-
-/** Sync git plumbing inside hooks. `scrub` strips GIT_* hook env so git rediscovers the repo from cwd. */
-const git = (args: readonly string[], options: { readonly cwd?: string; readonly scrub?: boolean } = {}): GitOutput => {
-  const env = options.scrub === true ? scrubGitHookEnv(process.env) : { ...process.env };
-  const result = spawnSync("git", args, { cwd: options.cwd, env, encoding: "utf8" });
-  return { ok: result.status === 0, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
-};
 
 /**
  * Returns env minus the GIT_* variables that would poison git's repo/worktree
@@ -73,7 +64,7 @@ export function hookWorkTreeRoot(): string {
 
 /** Effective hooks directory git will use: core.hooksPath (tilde-expanded, root-relative) or <commonDir>/hooks. */
 export async function gitHooksDir(cwd: string): Promise<string | null> {
-  const config = git(["config", "--get", "core.hooksPath"], { cwd });
+  const config = gitConfigGetSync("core.hooksPath", { cwd });
   let hooksPath = config.ok ? config.stdout.trim() : "";
   if (hooksPath !== "") {
     if (hooksPath === "~") hooksPath = homedir();
@@ -358,7 +349,7 @@ async function guardHookWritePath(hookPath: string, allowTracked: boolean): Prom
   }
 }
 
-const isGitTrackedFile = (path: string): boolean => git(["ls-files", "--error-unmatch", "--", basename(path)], { cwd: dirname(path) }).ok;
+const isGitTrackedFile = (path: string): boolean => gitIsTrackedSync(basename(path), { cwd: dirname(path) }).ok;
 
 /** True when the hook file is tk-managed: section markers or legacy shim/inline forms. */
 async function isTkOwnedHookFile(path: string): Promise<boolean> {
@@ -525,7 +516,7 @@ function isHuskyHelperSourceLine(line: string): boolean {
 async function configureHooksPath(startDir: string, hooksDir: string): Promise<void> {
   const absolute = resolve(hooksDir);
   const canonical = await realpath(absolute).catch(() => absolute);
-  const result = git(["config", "core.hooksPath", canonical], { cwd: startDir });
+  const result = gitConfigSetSync("core.hooksPath", canonical, { cwd: startDir });
   if (!result.ok) throw new Error(`git config failed: ${result.stderr.trim()}`);
 }
 
@@ -558,20 +549,20 @@ export async function uninstallHooks(startDir: string): Promise<void> {
 async function resetHooksPathIfTkManaged(startDir: string): Promise<void> {
   const mainRoot = await mainWorktreeRootOf(startDir) ?? await gitToplevel(startDir);
   if (mainRoot === null) return;
-  const config = git(["config", "--get", "core.hooksPath"], { cwd: mainRoot });
+  const config = gitConfigGetSync("core.hooksPath", { cwd: mainRoot });
   if (config.ok) {
     const hooksPath = config.stdout.trim();
-    if (isTkManagedHooksPath(mainRoot, hooksPath) && !git(["config", "--unset", "core.hooksPath"], { cwd: mainRoot }).ok) {
+    if (isTkManagedHooksPath(mainRoot, hooksPath) && !gitConfigUnsetSync("core.hooksPath", { cwd: mainRoot }).ok) {
       throw new Error(`hook files removed, but failed to reset core.hooksPath: ${config.stderr.trim()}`);
     }
   }
-  const role = git(["config", "--get", "tasks.role"], { cwd: mainRoot });
-  if (role.ok && !git(["config", "--unset", "tasks.role"], { cwd: mainRoot }).ok) {
+  const role = gitConfigGetSync("tasks.role", { cwd: mainRoot });
+  if (role.ok && !gitConfigUnsetSync("tasks.role", { cwd: mainRoot }).ok) {
     throw new Error(`hook files removed, but failed to reset tasks.role: ${role.stderr.trim()}`);
   }
   // Legacy beads keys are cleared too — uninstall must not leave stale markers.
-  const legacyRole = git(["config", "--get", "beads.role"], { cwd: mainRoot });
-  if (legacyRole.ok) void git(["config", "--unset", "beads.role"], { cwd: mainRoot });
+  const legacyRole = gitConfigGetSync("beads.role", { cwd: mainRoot });
+  if (legacyRole.ok) void gitConfigUnsetSync("beads.role", { cwd: mainRoot });
 }
 
 /** Matches tk/beads-managed hooks paths (relative or absolute) against the known directories. */
@@ -693,14 +684,14 @@ async function exportJsonlForCommit(startDir: string): Promise<void> {
 
 /** True when the export file at fullPath is staged for deletion (user ran `git rm`). Keeps the env intact: GIT_INDEX_FILE points at the pending index. */
 function isExportFileStagedForDeletion(fullPath: string): boolean {
-  const result = git(["diff", "--cached", "--diff-filter=D", "--name-only", "--", basename(fullPath)], { cwd: dirname(fullPath) });
+  const result = gitDiffCachedNamesSync(basename(fullPath), { cwd: dirname(fullPath), diffFilter: "D" });
   return result.ok && result.stdout.trim() !== "";
 }
 
 /** True when any staged path lives under `.tasks/` (scrubbed env: hook env must not poison discovery). */
 function hasStagedTasksFiles(startDir: string): boolean {
   const root = hookWorkTreeRoot() || startDir;
-  const result = git(["diff", "--cached", "--name-only", "--", ".tasks"], { cwd: root, scrub: true });
+  const result = gitDiffCachedNamesSync(".tasks", { cwd: root, env: scrubGitHookEnv(process.env) });
   return result.ok && result.stdout.trim() !== "";
 }
 
@@ -729,13 +720,12 @@ async function importJsonlForSync(startDir: string, reason: string): Promise<voi
  * target lies outside the hook's worktree (the shared-workspace redirect case)
  * or when the index is locked.
  */
-async function gitAddFile(path: string): Promise<GitOutput> {
+async function gitAddFile(path: string): Promise<GitSyncResult> {
   const workTree = hookWorkTreeRoot();
   if (workTree !== "" && !(await pathInsideDir(path, workTree))) return { ok: true, stdout: "", stderr: "" };
   const env = scrubGitHookEnv(process.env);
   if (existsSync(join(dirname(path), ".git", "index.lock"))) return { ok: false, stdout: "", stderr: "git index is locked; skipping auto-stage" };
-  const result = spawnSync("git", ["add", "--", basename(path)], { cwd: dirname(path), env, encoding: "utf8" });
-  return { ok: result.status === 0, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+  return gitAddSync(basename(path), { cwd: dirname(path), env });
 }
 
 /** Resolves symlinks on both sides (parent of path, dir) to answer containment robustly on macOS /tmp. */

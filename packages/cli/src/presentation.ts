@@ -2,8 +2,9 @@ import { writeSync } from "node:fs";
 import { exit } from "node:process";
 import { terminalImageEscape } from "@tasks/terminal-image";
 import type { Agent, Issue, IssueAttachment, IssuePathAttachment, Metadata, Run } from "@tasks/domain";
-import { isBlobAttachment } from "@tasks/domain";
-import type { ActivityRow, BlobContent, ChangesetPayload, InboxEntry, LeaseRow, RuntimeRow } from "@tasks/surface";
+import { agentLine, commentSummary, commentsLine, isBlobAttachment, prLine, readPrRecord, reviewDoors, statCardLine, type ChangesView, type PrRecord, type ReviewDoors } from "@tasks/domain";
+import type { ActivityRow, BlobContent, ChangesetPayload, InboxEntry, LeaseRow, ReviewCommentCard, ReviewCommentCounts, RuntimeRow } from "@tasks/surface";
+import { reviewComments } from "@tasks/surface";
 import type { IssueTree, TreeNode } from "./tree.js";
 
 const iso = (value: Date | null): string | null => value?.toISOString() ?? null;
@@ -105,7 +106,6 @@ export function issueWire(issue: Issue): Record<string, unknown> {
     comment_count: issue.commentCount,
   };
 }
-export function commentWire(issue: Issue): readonly Record<string, unknown>[] { return issueWire(issue)["comments"] as readonly Record<string, unknown>[]; }
 
 /* ------------------------------------------------------------------ */
 /* Human formatters — colored, icon-first, bd-style.                   */
@@ -127,29 +127,36 @@ export function formatError(message: string): string {
 }
 
 /** One issue per line: icon + id + priority + [type] + title, with summary + legend. */
-function formatIssueList(issues: readonly Issue[], summary: (issues: readonly Issue[]) => string): string {
+function formatIssueList(issues: readonly Issue[], summary: (issues: readonly Issue[]) => string, webBase?: string): string {
   const lines = issues.map((issue) => {
     const type = issue.type === "task" ? "" : ` ${typeBadge(issue.type)}`;
     const labels = issue.labels.length === 0 ? "" : dim(`  ${issue.labels.map((label) => `#${label}`).join(" ")}`);
     return `${statusColored(issue.status)} ${cyan(issue.id)} ${priorityBadge(issue.priority)}${type} ${issue.title}${labels}`;
   });
-  return [...lines, "", RULE, summary(issues), "", LEGEND].join("\n");
+  const doors = webBase === undefined ? [] : [formatDoors(reviewDoors("<id>", webBase)), ""];
+  return [...lines, "", RULE, summary(issues), "", ...doors, LEGEND].join("\n");
 }
 
-export function formatList(issues: readonly Issue[]): string {
+/** The two review doors on one line: the TUI command and the web URL. */
+export const formatDoors = (doors: ReviewDoors): string => `${dim("review")} ${cyan(doors.tui)} ${dim("·")} ${cyan(doors.web)}`;
+
+/** Doors footer lines for a non-empty listing: a blank separator + the `<id>` doors template; nothing without a base. */
+const doorsFooter = (webBase: string | undefined): string[] => webBase === undefined ? [] : ["", formatDoors(reviewDoors("<id>", webBase))];
+
+export function formatList(issues: readonly Issue[], webBase?: string): string {
   return formatIssueList(issues, (items) => {
     const open = items.filter((issue) => issue.status === "open").length;
     const wip = items.filter((issue) => issue.status === "in_progress").length;
     return `Total: ${items.length} issues (${open} open, ${wip} in progress)`;
-  });
+  }, webBase);
 }
 
-export function formatReady(issues: readonly Issue[]): string {
+export function formatReady(issues: readonly Issue[], webBase?: string): string {
   if (issues.length === 0) return `${yellow("No ready issues")} — everything is blocked or in progress`;
-  return formatIssueList(issues, (items) => green(`Ready: ${items.length} issues with no active blockers`));
+  return formatIssueList(issues, (items) => green(`Ready: ${items.length} issues with no active blockers`), webBase);
 }
 
-export function formatBlocked(issues: readonly Issue[], all: readonly Issue[]): string {
+export function formatBlocked(issues: readonly Issue[], all: readonly Issue[], webBase?: string): string {
   if (issues.length === 0) return green("No blocked issues 🎉");
   const lines = issues.map((issue) => {
     const blockers = issue.dependencies
@@ -159,7 +166,7 @@ export function formatBlocked(issues: readonly Issue[], all: readonly Issue[]): 
     const head = `${statusColored("blocked")} ${priorityBadge(issue.priority)} ${cyan(issue.id)}: ${issue.title}`;
     return blockers.length === 0 ? head : `${head}\n${dim(`  Blocked by ${blockers.length} open dependencies: [${blockers.map((other) => other.id).join(", ")}]`)}`;
   });
-  return [`🚫 ${bold(red(`Blocked issues (${issues.length})`))}:`, "", ...lines].join("\n");
+  return [`🚫 ${bold(red(`Blocked issues (${issues.length})`))}:`, "", ...lines, ...doorsFooter(webBase)].join("\n");
 }
 
 function formatSection(title: string, body: string): string {
@@ -192,11 +199,34 @@ export function formatAttachments(attachments: readonly IssueAttachment[], image
   return lines.join("\n");
 }
 
-export function formatShow(issue: Issue, images: ReadonlyMap<string, BlobContent> = new Map(), changeset: ChangesetPayload | null = null): string {
+const REVIEW_GLYPH: Readonly<Record<ReviewCommentCard["status"], string>> = { resolved: green("✓"), open: "○", sent: cyan("→"), dismissed: dim("–") };
+
+/** First line of a reviewer-authored body with C0 control characters (incl. ESC) removed (T-03-08). */
+// eslint-disable-next-line no-control-regex
+const safeFirstLine = (body: string): string => (body.split(/\r?\n/, 1)[0] ?? "").replace(/[\u0000-\u001f\u007f]/g, "");
+
+/** One REVIEW row: status glyph, location, author, body's first line. */
+const formatReviewCard = (card: ReviewCommentCard): string => `${REVIEW_GLYPH[card.status]} ${cyan(safeFirstLine(card.location))}  ${green(safeFirstLine(card.author))}  ${safeFirstLine(card.body)}`;
+
+/** `REVIEW (n) · All resolved | N open · K ✓` — shared by `tk show` and `tk comments`. */
+const reviewHeader = (n: number, counts: ReviewCommentCounts): string => `REVIEW (${n}) · ${counts.allResolved ? "All resolved" : counts.label}`;
+
+export function formatShow(issue: Issue, images: ReadonlyMap<string, BlobContent> = new Map(), changeset: ChangesetPayload | null = null, doors: ReviewDoors = reviewDoors(issue.id), cached: ChangesView | null = null): string {
   const head = `${statusColored(issue.status)} ${cyan(issue.id)} · ${bold(issue.title)}   [${priorityBadge(issue.priority)} · ${statusLabel(issue.status)}]`;
   const meta = [issue.owner === null ? null : `Owner: ${issue.owner}`, issue.assignee === null ? null : `Assignee: ${issue.assignee}`, `Type: ${issue.type}`, issue.estimate === null ? null : `Estimate: ${issue.estimate}m`].filter(Boolean).join(" · ");
   const dates = [field("Created:", date(issue.createdAt)), issue.startedAt === null ? null : field("Started:", date(issue.startedAt)), field("Updated:", date(issue.updatedAt)), issue.closedAt === null ? null : field("Closed:", date(issue.closedAt)), issue.dueAt === null ? null : field("Due:", date(issue.dueAt)), issue.deferUntil === null ? null : field("Deferred:", date(issue.deferUntil))].filter(Boolean).join("  ");
   const sections: string[] = [head, dim(meta), dim(dates)];
+  const agent = agentLine(issue);
+  const reviewRecord = reviewComments(issue);
+  const counts = reviewRecord.counts;
+  const summary = reviewRecord.comments.length === 0
+    ? commentSummary(issue)
+    : { total: Math.max(issue.commentCount, issue.comments.length), open: counts.unresolved, resolved: counts.resolved, dismissed: counts.dismissed, allResolved: counts.allResolved };
+  const review = [agent === null ? null : agent, formatDoors(doors), commentsLine(summary)].filter((line): line is string => line !== null);
+  sections.push(review.join("\n"));
+  if (reviewRecord.comments.length > 0) {
+    sections.push(formatSection(reviewHeader(reviewRecord.comments.length, counts), reviewRecord.comments.map(formatReviewCard).join("\n")));
+  }
   sections.push(formatSection("DESCRIPTION", issue.description.trim() === "" ? dim("(none)") : issue.description.trimEnd()));
   if (issue.labels.length > 0) sections.push(`${bold("LABELS:")} ${issue.labels.map((label) => magenta(`#${label}`)).join(" ")}`);
   if (issue.design !== null) sections.push(formatSection("DESIGN", issue.design.trimEnd()));
@@ -211,6 +241,8 @@ export function formatShow(issue: Issue, images: ReadonlyMap<string, BlobContent
     sections.push([`${bold("BRANCH:")} ${cyan(issue.branch)}`, shownBase === null ? dim(field("BASE:", "(unpinned)")) : `${field("BASE:", shownBase)}`, shownWorktree === null ? dim(field("WORKTREE:", "(none)")) : `${field("WORKTREE:", shownWorktree)}`].filter(Boolean).join("\n"));
     if (changeset !== null && changeset.commits.length > 0) sections.push(formatSection(`COMMITS (${changeset.commits.length})`, changeset.commits.map((commit) => `${cyan(commit.sha)} ${commit.subject}`).join("\n")));
     if (changeset !== null && changeset.files.length > 0) sections.push(formatSection(`FILES (${changeset.files.length})`, changeset.files.map((file) => `${file.status === "A" ? green("A") : file.status === "D" ? red("D") : file.status.startsWith("R") ? magenta("R") : yellow(file.status)} ${file.path}`).join("\n")));
+    // PR-03: branch out of reach → the cached finish-report stat card replaces the commit/file listing.
+    if (changeset === null && cached !== null) sections.push(formatSection("CHANGES", dim(statCardLine(cached))));
   }
   if (issue.attachments.length > 0) sections.push(formatAttachments(issue.attachments, images));
   if (issue.dependencies.length > 0) sections.push(formatSection("DEPENDENCIES", issue.dependencies.map((edge) => `→ ${cyan(edge.target)} (${edge.type})`).join("\n")));
@@ -219,15 +251,56 @@ export function formatShow(issue: Issue, images: ReadonlyMap<string, BlobContent
   return sections.join("\n\n");
 }
 
-export function formatComments(issue: Issue): string {
-  if (issue.comments.length === 0) return dim(`No comments on ${issue.id}`);
-  return [`${bold(`Comments on ${cyan(issue.id)}:`)}`, "", ...issue.comments.map((comment) => `${green(`[${comment.author}]`)} ${dim(`at ${datetime(comment.createdAt)}`)}\n${indent(comment.text.trimEnd())}`)].join("\n");
+/** `tk comments <id>`: header plus one row per review comment (dim id, glyph, location, author, body). */
+export function formatReviewComments(id: string, result: { readonly comments: readonly ReviewCommentCard[]; readonly counts: ReviewCommentCounts }): string {
+  if (result.comments.length === 0) return dim(`No review comments on ${id}`);
+  return [bold(reviewHeader(result.comments.length, result.counts)), ...result.comments.map((card) => `  ${dim(safeFirstLine(card.id))} ${formatReviewCard(card)}`)].join("\n");
 }
 
-/** `tk finish` confirmation: status line plus the live-derived changeset counts (FIN-01). */
-export const formatFinish = (issue: Issue, changeset: ChangesetPayload | null = null): string =>
-  confirmation("Finished", issue) +
-  (changeset === null ? "" : dim(` — ${changeset.commits.length} commit(s), ${changeset.files.length} file(s), +${changeset.counts.additions} −${changeset.counts.deletions}`));
+/** `tk comments send`: the batch handed to the agent, one card per line, then the remaining counts. */
+export function formatReviewSend(id: string, result: { readonly sent: readonly ReviewCommentCard[]; readonly counts: ReviewCommentCounts }): string {
+  if (result.sent.length === 0) return dim(`Nothing open to send on ${id}`);
+  return [
+    green(`✓ Sent ${result.sent.length} comment(s) to the agent on ${id}`),
+    ...result.sent.map((card) => `  ${cyan(safeFirstLine(card.location))}  ${green(safeFirstLine(card.author))}  ${safeFirstLine(card.body)}`),
+    dim(result.counts.label),
+  ].join("\n");
+}
+
+/** `tk comments resolve|dismiss|reopen`: confirmation line, then the refreshed list. */
+export function formatReviewStatus(op: "resolve" | "dismiss" | "reopen", cid: string, id: string, result: { readonly comments: readonly ReviewCommentCard[]; readonly counts: ReviewCommentCounts }): string {
+  const safe = safeFirstLine(cid);
+  const line = op === "resolve" ? green(`✓ Resolved ${safe}`) : op === "dismiss" ? yellow(`✕ Dismissed ${safe}`) : cyan(`↺ Reopened ${safe}`);
+  return `${line}\n${formatReviewComments(id, result)}`;
+}
+
+/**
+ * `tk finish` confirmation: status line plus the stat card (PR-02) — counts and the changes-view links, never a diff —
+ * then the recorded PR (`PR #7 · open · <url>`) or the `next: tk pr create <id>` hint (11-03). Reads the local
+ * mirror only; never runs gh.
+ */
+export const formatFinish = (issue: Issue, view: ChangesView | null = null): string => {
+  const pr = readPrRecord(issue.metadata);
+  return confirmation("Finished", issue) + (view === null ? "" : `\n${dim(statCardLine(view))}`) + `\n${pr !== null ? prLine(pr) : dim(`next: tk pr create ${issue.id}`)}`;
+};
+
+/** `tk changes <id>`: the stat card (or a dim note when nothing is recorded), plus the recorded PR line when present — no hint (read-only, not a handoff). */
+export const formatChanges = (view: ChangesView | null, pr: PrRecord | null = null): string =>
+  (view === null ? dim("no changes recorded") : statCardLine(view)) + (pr === null ? "" : `\n${prLine(pr)}`);
+
+/**
+ * `tk pr …` (PR-01): create/adopt/refresh → `✓ PR #<n> <state> for <id> — <url>` (`(already open)` when not newly
+ * created); sync → `✓ PR #<n> synced for <id> — <state>`; merge → `✓ PR #<n> merged for <id> — next: tk close <id>`;
+ * close → `✓ PR #<n> closed for <id> (branch kept)`; show → the local mirror line or the create hint.
+ */
+export const formatPr = (op: "create" | "adopt" | "refresh" | "sync" | "close" | "merge" | "show", id: string, pr: PrRecord | null): string => {
+  if (pr === null) return dim(`no PR — run tk pr create ${id}`);
+  if (op === "show") return prLine(pr);
+  if (op === "merge") return green(`✓ PR #${pr.number} ${pr.state} for ${id}`) + ` — next: ${cyan(`tk close ${id}`)}`;
+  if (op === "close") return green(`✓ PR #${pr.number} ${pr.state} for ${id}`) + dim(" (branch kept)");
+  if (op === "sync") return green(`✓ PR #${pr.number} synced for ${id}`) + ` — ${pr.state}`;
+  return green(`✓ PR #${pr.number} ${pr.state} for ${id}`) + ` — ${pr.url}` + (op === "create" ? "" : dim(" (already open)"));
+};
 
 /** bd-style mutation confirmations. */
 export const confirmation = (verb: string, issue: Issue, extra = ""): string =>
@@ -372,9 +445,9 @@ export function formatDepList(entries: readonly Record<string, unknown>[], id: s
   return [`${bold(direction === "up" ? "Dependents of" : "Dependencies of")} ${cyan(id)} ${dim(`(${entries.length})`)}:`, "", ...lines].join("\n");
 }
 
-export function formatSearch(issues: readonly Issue[], text: string): string {
+export function formatSearch(issues: readonly Issue[], text: string, webBase?: string): string {
   if (issues.length === 0) return `No issues found matching '${text}'`;
-  return [`${bold(`${issues.length} issues matching '${text}':`)}`, "", ...issues.map((issue) => `${statusColored(issue.status)} ${cyan(issue.id)} ${priorityBadge(issue.priority)} ${issue.title}`)].join("\n");
+  return [`${bold(`${issues.length} issues matching '${text}':`)}`, "", ...issues.map((issue) => `${statusColored(issue.status)} ${cyan(issue.id)} ${priorityBadge(issue.priority)} ${issue.title}`), ...doorsFooter(webBase)].join("\n");
 }
 
 export function formatMigration(report: Record<string, unknown>): string {
@@ -493,9 +566,9 @@ export function formatMarkdown(value: unknown, verbose: boolean): string {
 
 /* ---------------- New bd-parity views ---------------- */
 
-export function formatStale(issues: readonly Issue[], days: number): string {
+export function formatStale(issues: readonly Issue[], days: number, webBase?: string): string {
   if (issues.length === 0) return green(`No issues stale for ${days}+ days`);
-  return [`🕰️  ${bold(`Stale issues (${issues.length})`)} — no updates in ${days}+ days`, "", ...issues.map((issue) => `${statusColored(issue.status)} ${priorityBadge(issue.priority)} ${cyan(issue.id)}: ${issue.title}  ${dim(`(updated ${date(issue.updatedAt)})`)}`)].join("\n");
+  return [`🕰️  ${bold(`Stale issues (${issues.length})`)} — no updates in ${days}+ days`, "", ...issues.map((issue) => `${statusColored(issue.status)} ${priorityBadge(issue.priority)} ${cyan(issue.id)}: ${issue.title}  ${dim(`(updated ${date(issue.updatedAt)})`)}`), ...doorsFooter(webBase)].join("\n");
 }
 
 export function formatDuplicates(clusters: ReadonlyArray<readonly [Issue, Issue, number]>): string {
@@ -686,26 +759,12 @@ export const PRIME = `# tk workflow context
 - Issues live in ${cyan(".tasks/")}; the storage backend (file/sqlite/postgres) is set once in ${cyan(".tasks/config.json")} and every mutating command writes through one transaction.
 - Use ${cyan("--json")} for machine-readable output; omit it for colored human output.
 - IDs are short random hashes (${cyan("<prefix>-xyz")}), not sequential — never assume ordering.
-- Typical loop: ${cyan("tk ready")} → ${cyan("tk work <id>")} (worktree + branch, recorded on the task) → ${cyan("tk finish <id> --session <sid>")} (hand over to review) → review → ${cyan("tk close <id>")}.
+- Typical loop: ${cyan("tk ready")} → ${cyan("tk work <id>")} (worktree + branch, recorded on the task) → commit there → ${cyan("tk finish <id> --session <sid>")} (hand over to review) → ${cyan('tk watch <id> --until "status=approved|rejected"')} (blocks for the verdict; ${cyan("--drain")} at session start prints what you missed) → ${cyan("tk close <id>")}.
 - Use ${cyan("tk dep add <id> <blocker>")} to record blockers; ${cyan("tk tree")} renders the tree; ${cyan("tk stale")}/${cyan("tk orphans")}/${cyan("tk duplicates")}/${cyan("tk lint")} for hygiene.
-- Review rides the record: ${cyan("tk review <id>")} reviews the recorded worktree, branch, and derived diff; reviewer comments land on the task. Never mark done — only \`tk finish <id> --session <sid>\` moves work to ${cyan("ready-to-review")}; the recorded evidence is the proof of work.
+- Review rides the record: ${cyan("tk review <id>")} reviews the recorded worktree, branch, and derived diff; reviewer comments land on the task (${cyan("tk comments <id>")} lists them; ${cyan("tk comments resolve <id> <cid>")} once addressed). Never mark done — only \`tk finish <id> --session <sid>\` moves work to ${cyan("ready-to-review")}; the recorded evidence is the proof of work. Finish prints a stat card (commits · +adds −dels · files + changes-view link) — never paste a diff into chat; ${cyan("tk changes <id>")} reprints it. One PR per task: ${cyan("tk pr create <id>")} pushes the branch and opens it via gh (recorded on the task); ${cyan("tk pr sync <id>")} pulls its state — only when asked, never polled; ${cyan("tk pr merge <id>")} / ${cyan("tk pr close <id>")} act on it via gh and keep the branch (${cyan("tk close <id>")} prunes).
+- Lifecycle: ${cyan("tk close")} prunes the task's worktree and ${cyan("tk/<id>")} branch when merged and clean (a refusal is a note; the close still succeeds); ${cyan("tk worktree clean")} lists leftovers, ${cyan("--yes")} removes them.
 - File references attach to issues: ${cyan("tk attach <id> <path>")} (paths are stored workspace-relative; bare name = repo root). ${cyan("tk attach <id> --evidence <file>...")} ingests bytes instead — the blob lands under ${cyan(".tasks/attachments/")} (mime-sniffed, deduped by name, re-attach replaces), referenced from comments as ${cyan("evidence:<id>")}. ${cyan("tk detach <id> <path|name|id>")} removes either kind (evidence bytes go with it). ${cyan("--plan <path>")} on create/update sets the issue's plan through the same system (replaces prior plan). ${cyan("tk skill")} prints the full agent skill.
 - Run ${cyan("tk help")} for the full command list; ${cyan("tk <cmd> -h")} for a single command's flags.
-`;
-
-export const ONBOARD = `## Task tracking
-
-This project uses tk for issue tracking. Run \`tk prime\` for workflow context before starting work.
-
-\`\`\`
-tk ready              # Find available work
-tk work <id>          # Open the work env (worktree + branch, recorded on the task)
-tk finish <id> --session <sid>   # Hand over: status → ready-to-review
-tk review <id>        # Review the recorded worktree/branch/diff
-tk close <id>         # Close after approval
-\`\`\`
-
-**The loop — task → review:** work in \`tk work <id>\`; finish with \`tk finish <id> --session <id>\`; never mark done — the recorded worktree, branch, and derived diff are the evidence; review with \`tk review <id>\`. Reviewer comments land on the task record; rejected work loops back to \`tk work <id>\`.
 `;
 
 /** `bd human`: the ~15 commands people actually type, no agent noise. */
@@ -714,8 +773,13 @@ export const HUMAN_HELP = `${bold("tk — essentials")}
   tk create <title>       Create an issue
   tk list                 List issues
   tk show <id>            Show details
-  tk work <id>            Open work env for an issue (WIP mock)
-  tk review <id>          Review an issue's diff (WIP mock)
+  tk work <id>            Claim + open the task's worktree and branch
+  tk review <id>          Review the task's recorded diff
+  tk changes <id>         Stat card for the task's changes (commits · +− · files) + changes-view link
+  tk pr create <id>       Push the branch and open (or adopt) the task's one PR via gh
+  tk pr sync <id>         Pull the PR's state from gh (only when asked; tk pr <id> reads the record)
+  tk pr merge <id>        Merge the PR via gh (--merge|--squash|--rebase; branch kept, then tk close)
+  tk pr close <id>        Close the PR via gh (branch and worktree kept)
   tk update <id> ...      Change fields
   tk close <id>           Close it
   tk comment <id> <text>  Leave a note
