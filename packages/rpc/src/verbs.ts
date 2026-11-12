@@ -178,6 +178,10 @@ export const VERB_TABLE: Readonly<Record<string, RpcVerb>> = {
   'issue.comments': verb(Type.Object({ id }), (surface, p) => surface.comments(p.id)),
   'issue.comment': verb(Type.Object({ id, body: str() }), (surface, p) => surface.comment(p.id, p.body)),
 
+  'comments.list': verb(Type.Object({ id }), (surface, p) => surface.reviewComments(p.id)),
+  'comments.send': verb(Type.Object({ id, ids: Type.Optional(Type.Array(str())) }), (surface, p) => surface.reviewCommentsSend(p.id, p.ids)),
+  'comments.status': verb(Type.Object({ id, comment: str(), status: str() }), (surface, p) => surface.reviewCommentStatus(p.id, p.comment, p.status)),
+
   'deps.list': verb(Type.Object({ id, direction: Type.Optional(Type.Union([Type.Literal('up'), Type.Literal('down')])) }), (surface, p) => surface.depList(p.id, p.direction)),
   'deps.add': verb(Type.Object({ id, target: str(), type: Type.Optional(str()) }), (surface, p) => surface.depAdd(p.id, p.target, p.type)),
   'deps.remove': verb(Type.Object({ id, target: str(), type: Type.Optional(str()) }), (surface, p) => surface.depRemove(p.id, p.target, p.type)),

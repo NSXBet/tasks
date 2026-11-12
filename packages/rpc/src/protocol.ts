@@ -12,8 +12,15 @@
 /** Frame version. Bump on envelope changes (fields, error kinds). */
 export const PROTOCOL_VERSION = 2;
 
-/** Verb-table version. Bump when methods, params, or result shapes change. */
-export const VERBS_VERSION = 3;
+/**
+ * Verb-table version. Bump when methods, params, or result shapes change.
+ * 5: event kinds are the `.tasks/events.jsonl` line types (legacy names stay
+ * accepted as subscription aliases), `seq` is the log seq, and
+ * `events.subscribe` takes `after`.
+ * 6: event kinds `task.pr` and `task.report` (the `issue.updated` alias
+ * covers both).
+ */
+export const VERBS_VERSION = 6;
 
 export type RpcErrorCode =
   | 'method_unknown' // method not in the table (client too new, or typo)

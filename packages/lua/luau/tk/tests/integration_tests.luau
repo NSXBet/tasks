@@ -201,7 +201,7 @@ check("issue.list sees the created issue", function()
 	error("created issue " .. tostring(createdId) .. " missing from issue.list")
 end)
 
-check("events: subscribe fires on_event for issue.created from a second client", function()
+check("events: legacy issue.created subscription fires on_event with task.created from a second client", function()
 	-- Drain: wait until the watch loop has caught up with everything created
 	-- earlier in this run, so its baseline pass cannot deliver stale events
 	-- after the watermark prime below.
@@ -247,7 +247,7 @@ check("events: subscribe fires on_event for issue.created from a second client",
 	end
 	assert(fired ~= nil, "on_event did not fire within 5s; poll errors: " .. table.concat(errors, "; "))
 	local event = fired :: any
-	assert(event.kind == "issue.created", "wrong event kind: " .. tostring(event.kind))
+	assert(event.kind == "task.created", "wrong event kind: " .. tostring(event.kind))
 	assert(event.issueId == (other :: any).id, "event payload issueId mismatch: " .. tostring(event.issueId))
 	assert(typeof(event.seq) == "number" and typeof(event.at) == "string", "event row missing seq/at")
 

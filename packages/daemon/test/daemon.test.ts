@@ -163,10 +163,6 @@ describe("tkd daemon", () => {
     const root = workspace();
     await init(root);
     const handle = await startDaemon({ idleMs: 0 });
-    const waitFor = async (seen: readonly { readonly kind: string; readonly id: string }[], kind: string, id: string): Promise<void> => {
-      const deadline = Date.now() + 5000;
-      while (!seen.some((e) => e.kind === kind && e.id === id) && Date.now() < deadline) await delay(25);
-    };
     try {
       const seen: { tag: string; kind: string; id: string }[] = [];
       const client = await connectOrSpawn(root, {
@@ -175,13 +171,17 @@ describe("tkd daemon", () => {
       });
       try {
         await client.call("events.subscribe", { subscription: "w1", root, interval: 250 });
+        // Legacy kind names still subscribe (alias table); the emitted kind is the log type.
+        await client.call("events.subscribe", { subscription: "legacy", root, interval: 250, kinds: ["issue.created"] });
 
         const created = (await client.call("issue.create", { title: "event me" })) as { readonly id: string };
-        await waitFor(seen, "issue.created", created.id);
-        expect(seen.some((e) => e.tag === "w1" && e.kind === "issue.created" && e.id === created.id)).toBe(true);
+        const deadline = Date.now() + 5000;
+        while (!(seen.some((e) => e.tag === "w1") && seen.some((e) => e.tag === "legacy")) && Date.now() < deadline) await delay(25);
+        expect(seen.some((e) => e.tag === "w1" && e.kind === "task.created" && e.id === created.id)).toBe(true);
+        expect(seen.filter((e) => e.tag === "legacy").map((e) => [e.kind, e.id])).toEqual([["task.created", created.id]]);
 
         // Unsubscribe stops delivery for this connection only.
-        await client.call("events.unsubscribe", { subscription: "w1" });
+        await client.call("events.unsubscribe", {});
         seen.length = 0;
         await client.call("issue.create", { title: "after unsub" });
         await delay(700);
@@ -198,8 +198,8 @@ describe("tkd daemon", () => {
           await client.call("issue.create", { title: "only w2" });
           const deadline = Date.now() + 5000;
           while (!other.includes("w2") && Date.now() < deadline) await delay(25);
-          // A fresh loop diffs the whole board on its first tick, so every
-          // event belongs to w2 — the unsubscribed w1 sees none.
+          // A fresh subscription starts at the log's end; every event belongs
+          // to w2 — the unsubscribed w1 sees none.
           expect(other.length).toBeGreaterThan(0);
           expect(other.every((tag) => tag === "w2")).toBe(true);
         } finally {

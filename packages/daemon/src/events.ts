@@ -1,5 +1,7 @@
 import net from 'node:net';
 import {
+  lastEventSeq,
+  normalizeKinds,
   runWatchLoop,
   type SurfaceStore,
   type WatchEvent,
@@ -8,8 +10,11 @@ import {
 } from '@tasks/surface';
 
 /**
- * The daemon's events host: per-connection `events.subscribe` subscriptions
- * backed by the in-process watch loop. Each subscribing socket gets its own
+ * The daemon's events host: per-connection `events.subscribe` subscriptions.
+ * Each subscription is a tail of the workspace event log
+ * (`.tasks/events.jsonl`) through `runWatchLoop` — the daemon is not a broker:
+ * writers append to the log in-process, and this host only forwards the lines
+ * it reads. Each subscribing socket gets its own
  * loop (delivers ndjson event frames only to that socket); unsubscribing or
  * dropping the socket stops it. A loop that exhausts its error budget restarts
  * after a short delay while its socket lives. The global daemon serves every
@@ -33,11 +38,13 @@ interface DaemonWatch {
   readonly params: EventsSubscribeParams;
   stopping: boolean;
   restartTimer: NodeJS.Timeout | undefined;
+  /** Cursor: the pinned start seq, then the last delivered seq (restart resumes here). */
+  lastSeq: number | undefined;
 }
 
 export interface EventsHost {
-  /** Starts (or replaces) a subscription for a socket. */
-  readonly subscribe: (socket: net.Socket, params: EventsSubscribeParams) => void;
+  /** Starts (or replaces) a subscription for a socket; resolves once its start cursor is pinned. */
+  readonly subscribe: (socket: net.Socket, params: EventsSubscribeParams) => Promise<void>;
   /** Stops one subscription (tag) on a socket; all when the tag is omitted. */
   readonly unsubscribe: (socket: net.Socket, subscription?: string) => void;
   /** Stops every subscription owned by a dropped socket. */
@@ -51,25 +58,37 @@ export interface EventsHost {
 export const createEventsHost = (storeFor: (root: string) => Promise<SurfaceStore>): EventsHost => {
   const bySocket = new Map<net.Socket, Map<string, DaemonWatch>>();
 
-  /** Schedules a fresh loop for a subscription whose loop exited on its own. */
+  /** Schedules a fresh loop for a subscription whose loop exited on its own; it resumes after the last delivered seq. */
   const scheduleRestart = (socket: net.Socket, watch: DaemonWatch): void => {
     if (watch.stopping || socket.destroyed || !socket.writable) return;
     watch.restartTimer = setTimeout(() => {
       if (watch.stopping || socket.destroyed || !socket.writable) return;
-      bySocket.get(socket)?.delete(watch.params.subscription);
-      start(socket, watch.params);
+      const subs = bySocket.get(socket);
+      if (subs === undefined) return;
+      const resumed: EventsSubscribeParams = watch.lastSeq === undefined ? watch.params : { ...watch.params, after: watch.lastSeq };
+      subs.set(watch.params.subscription, start(socket, resumed).watch);
     }, RESTART_DELAY_MS);
     watch.restartTimer.unref?.();
   };
 
-  const start = (socket: net.Socket, params: EventsSubscribeParams): DaemonWatch => {
-    const watch: DaemonWatch = { params, stopping: false, restartTimer: undefined };
-    void storeFor(params.root)
+  /**
+   * Starts one log tail. `ready` resolves once the start cursor is pinned
+   * (`params.after`, else the log's current end), so a write made after the
+   * subscribe reply is always delivered.
+   */
+  const start = (socket: net.Socket, params: EventsSubscribeParams): { readonly watch: DaemonWatch; readonly ready: Promise<void> } => {
+    const watch: DaemonWatch = { params, stopping: false, restartTimer: undefined, lastSeq: undefined };
+    const pinned = storeFor(params.root).then(async (store) => {
+      watch.lastSeq = params.after ?? await lastEventSeq(store.tasksDir);
+      return store;
+    });
+    void pinned
       .then((store) =>
         runWatchLoop(
           store,
-          params,
+          { ...params, ...(watch.lastSeq === undefined ? {} : { after: watch.lastSeq }) },
           (event: WatchEvent) => {
+            watch.lastSeq = event.seq;
             if (watch.stopping || socket.destroyed || !socket.writable) return;
             socket.write(`${JSON.stringify({ v: 1, subscription: params.subscription, event })}\n`);
           },
@@ -83,7 +102,7 @@ export const createEventsHost = (storeFor: (root: string) => Promise<SurfaceStor
         () => scheduleRestart(socket, watch),
         () => scheduleRestart(socket, watch),
       );
-    return watch;
+    return { watch, ready: pinned.then(() => undefined, () => undefined) };
   };
 
   const stop = (watch: DaemonWatch): void => {
@@ -103,7 +122,9 @@ export const createEventsHost = (storeFor: (root: string) => Promise<SurfaceStor
         stop(existing);
         subs.delete(params.subscription);
       }
-      subs.set(params.subscription, start(socket, params));
+      const started = start(socket, params);
+      subs.set(params.subscription, started.watch);
+      return started.ready;
     },
     unsubscribe: (socket, subscription) => {
       const subs = bySocket.get(socket);
@@ -148,12 +169,14 @@ export const eventsSubscribeError = (params: unknown): string | null => {
     if (!Array.isArray(p.ids) || p.ids.some((id) => typeof id !== 'string' || id === '')) return 'events.subscribe: ids must be non-empty strings';
   }
   if (p.label !== undefined && typeof p.label !== 'string') return 'events.subscribe: label must be a string';
+  if (p.after !== undefined && (typeof p.after !== 'number' || !Number.isInteger(p.after) || p.after < 0)) {
+    return 'events.subscribe: after must be a non-negative integer';
+  }
   if (p.interval !== undefined && (typeof p.interval !== 'number' || !Number.isInteger(p.interval) || p.interval <= 0)) {
     return 'events.subscribe: interval must be a positive integer';
   }
   return null;
 };
 
-/** Asserts the wire kind union at the daemon boundary (parse, don't guess). */
-export const asWatchKinds = (kinds: readonly string[] | undefined): WatchEventKind[] | undefined =>
-  kinds === undefined ? undefined : ([...kinds] as WatchEventKind[]);
+/** Normalizes subscribed kinds at the daemon boundary: legacy names map through the alias table. */
+export const asWatchKinds = (kinds: readonly string[] | undefined): WatchEventKind[] | undefined => normalizeKinds(kinds);

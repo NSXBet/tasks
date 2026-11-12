@@ -67,6 +67,19 @@ export type Subscription = {
 	stop: () -> (),
 }
 
+-- Legacy kind names -> the event-log types they cover (VERBS 6; mirrors
+-- KIND_ALIASES in packages/surface/src/events/query.ts). Emitted kinds are the
+-- log types; legacy names stay accepted in `kinds`.
+local KIND_ALIASES: { [string]: { string } } = {
+	["issue.created"] = { "task.created" },
+	["issue.status_changed"] = { "task.status" },
+	["issue.commented"] = { "task.comment" },
+	["issue.deleted"] = { "task.deleted" },
+	["issue.updated"] = { "task.update", "task.owner", "task.evidence", "task.worktree", "task.pr", "task.report" },
+	["ready.changed"] = { "task.created", "task.status", "task.deleted", "task.update" },
+	["counts.changed"] = { "task.created", "task.status", "task.deleted", "task.update" },
+}
+
 local function buildQuery(after: number, kinds: { string }?): string
 	local query = "after=" .. tostring(after)
 	if kinds ~= nil and #kinds > 0 then
@@ -119,6 +132,12 @@ local function subscribe(client: any, opts: SubscribeOptions?): Subscription
 	if kinds ~= nil then
 		for _, kind in kinds do
 			kindSet[kind] = true
+			local aliased = KIND_ALIASES[kind]
+			if aliased ~= nil then
+				for _, mapped in aliased do
+					kindSet[mapped] = true
+				end
+			end
 		end
 	end
 

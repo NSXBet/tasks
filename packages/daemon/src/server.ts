@@ -167,7 +167,7 @@ export const startDaemon = async (options: DaemonOptions = {}): Promise<DaemonHa
       }
       const params = request.params as EventsSubscribeParams;
       const kinds = asWatchKinds(params.kinds);
-      events.subscribe(socket, { ...params, ...(kinds === undefined ? {} : { kinds }) });
+      await events.subscribe(socket, { ...params, ...(kinds === undefined ? {} : { kinds }) });
       writeResponse(socket, { v: PROTOCOL_VERSION, ...(request.id === undefined ? {} : { id: request.id }), ok: true, value: { subscribed: params.subscription } });
       idleCheck();
       return;
