@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 02
-current_phase_name: Changeset Derivation & Completion Contract
-status: executing
-stopped_at: Phase 02 executed (plans 02-01 + 02-02); ready for phase verification
-last_updated: "2026-10-18T20:35:00.000Z"
-last_activity: 2026-10-18
-last_activity_desc: Phase 02 plan 02-02 executed — tk finish into ready-to-review (FIN-01) + close-time changeset freeze (CHG-02)
-state_head: 0ece72f
+current_phase: 11
+current_phase_name: PR Sidecar & Chat Stat Card
+status: planning
+stopped_at: Phase 10 complete, ready to plan Phase 11
+last_updated: "2026-11-12T17:53:38.876Z"
+last_activity: 2026-11-12
+last_activity_desc: Phase 10 complete, transitioned to Phase 11
+state_head: 496745b6ad49570362ec3fc5d672b7da784b292f
 progress:
-  total_phases: 6
-  completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 25
+  total_phases: 11
+  completed_phases: 11
+  total_plans: 52
+  completed_plans: 52
+  percent: 100
 ---
 
 # Project State
@@ -27,17 +27,17 @@ See: .planning/PROJECT.md (updated 2026-10-18)
 
 ## Current Position
 
-Phase: 02 (Changeset Derivation & Completion Contract) — EXECUTING
-Plan: 2 of 2 done (02-01 + 02-02 executed)
-Status: Phase 02 executed — ready for phase verification
-Last activity: 2026-10-18 — Plan 02-02 executed (finish contract + terminal freeze)
+Phase: 11 — PR Sidecar & Chat Stat Card
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-12 — Phase 10 complete, transitioned to Phase 11
 
-Progress: [██▌░░░░░░░] 25%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
+- Total plans completed: 52
 - Average duration: —
 - Total execution time: —
 
@@ -45,7 +45,17 @@ Progress: [██▌░░░░░░░] 25%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01 | 2 | - | - |
+| 1 | 4 | - | - |
+| 2 | 2 | - | - |
+| 3 | 5 | - | - |
+| 7 | 4 | - | - |
+| 5 | 4 | - | - |
+| 4 | 5 | - | - |
+| 8 | 3 | - | - |
+| 9 | 11 | - | - |
+| 10 | 6 | - | - |
+| 6 | 3 | - | - |
+| 11 | 5 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: —
@@ -66,7 +76,7 @@ Recent decisions affecting current work:
 - [Init]: `tk finish` can set exactly `ready-to-review` — never close/done (enforced in code)
 - [Init]: Research skipped — brownfield + 399-line plan + codebase map made it redundant
 - [Phase 1]: Changeset base pinned at `tk work` creation; diff is branch-vs-pinned-base, not live-derived
-- [Phase 1]: Worktree resolution precedence: default sibling dir < workspace `worktree.dir` < per-task metadata override (`{name}` expansion)
+- [Phase 1]: Worktree resolution precedence: default `<repoRoot>/.worktrees/` dir (Phase 2 UAT decision, confirmed 2026-11-10) < workspace `worktree.dir` < per-task metadata override (`{name}` expansion)
 - [Phase 1]: Every git call flows through `@tasks/git` enumerated commands — no scattered `git` subprocess calls
 - [Phase 2 / 02-01]: Changeset derivation is lazy and show-scoped (D-03): re-derived live on every `tk show`, never cached, never written to metadata; commits use two-dot `base..branch`, files/counts use three-dot merge-base diff (D-01/D-02)
 - [Phase 2 / 02-02]: Completion contract (FIN-01): `tk finish` is the only write path into `ready-to-review` — requires a work record (branch + pinned base) and `--session` (D-10), idempotent re-finish (D-11); terminal freeze (CHG-02): close freezes `{base, head, commits, files, counts}` into metadata exactly once and closed `tk show` renders it with zero git calls (D-05)
@@ -81,6 +91,14 @@ None yet.
 - Known debt riding specific phases: `pi-extention` workspace-dep fix rides Phase 3; `tk hunk` spawn path deleted in Phase 3.
 - Mock shells (plan steps 1–3) are replaced by real implementations in Phases 4–5; mock-only plumbing is deleted at those steps.
 
+### Roadmap Evolution
+
+- Phase 7 added: spec extension (task-to-review.html requests outside v1 roadmap)
+- Phase 8 added: spec extension (task-to-review.html requests outside v1 roadmap)
+- Phase 9 added: spec extension (task-to-review.html requests outside v1 roadmap)
+- Phase 10 added: spec extension (task-to-review.html requests outside v1 roadmap)
+- Phase 11 added: spec extension (task-to-review.html requests outside v1 roadmap)
+
 ## Deferred Items
 
 Items acknowledged and deferred at milestone close, most recent first:
@@ -92,7 +110,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-10-19T05:40:00.000Z
-Stopped at: Phase 02 verified (UAT 11/11); task→review plan steps 7–12 executed directly
+Stopped at: Phase 10 complete, ready to plan Phase 11
 Resume file: .agents/plans/2026-10-08-task-to-review.md
 
 ## task→review Plan Execution (2026-10-19, direct — outside the GSD loop, user-directed "finish this, no iteration")
