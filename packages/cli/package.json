@@ -7,8 +7,8 @@
     "tk": "./src/tk.ts"
   },
   "scripts": {
-    "build": "bun run --filter @tasks/git build && bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/postgres build && bun run --filter @tasks/file build && bun run --filter @tasks/workspace build && bun run --filter @tasks/beads build && tsc -p tsconfig.json",
-    "check": "bun run --filter @tasks/git build && bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/postgres build && bun run --filter @tasks/file build && bun run --filter @tasks/workspace build && bun run --filter @tasks/beads build && tsc --noEmit -p tsconfig.json",
+    "build": "bun run --filter @tasks/git build && bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/postgres build && bun run --filter @tasks/file build && bun run --filter @tasks/workspace build && bun run --filter @tasks/beads build && bun run --filter @tasks/terminal-image build && bun run --filter @tasks/daemon build && tsc -p tsconfig.json",
+    "check": "bun run --filter @tasks/git build && bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/sqlite build && bun run --filter @tasks/postgres build && bun run --filter @tasks/file build && bun run --filter @tasks/workspace build && bun run --filter @tasks/beads build && bun run --filter @tasks/terminal-image build && bun run --filter @tasks/daemon build && tsc --noEmit -p tsconfig.json",
     "test": "bun run build && cd ../.. && bun test packages/cli/test"
   },
   "dependencies": {

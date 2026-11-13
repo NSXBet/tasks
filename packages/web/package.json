@@ -11,7 +11,7 @@
     }
   },
   "scripts": {
-    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/workspace build && bun run --filter @tasks/surface build && tsc -p tsconfig.json",
+    "build": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/workspace build && bun run --filter @tasks/surface build && bun run --filter @tasks/rpc build && bun run --filter @tasks/review build && tsc -p tsconfig.json",
     "check": "bun run --filter @tasks/domain build && bun run --filter @tasks/application build && bun run --filter @tasks/workspace build && bun run --filter @tasks/surface build && tsc --noEmit -p tsconfig.json",
     "test": "bun run build && cd ../.. && bun test --timeout 15000 packages/web/test"
   },

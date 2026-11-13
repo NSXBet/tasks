@@ -723,7 +723,7 @@ export function formatRenamePrefix(result: { readonly from: readonly string[]; r
   return `${green(`✓ ${verb} ${result.renamed} issue(s)`)} ${dim(`(${result.from.join(", ")} → ${result.to}*)`)}`;
 }
 
-export const VERSION = "0.7.0";
+export const VERSION = "0.7.1";
 export function formatVersion(): string { return `tk version ${VERSION}`; }
 
 export const QUICKSTART = `${bold("tk quickstart")}

@@ -8,6 +8,15 @@ matching section as its release notes — add a section for every new version
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-13
+
+### Fixed
+
+- Clean-checkout builds: `@tasks/cli` and `@tasks/web` now build their
+  `terminal-image`, `daemon`, `rpc` and `review` workspace dependencies first.
+  v0.7.0 failed its release build on CI for lack of them, so it was never
+  published — v0.7.1 carries everything listed under 0.7.0 below.
+
 ## [0.7.0] - 2026-11-12
 
 ### Added
