@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useTerminalDimensions } from "@opentui/react";
-import { useApp } from "./context.js";
+import { navWidth, useApp } from "./context.js";
 import { DoorsLine } from "./doors.js";
 import { EvidenceImage } from "./evidence-image.js";
 import { EVIDENCE_CHUNK_RE, mdLines } from "./markdown.js";
@@ -15,9 +15,9 @@ import { agentLine, isBlobAttachment } from "@tasks/domain";
 export const IssueDetail = () => {
   const { state } = useApp();
   const { width: termWidth } = useTerminalDimensions();
-  // Mirror of App.tsx layout: 18-col NavRail + 50% detail split, minus the pane's
-  // rounded border (2) and the image's marginLeft (2); floored with a floor guard.
-  const imageMaxCellWidth = Math.max(4, Math.floor((termWidth - 18) / 2) - 4);
+  // Mirror of App.tsx layout: the NavRail (18 columns, 0 when hidden) + 50% detail split, minus
+  // the pane's rounded border (2) and the image's marginLeft (2); floored with a floor guard.
+  const imageMaxCellWidth = Math.max(4, Math.floor((termWidth - navWidth(state)) / 2) - 4);
   const issue = state.board.issues.find((candidate) => candidate.id === state.detailId) ?? null;
 
   const tree = useMemo(() => (issue === null ? [] : dependencyTree(state.board.issues, issue.id, "up", 2)), [issue, state.board.issues]);
@@ -115,6 +115,7 @@ export const IssueDetail = () => {
         {issue.status === "ready-to-review"
           ? <text key="open-diff" fg={colors.accent} content="v:open diff" />
           : <text key="start" fg={colors.green} content="s:start" />}
+        <text fg={colors.band} content="t:task" />
         <text fg={colors.yellow} content="r:rev" />
         <text fg={colors.dim} content="d:done" />
         <text fg={colors.accent} content="e:edit" />

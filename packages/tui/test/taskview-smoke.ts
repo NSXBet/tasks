@@ -122,7 +122,7 @@ try {
   );
   if (started.exitCode !== 0) die(`tmux launch failed: ${decode(started.stderr)}`);
   await waitFor((frame) => frame.includes("probe task"), 20000);
-  await send("5");
+  await send("t");
   const task = await waitFor((frame) => frame.includes("◧ v open diff") && frame.includes("ARTIFACTS"), 15000);
   check("task view leads with ◧ v open diff and ARTIFACTS", task.includes("◧ v open diff") && task.includes("ARTIFACTS"), task);
 
@@ -167,9 +167,9 @@ try {
   await send("Escape");
 
   // 09-05 checks
-  // 9. Esc took the diff view to the list; `5` → the task view, `J` + `o` on the evidence artifact.
+  // 9. Esc took the diff view to the list; `t` → the task view, `J` + `o` on the evidence artifact.
   await waitFor((frame) => !frame.includes("q quit"), 6000);
-  await send("5");
+  await send("t");
   await waitFor((frame) => frame.includes("J/K select · o open") && frame.includes("◧ v open diff"), 10000);
   await send("J");
   await send("o");

@@ -23,7 +23,7 @@
 import { parseDiffFromFile, parsePatchFiles, type DiffLineAnnotation, type FileContents, type FileDiffMetadata, type LineAnnotation } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/edit";
 import { EditProvider, File, FileDiff } from "@pierre/diffs/react";
-import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ReviewPayload } from "../review";
 import type { ReviewCommentCardView, ReviewCommentSide, ReviewCommentStatus, ReviewSendResult, ReviewThread, ReviewThreadList } from "@tasks/review";
@@ -124,8 +124,10 @@ interface IslandProps {
   readonly issueId: string;
   readonly actor: string;
   readonly onError?: (message: string) => void;
-  /** Back to the task view (D-01); renders a `← task` button when present. */
+  /** Back to the task view (D-01): the `<id>` crumb of `tasks › <id> › review`. */
   readonly onBack?: () => void;
+  /** Back to the task list: the `tasks` crumb. Without it the crumb is a plain `/list` link. */
+  readonly onList?: () => void;
   /** Preselects this file when it is in the patch (`/tasks/:id/diff?file=`). */
   readonly initialFile?: string;
   /** The app theme at mount; later `<html data-theme>` flips are followed live (D-04). */
@@ -522,7 +524,31 @@ const evidenceThreadsOf = (threads: readonly ReviewThread[], id: string): Review
 /** The mounted island's refetch hook; null while nothing is mounted. */
 let activeRefresh: ((issueId: string) => void) | null = null;
 
-const Island = ({ issueId, actor, onError, onBack, initialFile, theme: themeProp, onOpenFile, mode, initialHunk, onExpand, onClose }: IslandProps) => {
+/**
+ * `tasks › <id> › <leaf>` — the way back from every full-page island (diff, file, evidence).
+ * Crumbs are real links (`/list`, `/tasks/<id>`) so cmd-click opens a tab; a plain click
+ * routes in place through the host callbacks. Rendered only when the host passes `onBack`
+ * (the diff modal has neither).
+ */
+const Crumbs = ({ issueId, leaf, onBack, onList }: { readonly issueId: string; readonly leaf: string; readonly onBack?: () => void; readonly onList?: () => void }) => {
+  if (onBack === undefined) return null;
+  const inPlace = (go?: () => void) => (event: MouseEvent<HTMLAnchorElement>): void => {
+    if (go === undefined || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    go();
+  };
+  return (
+    <nav className="crumbs" aria-label="breadcrumb">
+      <a href="/list" id="listBack" onClick={inPlace(onList)}>tasks</a>
+      <span className="sep">›</span>
+      <a className="mono" href={`/tasks/${encodeURIComponent(issueId)}`} id="diffBack" onClick={inPlace(onBack)}>{issueId}</a>
+      <span className="sep">›</span>
+      <span className="here">{leaf}</span>
+    </nav>
+  );
+};
+
+const Island = ({ issueId, actor, onError, onBack, onList, initialFile, theme: themeProp, onOpenFile, mode, initialHunk, onExpand, onClose }: IslandProps) => {
   /** 09-07 (D-04): one file framed for the task view's diff modal — no file list, no edit mode. */
   const modal = mode === "modal";
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -801,7 +827,7 @@ const Island = ({ issueId, actor, onError, onBack, initialFile, theme: themeProp
       <div className="rvi-empty">
         <div className="rvi-head">
           {modalClose}
-          {onBack !== undefined ? <button className="btn" id="diffBack" onClick={onBack}>← task</button> : ""}
+          <Crumbs issueId={issueId} leaf="review" onBack={onBack} onList={onList} />
           <span className="fchip2 mono">{payload.branch} → {payload.base ?? "base"}</span>
           <span className="fchip2">{payload.commits.length} commits</span>
           <span className="fchip2">no changes against base</span>
@@ -925,8 +951,7 @@ const Island = ({ issueId, actor, onError, onBack, initialFile, theme: themeProp
   return (
     <div className="dwrap">
       <div className="dmenu">
-        {onBack !== undefined ? <button className="btn" id="diffBack" onClick={onBack}>← task</button> : ""}
-        <span className="brand">review</span>
+        {onBack !== undefined ? <Crumbs issueId={issueId} leaf="review" onBack={onBack} onList={onList} /> : <span className="brand">review</span>}
         <span className="branch">
           <span className="fchip2 mono">{payload.branch} → {payload.base ?? "base"}</span>
           <span className="fchip2">
@@ -1088,7 +1113,7 @@ const ArtifactView = (props: IslandProps) =>
     ? createElement(EvidenceArtifact, { ...props, evidenceId: props.evidenceId })
     : createElement(FileArtifact, props);
 
-const FileArtifact = ({ issueId, actor, onError, onBack, path, theme: themeProp }: IslandProps) => {
+const FileArtifact = ({ issueId, actor, onError, onBack, onList, path, theme: themeProp }: IslandProps) => {
   const filePath = path ?? "";
   const doc = isDocPath(filePath);
   const theme = useAppTheme(themeProp);
@@ -1166,7 +1191,7 @@ const FileArtifact = ({ issueId, actor, onError, onBack, path, theme: themeProp 
     [contents, filePath, issueId],
   );
 
-  const back = onBack !== undefined ? <button className="btn" id="fileBack" onClick={onBack}>← task</button> : "";
+  const back = <Crumbs issueId={issueId} leaf="file" onBack={onBack} onList={onList} />;
 
   if (error !== null) {
     return (
@@ -1290,7 +1315,7 @@ const FileArtifact = ({ issueId, actor, onError, onBack, path, theme: themeProp 
 };
 
 /** EVIDENCE mode (09-08, D-05/D-06): one evidence item, its comment cards, and a composer at `evidence:<id>`. */
-const EvidenceArtifact = ({ issueId, actor, onError, onBack, evidenceId }: IslandProps & { evidenceId: string }) => {
+const EvidenceArtifact = ({ issueId, actor, onError, onBack, onList, evidenceId }: IslandProps & { evidenceId: string }) => {
   const [items, setItems] = useState<ReviewPayload["evidence"] | null>(null);
   const [list, setList] = useState<ReviewThreadList | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1326,7 +1351,7 @@ const EvidenceArtifact = ({ issueId, actor, onError, onBack, evidenceId }: Islan
   }, [issueId, reload]);
 
   const threads = useMemo(() => evidenceThreadsOf(list?.threads ?? [], evidenceId), [list, evidenceId]);
-  const back = onBack !== undefined ? <button className="btn" id="fileBack" onClick={onBack}>← task</button> : "";
+  const back = <Crumbs issueId={issueId} leaf="evidence" onBack={onBack} onList={onList} />;
   const item = items?.find((entry) => entry.id === evidenceId);
 
   if (error !== null || (items !== null && item === undefined)) {

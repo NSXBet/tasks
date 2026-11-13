@@ -8,6 +8,11 @@ import type { WatchEvent } from "@tasks/surface";
 
 export type ViewKind = "list" | "board" | "graph" | "insights" | "task" | "artifact" | "diff";
 
+/** The nav rail's column width when shown (nav.tsx). */
+export const NAV_RAIL_WIDTH = 18;
+/** Columns the shell's nav rail takes beside a view: 0 once `\` hides it. */
+export const navWidth = (state: Pick<AppState, "navHidden">): number => (state.navHidden ? 0 : NAV_RAIL_WIDTH);
+
 export type ComposerMode =
   | "closed"
   | "create"
@@ -121,6 +126,8 @@ export interface AppState {
   readonly board: Board;
   readonly stale: boolean;
   readonly view: ViewKind;
+  /** The left nav rail is hidden (`\` toggles it); every view gets its columns back. */
+  readonly navHidden: boolean;
   readonly helpOpen: boolean;
   readonly filter: FilterKind;
   readonly search: string;
@@ -155,6 +162,7 @@ export interface AppState {
 export interface AppActions {
   readonly refresh: () => Promise<void>;
   readonly setView: (view: ViewKind) => void;
+  readonly toggleNav: () => void;
   readonly toggleHelp: () => void;
   readonly openModal: (id: string) => void;
   readonly closeModal: () => void;
