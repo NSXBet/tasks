@@ -16,6 +16,7 @@
     "test": "bun run build && cd ../.. && bun test packages/daemon/test"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
     "@tasks/rpc": "workspace:*",
     "@tasks/surface": "workspace:*",
     "@tasks/web": "workspace:*"

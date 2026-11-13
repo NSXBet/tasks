@@ -48,6 +48,7 @@ order: 4
 - `zod` ^4.2.1 — all domain modeling and wire validation. Branded schemas (`packages/domain/src/issue.ts`: `IssueIdSchema` with `z.string().brand<'IssueId'>()`), `.strict()` config schemas (`packages/workspace/src/config.ts`), plus bd wire-format converters. Used by domain, workspace, root; changing domain shapes means touching zod schemas.
 - `pg` ^8.16.3 — PostgreSQL adapter (`packages/postgres/src/index.ts`: `Pool`, `PoolClient`; `packages/postgres/src/blob.ts` for blob storage).
 - `typebox` ^1.3.18 — LLM tool input schemas in the agent extension (`packages/pi-extention/src/index.ts`).
+- `@modelcontextprotocol/server` ^2.4.0 — MCP server SDK in `packages/daemon` only (`src/mcp.ts`): `McpServer`, `serveStdio` over a socket transport, `fromJsonSchema`. Serves 2026-07-28 and legacy `initialize` clients.
 - `@opentui/core` / `@opentui/react` 0.5.11 — the entire TUI rendering layer; version-locked pair.
 
 **Infrastructure:**
