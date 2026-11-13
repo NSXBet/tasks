@@ -75,6 +75,7 @@ export const App = ({ store, actor, onQuit, wipLimit = null, imageSize = DEFAULT
   const [board, setBoard] = useState(emptyBoard);
   const [stale, setStale] = useState(true);
   const [view, setView] = useState<ViewKind>(boot?.view ?? "list");
+  const [navHidden, setNavHidden] = useState(false);
   const [modalId, setModalId] = useState<string | null>(boot?.modalId ?? null);
   const [helpOpen, setHelpOpen] = useState(boot?.helpOpen ?? false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -267,6 +268,7 @@ export const App = ({ store, actor, onQuit, wipLimit = null, imageSize = DEFAULT
   const actions: AppActions = useMemo(() => ({
     refresh,
     setView: (next) => { setView(next); setHelpOpen(false); setPaletteOpen(false); },
+    toggleNav: () => { setNavHidden((hidden) => !hidden); setPaletteOpen(false); },
     toggleHelp: () => { setHelpOpen((open) => !open); },
     openModal: (id) => { setModalId(id); setPaletteOpen(false); },
     closeModal: () => setModalId(null),
@@ -575,9 +577,9 @@ export const App = ({ store, actor, onQuit, wipLimit = null, imageSize = DEFAULT
   }), [store, refresh, notify, reportError, onQuit, review, composer, actor, reviewStore, diffOpen, resolveOptions]);
 
   const state: AppState = useMemo(() => ({
-    store, actor, imageSize, board, stale, view, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer,
+    store, actor, imageSize, board, stale, view, navHidden, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer,
     boardSel: { ...boardSel }, graphId, graphWalk, diffOpen, review, artifact, insightsSel: { ...insightsSel }, wipLimit, toast,
-  }), [store, actor, imageSize, board, stale, view, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer, boardSel, graphId, graphWalk, diffOpen, review, artifact, insightsSel, wipLimit, toast]);
+  }), [store, actor, imageSize, board, stale, view, navHidden, helpOpen, modalId, paletteOpen, filter, search, selected, detailId, composer, boardSel, graphId, graphWalk, diffOpen, review, artifact, insightsSel, wipLimit, toast]);
 
   const value: AppContextValue = useMemo(() => ({ state, actions, lastEvent }), [state, actions, lastEvent]);
 
@@ -594,7 +596,7 @@ export const App = ({ store, actor, onQuit, wipLimit = null, imageSize = DEFAULT
           <HelpOverlay />
         ) : (
           <box style={{ flexDirection: "row", flexGrow: 1 }}>
-            <NavRail />
+            {navHidden ? null : <NavRail />}
             <box style={{ flexDirection: "column", flexGrow: 1 }}>
               {view === "list" ? (
                 <box style={{ flexDirection: "row", flexGrow: 1 }}>
@@ -650,12 +652,14 @@ const ShellKeys = (): null => {
     if ((state.review?.edit ?? null) !== null) return;
     if (key.sequence === ":" ) { actions.setPaletteOpen(true); return; }
     if (key.sequence === "?" ) { actions.toggleHelp(); return; }
+    if (key.sequence === "\\") { actions.toggleNav(); return; }
     if (state.diffOpen) { if (key.name === "escape") actions.closeDiffModal(); return; }
     // Hunk's layout and jump keys win over the view switches in the review views.
     if (state.view === "diff" && HUNK_SHELL_KEYS.has(key.sequence)) return;
     // The artifact view's `g` is its jump-to-top; its other keys are view switches as usual.
     if (state.view === "artifact" && key.sequence === "g") return;
-    const viewKey = ({ "1": "list", "2": "board", "3": "graph", "4": "insights", "5": "task", "6": "artifact", "7": "diff", b: "board", g: "graph", i: "insights" } as const)[key.sequence];
+    // The four views on the rail. Task, artifact and diff are pages of one task, reached from it (t / v / o), not switched to.
+    const viewKey = ({ "1": "list", "2": "board", "3": "graph", "4": "insights", b: "board", g: "graph", i: "insights" } as const)[key.sequence];
     if (viewKey !== undefined) { actions.setView(viewKey); return; }
     if (state.view === "artifact") return; // ArtifactView owns all its keys (esc → task).
     if (state.view === "task" || state.view === "diff") {
@@ -695,6 +699,7 @@ const ShellKeys = (): null => {
         else void actions.setStatus(targetId, "in_progress");
         break;
       case "v": actions.openReview(targetId); break;
+      case "t": actions.openTask(targetId); break;
       case "r": void actions.setStatus(targetId, "ready-to-review"); break;
       case "d": actions.requestConfirm({ kind: "close", id: targetId, target: null, label: `close ${targetId}?` }); break;
       case "o": void actions.setStatus(targetId, "open"); break;

@@ -378,8 +378,9 @@ export const startWebServer = async (options: WebServerOptions): Promise<WebServ
         setTimeout(() => { void stopServer(); }, 50);
         return json({ ok: true, stopped: status() });
       }
-      if (request.method === "GET" && (url.pathname === "/" || /^\/tasks\/[^/]+(?:\/(?:diff|file))?\/?$/.test(url.pathname))) {
-        // Client-routed shell: /tasks/:id (task view), /tasks/:id/diff (diff view), /tasks/:id/file (file view).
+      if (request.method === "GET" && (url.pathname === "/" || /^\/(?:list|board|graph|insights|review)\/?$/.test(url.pathname) || /^\/tasks\/[^/]+(?:\/(?:diff|file))?\/?$/.test(url.pathname))) {
+        // Client-routed shell: the views (/list, /board, /graph, /insights, /review; "?task=<id>" opens the
+        // task modal over any of them), /tasks/:id (task view), /tasks/:id/diff (diff view), /tasks/:id/file (file view).
         const shell = await readFile(shellPath(), "utf8");
         return new Response(shell, { headers: { "content-type": "text/html; charset=utf-8" } });
       }

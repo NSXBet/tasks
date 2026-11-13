@@ -5,7 +5,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { commentSummary, commentsLine, readPrRecord, reviewDoors } from "@tasks/domain";
 import type { SessionRow } from "@tasks/surface";
 import { artifactGroups, changesTree, minimapBars, threadLocation, type ArtifactRow, type ChangesRow, type MinimapBar } from "@tasks/review/taskview";
-import { useApp, type ReviewState } from "./context.js";
+import { navWidth, useApp, type ReviewState } from "./context.js";
 import type { RouteEntry } from "./routes.js";
 import { TASKS_MIN_WIDTH, TASKS_WIDTH, TaskList, workingTasks } from "./tasklist.js";
 import { colors, priorityLabel, statusColor } from "../theme.js";
@@ -44,7 +44,6 @@ export const LIVE_LINE = "live from the worktree";
 
 /** Below this terminal width the rail is hidden (D-03). */
 export const NARROW_WIDTH = 100;
-const NAV_WIDTH = 18;
 const RAIL_WIDTH = 42;
 /** Rail content width: the rail minus its left border and padding. */
 const RAIL_INNER = RAIL_WIDTH - 3;
@@ -235,7 +234,7 @@ export const TaskView = () => {
   if (issue === undefined) return null;
   const doors = reviewDoors(issue.id, state.board.webBase);
   const root = state.store.surface.store.root;
-  const centerWidth = Math.max(20, termWidth - NAV_WIDTH - (showTasks ? TASKS_WIDTH : 0) - (wide ? RAIL_WIDTH : 0) - 3);
+  const centerWidth = Math.max(20, termWidth - navWidth(state) - (showTasks ? TASKS_WIDTH : 0) - (wide ? RAIL_WIDTH : 0) - 3);
   const recorded = typeof issue.metadata["worktree"] === "string" && issue.metadata["worktree"] !== "" ? issue.metadata["worktree"] : null;
   const worktreePath = recorded ?? source?.worktree ?? null;
   const worktreeChip = worktreePath === null ? `[ no worktree — tk work ${issue.id} ]` : `[ worktree ${displayPath(worktreePath, root)} ]`;

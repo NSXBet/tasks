@@ -1,7 +1,7 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { HUNK_DIFF_THEME_NAMES, HunkDiffView, HunkFileNav } from "@tasks/review/opentui";
 import { HunkEditBuffer } from "./hunkEdit.js";
-import { useApp, type ReviewState } from "./context.js";
+import { navWidth as shellNavWidth, useApp, type ReviewState } from "./context.js";
 import { EvidenceImage } from "./evidence-image.js";
 import type { RouteEntry } from "./routes.js";
 import { colors } from "../theme.js";
@@ -94,8 +94,6 @@ const RAIL_WIDTH = 36;
 /** Full-page file nav width in columns (fixed: hunk's nav box is `width: 100%` and would otherwise grow). */
 const NAV_WIDTH = 34;
 
-/** The app shell's left nav rail (nav.tsx `width: 18`), always beside the full-page review views. */
-const SHELL_NAV_WIDTH = 18;
 
 /**
  * A stored review comment body without its `[review <loc>]` / `[review reply]`
@@ -206,7 +204,7 @@ export const Workbench = ({ compact }: { compact: boolean }) => {
   // Hidden panes (`s` files, `a` notes) hand their columns to the body.
   const bodyWidth = compact
     ? termWidth - 32
-    : termWidth - SHELL_NAV_WIDTH - (showNav ? NAV_WIDTH : 0) - 1 - (showRail ? RAIL_WIDTH : 0);
+    : termWidth - shellNavWidth(state) - (showNav ? NAV_WIDTH : 0) - 1 - (showRail ? RAIL_WIDTH : 0);
   const selection = review.selection === null ? null : {
     from: Math.min(review.selection.anchor, review.hunkIndex ?? review.selection.anchor),
     to: Math.max(review.selection.anchor, review.hunkIndex ?? review.selection.anchor),
@@ -436,7 +434,8 @@ export const wrapKeyLine = (line: string, width: number): readonly string[] => {
  */
 export const ReviewKeybar = ({ lines }: { lines: readonly string[] }) => {
   const { width: termWidth } = useTerminalDimensions();
-  const rows = lines.flatMap((line) => wrapKeyLine(line, termWidth - SHELL_NAV_WIDTH - 2));
+  const { state } = useApp();
+  const rows = lines.flatMap((line) => wrapKeyLine(line, termWidth - shellNavWidth(state) - 2));
   return (
     <box style={{ flexDirection: "column", flexShrink: 0, paddingLeft: 1 }}>
       {rows.map((row, index) => (

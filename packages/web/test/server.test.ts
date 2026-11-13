@@ -50,9 +50,15 @@ describe("tk web server", () => {
       expect(shell.headers.get("content-type")).toContain("text/html");
       const body = new TextDecoder().decode(await shell.arrayBuffer());
       expect(body).toContain("<!doctype html");
-      // D-02: list-view rows carry the review doors (escaped, like board cards).
-      expect(body).toContain(`class="ldoors mono"`);
+      // D-02: list-view rows carry the review doors — the TUI command as the row title, and two real
+      // links (`❐ task` → /tasks/:id, `± review` → /tasks/:id/diff) in place of the old dead text.
       expect(body).toContain("doorsFor(i).tui");
+      expect(body).toContain('class="lacts"');
+      expect(body).toContain('class="task" href="${esc(taskUrl(issue.id))}" data-nav');
+      expect(body).toContain('class="review" href="${esc(diffUrl(issue.id))}" data-nav');
+      // Every view has a URL and the sidebar toggles (☰ / `\`).
+      expect(body).toContain('id="navToggle"');
+      expect(body).toContain('href="/list"');
 
       const board = await fetch(`${server.url}/api/board`);
       expect(board.status).toBe(200);
@@ -69,7 +75,7 @@ describe("tk web server", () => {
     await init(root);
     const server = await startWebServer({ root, port: 0 });
     try {
-      for (const path of ["/tasks/abc", "/tasks/abc/", "/tasks/abc/diff", "/tasks/abc/diff/", "/tasks/abc/file"]) {
+      for (const path of ["/list", "/board", "/graph/", "/insights", "/review", "/list?task=abc", "/tasks/abc", "/tasks/abc/", "/tasks/abc/diff", "/tasks/abc/diff/", "/tasks/abc/file"]) {
         const res = await fetch(`${server.url}${path}`);
         expect(res.status, path).toBe(200);
         expect(res.headers.get("content-type"), path).toContain("text/html");

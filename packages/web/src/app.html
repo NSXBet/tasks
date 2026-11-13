@@ -63,15 +63,26 @@
   }
 
   /* ---------- app frame ---------- */
-  .app { display: flex; flex: 1; min-height: 0; }
+  .app { display: flex; flex: 1; min-height: 0; position: relative; }
   .sidebar {
     width: 200px; background: var(--panel); border-right: 1px solid var(--border);
     padding: 14px 8px; display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; overflow-y: auto;
   }
+  /* The sidebar hides with ☰ / `\` (remembered); below 900px it is a drawer over the content, closed by default. */
+  .app.nonav .sidebar { display: none; }
+  .topbar .navtoggle { padding: 6px 9px; font-size: 15px; line-height: 1; }
+  .topbar .navtoggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+  @media (max-width: 900px) {
+    .sidebar { position: absolute; left: 0; top: 0; bottom: 0; z-index: 30; box-shadow: 10px 0 30px rgb(0 0 0 / 45%); }
+    .topbar { gap: 8px; padding: 8px 12px; }
+    .topbar .brand select.ws, .topbar .btn kbd, .topbar .btn .lbl { display: none; }
+    .topbar .btn { padding: 6px 9px; }
+    .search { max-width: none; }
+  }
   .label { font-size: 10.5px; letter-spacing: .1em; color: var(--faint); padding: 6px 12px 6px; text-transform: uppercase; font-weight: 600; }
   .navitem {
     display: flex; align-items: center; gap: 10px; padding: 7px 12px; color: var(--dim);
-    border-radius: 8px; text-align: left; width: 100%;
+    border-radius: 8px; text-align: left; width: 100%; text-decoration: none;
   }
   .navitem .ico { width: 17px; text-align: center; color: var(--faint); }
   .navitem .name { flex: 1; }
@@ -144,9 +155,15 @@
   /* ---------- list ---------- */
   .list { flex: 1; overflow: auto; padding: 12px 18px 18px; }
   .lrow {
-    display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px;
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; cursor: pointer;
     color: var(--dim); font-size: 13.5px; width: 100%; text-align: left; border: 1px solid transparent;
   }
+  /* Row actions: real links to the task view and the review page (cmd-click opens a tab). */
+  .lacts { display: inline-flex; gap: 4px; flex-shrink: 0; }
+  .lacts a { color: var(--dim); font-size: 11.5px; padding: 2px 8px; border: 1px solid var(--border-hi); border-radius: 6px; text-decoration: none; background: var(--panel2); white-space: nowrap; }
+  .lacts a:hover { color: var(--text); border-color: var(--accent); }
+  .lacts a.review { color: var(--review); }
+  @media (max-width: 900px) { .lrow .who, .lrow .lacts .task { display: none; } }
   .lrow:hover { background: var(--panel); }
   .lrow.sel { background: var(--accent-bg); border-color: var(--accent); }
   .lrow .id { color: var(--faint); font-size: 12px; width: 86px; flex-shrink: 0; }
@@ -206,6 +223,8 @@
     border-radius: 7px; padding: 3px 10px; color: var(--dim); font-size: 12px; background: var(--panel);
   }
   .fchip2 b { color: var(--text); font-weight: 600; }
+  .fchip2 { max-width: 100%; min-width: 0; }
+  .fchip2 a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fchip2.danger { color: var(--blocked); }
   .fchip2.link { cursor: pointer; }
   .fchip2.link:hover { border-color: var(--accent); color: var(--text); }
@@ -295,6 +314,12 @@
   .dwrap { display: flex; flex-direction: column; gap: 0; width: 100%; min-width: 0; }
   .dmenu { display: flex; align-items: center; gap: 14px; padding: 7px 12px; background: var(--panel); border: 1px solid var(--border); border-bottom: none; border-radius: var(--radius) var(--radius) 0 0; font-size: 12.5px; color: var(--dim); flex-wrap: wrap; }
   .dmenu .brand { color: var(--text); font-weight: 650; }
+  /* Breadcrumb `tasks › <id> › review`: every segment but the last is a link back. */
+  .crumbs { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; min-width: 0; }
+  .crumbs a, .crumbs button.crumb { color: var(--dim); text-decoration: none; background: none; border: none; font: inherit; padding: 0; cursor: pointer; }
+  .crumbs a:hover, .crumbs button.crumb:hover { color: var(--accent); text-decoration: underline; }
+  .crumbs .sep { color: var(--faint); }
+  .crumbs .here { color: var(--text); font-weight: 650; }
   .dmenu .branch { margin-left: auto; display: flex; gap: 8px; align-items: center; }
   .dmain { display: flex; min-height: 0; border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius) var(--radius); overflow: hidden; background: var(--panel); }
   .dfiles { width: 250px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 8px 0; overflow: auto; }
@@ -519,6 +544,7 @@
 </head>
 <body>
   <header class="topbar">
+    <button class="btn navtoggle" id="navToggle" title="toggle sidebar (\ or ⌘B)" aria-label="toggle sidebar">☰</button>
     <div class="brand">tk<em>·</em>web <select class="ws" id="wsSelect" title="Active workspace"></select></div>
     <div class="search">
       <input id="searchInput" placeholder="Search issues…">
@@ -527,18 +553,18 @@
     <div class="spacer"></div>
     <span id="conn" title="live · event stream"></span>
     <button class="btn" id="cmdBtn" title="Command palette (Ctrl+K or :)"><kbd>:</kbd> commands</button>
-    <button class="btn primary" id="newBtn">＋ New issue <kbd>n</kbd></button>
-    <button class="btn" id="stopBtn" title="Stop the tk web server">⏻ stop</button>
+    <button class="btn primary" id="newBtn">＋ <span class="lbl">New issue</span> <kbd>n</kbd></button>
+    <button class="btn" id="stopBtn" title="Stop the tk web server">⏻ <span class="lbl">stop</span></button>
   </header>
   <div class="app">
     <aside class="sidebar">
       <div class="label">Views</div>
-      <button class="navitem" data-view="list"><span class="ico">≡</span><span class="name">List</span><span class="count" data-count="list"></span></button>
-      <button class="navitem" data-view="board"><span class="ico">▦</span><span class="name">Board</span><span class="count" data-count="board"></span></button>
-      <button class="navitem" data-view="graph"><span class="ico">⟐</span><span class="name">Graph</span><span class="count" data-count="graph"></span></button>
-      <button class="navitem" data-view="insights"><span class="ico">◎</span><span class="name">Insights</span><span class="count"></span></button>
+      <a class="navitem" data-view="list" href="/list"><span class="ico">≡</span><span class="name">List</span><span class="count" data-count="list"></span></a>
+      <a class="navitem" data-view="board" href="/board"><span class="ico">▦</span><span class="name">Board</span><span class="count" data-count="board"></span></a>
+      <a class="navitem" data-view="graph" href="/graph"><span class="ico">⟐</span><span class="name">Graph</span><span class="count" data-count="graph"></span></a>
+      <a class="navitem" data-view="insights" href="/insights"><span class="ico">◎</span><span class="name">Insights</span><span class="count"></span></a>
       <div class="label">Review</div>
-      <button class="navitem" data-view="review"><span class="ico">±</span><span class="name">Review</span><span class="count"></span></button>
+      <a class="navitem" data-view="review" href="/review"><span class="ico">±</span><span class="name">Review</span><span class="count" data-count="review"></span></a>
       <div class="spacer"></div>
       <div class="actor">actor <b id="actorName">—</b></div>
     </aside>
@@ -685,7 +711,7 @@
         ${issue.labels.length > 2 ? `<span class="lbl">+${issue.labels.length - 2}</span>` : ""}
         ${blocked ? `<span class="flag" data-blocked="${esc(blockerIds(issue)[0])}" title="click to open the blocker">⚠ ${blockerIds(issue).length} blocker${blockerIds(issue).length === 1 ? "" : "s"}</span>` : ""}
       </div>
-      <div class="doors mono" title="${esc(doorsFor(issue).web)}">${esc(doorsFor(issue).tui)} · /tasks/${esc(issue.id)}</div>
+      <div class="doors mono" title="${esc(doorsFor(issue).web)}">${esc(doorsFor(issue).tui)} · <a href="${esc(taskUrl(issue.id))}" data-nav title="open the task view">/tasks/${esc(issue.id)}</a>${reviewable(issue) ? ` · <a href="${esc(diffUrl(issue.id))}" data-nav title="open the review page">review</a>` : ""}</div>
     </article>`;
   };
 
@@ -725,6 +751,7 @@
     document.querySelectorAll("#boardView [data-add]").forEach((btn) => {
       btn.addEventListener("click", () => { openNew(btn.dataset.add); });
     });
+    wireActionLinks($("boardView"));
   };
 
   const moveIssue = async (id, status) => {
@@ -747,20 +774,41 @@
   /* ---------- list ---------- */
   const renderList = (issues) => {
     const glyph = (i) => i.status === "closed" ? "✓" : isBlocked(i) ? "⛔" : i.status === "in_progress" ? "▶" : i.status === "ready-to-review" ? "👀" : "⚡";
+    // A row is a div, not a button: it holds real links (task view, review page) that cmd-click into a tab.
     $("listView").innerHTML = issues.map((i) => `
-      <button class="lrow ${state.selected === i.id ? "sel" : ""} ${i.status === "closed" ? "closed" : ""}" data-id="${esc(i.id)}">
+      <div class="lrow ${state.selected === i.id ? "sel" : ""} ${i.status === "closed" ? "closed" : ""}" data-id="${esc(i.id)}" role="button" tabindex="0" title="${esc(doorsFor(i).tui)}">
         <span class="ico" style="width:16px;text-align:center">${glyph(i)}</span>
         <span class="id mono">${esc(i.id)}</span>
         <span class="title">${esc(i.title)}</span>
         ${statchip(i)}
         <span class="who">${esc(i.assignee ?? "")}</span>
         <span class="age">${age(i.updatedAt)}</span>
-        <span class="ldoors mono" title="${esc(doorsFor(i).web)}">${esc(doorsFor(i).tui)}</span>
-      </button>`).join("") || `<div class="empty" style="max-width:300px">no issues match</div>`;
+        ${actionLinks(i)}
+      </div>`).join("") || `<div class="empty" style="max-width:300px">no issues match</div>`;
     document.querySelectorAll("#listView .lrow").forEach((el) => {
       el.addEventListener("click", () => { selectIssue(el.dataset.id); openModal(el.dataset.id); });
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); selectIssue(el.dataset.id); openModal(el.dataset.id); } });
     });
+    wireActionLinks($("listView"));
   };
+  /**
+   * `❐ task` → /tasks/:id (the task view) and `± review` → /tasks/:id/diff (the review page):
+   * the same two doors on list rows and in the task modal. Review only once the task has a
+   * branch and a base (`tk work`); before that the chip says why.
+   */
+  const actionLinks = (issue) => `<span class="lacts">
+      <a class="task" href="${esc(taskUrl(issue.id))}" data-nav title="open the task view">❐ task</a>
+      ${reviewable(issue)
+        ? `<a class="review" href="${esc(diffUrl(issue.id))}" data-nav title="open the review page">± review</a>`
+        : `<a class="review off" href="${esc(diffUrl(issue.id))}" data-nav title="no changes to review yet — needs a branch and a base (tk work ${esc(issue.id)})" style="opacity:.45">± review</a>`}
+    </span>`;
+  /** In-app links route in place and do not bubble to the row's click; modifier-clicks keep the browser behavior. */
+  const wireActionLinks = (root) => root.querySelectorAll("a[data-nav]").forEach((a) => a.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    navigate(a.getAttribute("href"));
+  }));
 
   /* ---------- graph ---------- */
   const renderGraph = () => {
@@ -821,6 +869,7 @@
           actor: state.actor,
           onError: (message) => toast(message, true),
           onBack: () => navigate(taskUrl(id)),
+          onList: () => switchView("list"),
           theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
         });
       }
@@ -832,16 +881,24 @@
     if (routed && !reviewable(routed)) {
       state.reviewKey = "";
       window.ReviewIsland?.unmount();
-      $("reviewView").innerHTML = `<div class="iempty"><button class="btn" id="diffBack">← task</button> no changes to review yet on ${esc(routed.id)} — it needs a branch and a changeset base (\`tk work\`)</div>`;
-      $("diffBack").addEventListener("click", () => navigate(taskUrl(routed.id)));
+      $("reviewView").innerHTML = `<div class="iempty">${crumbsHtml(routed.id, "review")}<div style="padding-top:8px">no changes to review yet on ${esc(routed.id)} — it needs a branch and a changeset base (\`tk work\`)</div></div>`;
+      wireActionLinks($("reviewView"));
       return;
     }
     if (issues.length === 0) {
-      $("reviewView").innerHTML = `<div class="iempty">no reviewable issues — an issue needs a branch and a changeset base (set via \`tk work\` or the CLI)</div>`;
+      state.reviewKey = "";
+      window.ReviewIsland?.unmount();
+      $("reviewView").innerHTML = `<div class="iempty">${crumbsHtml(null, "review")}<div style="padding-top:8px">no reviewable issues — an issue needs a branch and a changeset base (set via \`tk work\` or the CLI)</div></div>`;
+      wireActionLinks($("reviewView"));
       return;
     }
     if (state.selected === null || !issues.some((i) => i.id === state.selected)) state.selected = issues[0].id;
     const issue = issues.find((i) => i.id === state.selected);
+    // The review page always has its task's URL: /review (the nav) lands on /tasks/<id>/diff.
+    if (state.route?.view !== "review" || state.route.id !== issue.id) {
+      history.replaceState({ view: "review" }, "", diffUrl(issue.id));
+      state.route = routeFromLocation();
+    }
     const initialFile = state.route?.view === "review" && state.route.id === issue.id ? state.route.file : null;
     const key = `diff\u0000${issue.id}\u0000${initialFile ?? ""}`;
     const remount = state.reviewKey !== key;
@@ -854,6 +911,7 @@
         actor: state.actor,
         onError: (message) => toast(message, true),
         onBack: () => navigate(taskUrl(issue.id)),
+        onList: () => switchView("list"),
         onOpenFile: (p) => navigate(fileUrl(issue.id, p)),
         ...(initialFile ? { initialFile } : {}),
         theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
@@ -864,6 +922,9 @@
   /* ---------- task view (record first, D-01) ---------- */
   const taskUrl = (id) => `/tasks/${encodeURIComponent(id)}`;
   const diffUrl = (id) => `/tasks/${encodeURIComponent(id)}/diff`;
+  /** `tasks › <id> › <leaf>`: the list and the task view are links; the leaf is where you are. */
+  const crumbsHtml = (id, leaf) => `<nav class="crumbs" aria-label="breadcrumb"><a href="/list" data-nav>tasks</a>${id
+    ? `<span class="sep">›</span><a class="mono" href="${esc(taskUrl(id))}" data-nav>${esc(id)}</a>` : ""}<span class="sep">›</span><span class="here">${esc(leaf)}</span></nav>`;
   const fileUrl = (id, path) => `/tasks/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`;
   const evidenceUrl = (id, evId) => `/tasks/${encodeURIComponent(id)}/file?evidence=${encodeURIComponent(evId)}`;
   /**
@@ -1130,13 +1191,14 @@
     const wsFocused = document.activeElement?.id === "wsCommitMsg";
     $("taskView").innerHTML = `${tasksColumn(issue)}
       <div class="tmain">
+        ${crumbsHtml(issue.id, "task")}
         <div class="thead"><span class="id mono">${esc(issue.id)}</span><h2>${esc(issue.title)}</h2>${statchip(issue)}</div>
         <div class="tchips">
           ${worktree ? `<span class="fchip2 mono wtchip" title="${esc(worktree)}">worktree ${esc(wtLabel(issue.id, worktree))}</span>` : ""}
           ${issue.branch && base ? `<span class="fchip2 mono brchip">${esc(issue.branch)} → ${esc(base.slice(0, 7))}</span>` : ""}
         </div>
         <div class="topen">${reviewable(issue)
-          ? `<button class="btn primary" id="openDiff">◧ open diff</button>${inReview ? `<span class="note">work already begun — opens the diff</span>` : ""}`
+          ? `<button class="btn primary" id="openDiff">◧ open diff</button><a class="btn" href="${esc(diffUrl(issue.id))}" data-nav title="the full review page">± review page</a>${inReview ? `<span class="note">work already begun — opens the diff</span>` : ""}`
           : `<span class="fchip2" style="color:var(--faint)">no changes to review yet</span>`}</div>
         <div class="tdesc ${issue.description ? "" : "none"}">${issue.description ? esc(issue.description) : "no description"}</div>
         ${artifactsSection(issue, cached)}
@@ -1147,6 +1209,7 @@
       <div id="diffModal" class="dmodal" hidden><div class="dmodal-card" role="dialog" aria-modal="true" aria-label="diff"><div id="diffModalBody"></div></div></div>`;
     if (wsFocused) { const input = $("wsCommitMsg"); if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } }
     $("openDiff")?.addEventListener("click", () => openDiffModal(issue.id, firstDiffPath(issue.id), null));
+    wireActionLinks($("taskView"));
     $("diffModal").addEventListener("click", (e) => { if (e.target === e.currentTarget) closeDiffModal(); });
     const view = $("taskView");
     view.querySelectorAll(".rtab").forEach((b) => b.addEventListener("click", () => {
@@ -1209,22 +1272,34 @@
     else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); wsState.commitFor = null; wsState.draft = ""; renderTask(); }
   });
 
-  /* ---------- router: /tasks/:id (task) · /tasks/:id/diff (diff) · /tasks/:id/file?path= (artifact) ---------- */
+  /* ---------- router ----------
+   * Every screen has a URL: /list · /board · /graph · /insights · /review (the views; "/" is the board),
+   * /tasks/:id (task) · /tasks/:id/diff (review) · /tasks/:id/file?path= (artifact), and the task
+   * modal is `?task=<id>` on top of whichever view is open.
+   */
+  const VIEW_PATHS = ["list", "board", "graph", "insights", "review"];
   const routeFromLocation = () => {
-    const m = /^\/tasks\/([^/]+)(?:\/(diff|file))?\/?$/.exec(location.pathname);
-    if (!m) return { view: null, id: null, file: null, path: null, evidence: null };
-    let id = m[1]; try { id = decodeURIComponent(m[1]); } catch { /* keep raw */ }
     const params = new URLSearchParams(location.search);
+    const task = params.get("task");
+    const v = /^\/(list|board|graph|insights|review)\/?$/.exec(location.pathname);
+    if (v) return { view: null, top: v[1], task, id: null, file: null, path: null, evidence: null };
+    const m = /^\/tasks\/([^/]+)(?:\/(diff|file))?\/?$/.exec(location.pathname);
+    if (!m) return { view: null, top: null, task, id: null, file: null, path: null, evidence: null };
+    let id = m[1]; try { id = decodeURIComponent(m[1]); } catch { /* keep raw */ }
     const view = m[2] === "diff" ? "review" : m[2] === "file" ? "file" : "task";
-    return { view, id, file: params.get("file"), path: params.get("path"), evidence: view === "file" ? params.get("evidence") : null };
+    return { view, top: null, task: null, id, file: params.get("file"), path: params.get("path"), evidence: view === "file" ? params.get("evidence") : null };
   };
   const applyRoute = (route) => {
     if (route.view === null) {
       state.route = null;
       const back = history.state?.view;
-      if (typeof back === "string" && back !== "task") state.view = back;
+      if (route.top !== null) state.view = route.top;
+      else if (typeof back === "string" && back !== "task") state.view = back;
       else if (state.view === "task" || state.view === "file") state.view = "board";
       render();
+      // `?task=<id>` opens the task modal over the view; without it, a modal from history closes.
+      if (route.task !== null && state.issues.some((i) => i.id === route.task)) { state.selected = route.task; openModal(route.task, { fromRoute: true }); }
+      else closeModal({ fromRoute: true });
       return;
     }
     if (!state.issues.some((i) => i.id === route.id)) { toast(`no task ${route.id}`, true); return; }
@@ -1233,7 +1308,7 @@
     state.route = route;
     state.selected = route.id;
     state.view = route.view;
-    closeModal();
+    closeModal({ fromRoute: true });
     render();
     if (state.view === "task") void loadTaskView(route.id);
   };
@@ -1256,6 +1331,7 @@
     document.querySelector('[data-count="list"]').textContent = issues.length;
     document.querySelector('[data-count="board"]').textContent = issues.filter((i) => i.status !== "closed").length;
     document.querySelector('[data-count="graph"]').textContent = issues.filter((i) => i.dependencies.length > 0).length;
+    document.querySelector('[data-count="review"]').textContent = issues.filter(reviewable).length;
   };
 
   const render = () => {
@@ -1287,17 +1363,53 @@
     document.title = `tk web · ${state.view}`;
   };
 
-  // Sidebar/key view switches leave a routed /tasks/... URL for "/" so reload and back stay honest.
+  // Sidebar/key view switches push the view's own URL (/list, /board, …) so reload and back stay honest.
+  // Review goes straight to the selected (else first) reviewable task's /tasks/<id>/diff.
   const switchView = (view) => {
-    if (location.pathname !== "/") history.pushState({ view }, "", "/");
-    else history.replaceState({ view }, "", location.pathname + location.search);
+    if (view === "review") {
+      const pool = state.issues.filter(reviewable);
+      const target = pool.find((i) => i.id === state.selected) ?? pool[0];
+      if (target) { navigate(diffUrl(target.id)); return; }
+    }
+    const url = "/" + view;
+    if (location.pathname + location.search !== url) history.pushState({ view }, "", url);
+    else history.replaceState({ view }, "", url);
     state.route = null;
     state.view = view;
+    closeModal({ fromRoute: true });
     render();
   };
   document.querySelectorAll(".navitem[data-view]").forEach((el) => {
-    el.addEventListener("click", () => switchView(el.dataset.view));
+    el.addEventListener("click", (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      e.preventDefault();
+      switchView(el.dataset.view);
+      if (navNarrow()) setDrawer(false);
+    });
   });
+
+  /* ---------- sidebar: ☰ / `\` / ⌘B toggle. Wide: a remembered preference. Narrow (≤ 900px): a drawer, closed by default. ---------- */
+  const NAV_PREF = "tk.web.sidebar";
+  const navMedia = matchMedia("(max-width: 900px)");
+  const navNarrow = () => navMedia.matches;
+  let drawerOpen = false;
+  const navPref = () => { try { return localStorage.getItem(NAV_PREF); } catch { return null; } };
+  const navVisible = () => navNarrow() ? drawerOpen : navPref() !== "closed";
+  const applyNav = () => {
+    document.querySelector(".app").classList.toggle("nonav", !navVisible());
+    $("navToggle").setAttribute("aria-pressed", String(navVisible()));
+  };
+  const setDrawer = (open) => { drawerOpen = open; applyNav(); };
+  const toggleNav = () => {
+    if (navNarrow()) { setDrawer(!drawerOpen); return; }
+    try { localStorage.setItem(NAV_PREF, navVisible() ? "closed" : "open"); } catch { /* private mode: not remembered */ }
+    applyNav();
+  };
+  navMedia.addEventListener("change", applyNav);
+  $("navToggle").addEventListener("click", toggleNav);
+  // A click on the content closes the drawer (narrow only); the click itself still lands.
+  document.querySelector(".main").addEventListener("click", () => { if (navNarrow() && drawerOpen) setDrawer(false); });
+  applyNav();
   $("searchInput").addEventListener("input", (e) => { state.query = e.target.value; render(); });
 
   const toast = (message, isErr) => {
@@ -1345,9 +1457,9 @@
     if (open + done + dismissed > 0 && open === 0) return `comments ${total} · All resolved · ${done} ✓`;
     return `comments ${total} · ${open} open ${done} ✓`;
   };
-  const doorsHtml = (issue) => {
+  const doorsHtml = (issue, { links = false } = {}) => {
     const d = doorsFor(issue), agent = agentLine(issue);
-    return `<div class="fieldrow" id="mDoors">${agent ? `<span class="fchip2" id="mAgent">${esc(agent)}</span>` : ""}<span class="fchip2">review TUI <b class="mono">${esc(d.tui)}</b></span><span class="fchip2">web <a class="mono" href="${esc(d.web)}">${esc(d.web)}</a></span></div>`;
+    return `<div class="fieldrow" id="mDoors">${links ? actionLinks(issue) : ""}${agent ? `<span class="fchip2" id="mAgent">${esc(agent)}</span>` : ""}<span class="fchip2">review TUI <b class="mono">${esc(d.tui)}</b></span><span class="fchip2">web <a class="mono" href="${esc(d.web)}" data-nav>${esc(d.web)}</a></span></div>`;
   };
   const blobUrl = (issue, att) => `/api/issue/${encodeURIComponent(issue.id)}/blob/${encodeURIComponent(att.id)}`;
   const fmtSize = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
@@ -1472,9 +1584,19 @@
 
   /* ---------- task modal ---------- */
   let modalIssue = null;
-  const openModal = (id) => {
+  /**
+   * The task modal has a URL: `?task=<id>` on the current view. Opening pushes one history entry
+   * (marked `modal`), closing pops it (so back/forward and reload agree with what is on screen);
+   * `fromRoute` means the router already put the URL where it belongs.
+   */
+  const openModal = (id, { fromRoute = false } = {}) => {
     const issue = state.issues.find((i) => i.id === id);
     if (!issue) return;
+    if (!fromRoute && new URLSearchParams(location.search).get("task") !== id) {
+      const url = new URL(location.href);
+      url.searchParams.set("task", id);
+      history.pushState({ ...(history.state ?? {}), modal: true }, "", url);
+    }
     modalIssue = issue;
     const blockers = blockerIds(issue).map((b) => state.issues.find((i) => i.id === b)).filter(Boolean);
     const openBlockers = blockers.filter((b) => b.status !== "closed");
@@ -1508,7 +1630,7 @@
       ${blobAtts(issue).length ? `<div class="attrow">${blobAtts(issue).map((a) => isImage(a.mime)
         ? `<button class="atchip" data-view="${a.id}" title="open in viewer"><img src="${blobUrl(issue, a)}" alt=""> ${esc(a.name)}</button>`
         : `<a class="atchip" href="${blobUrl(issue, a)}" target="_blank" rel="noopener">📎 ${esc(a.name)} · ${esc(a.mime)} · ${fmtSize(a.size)}</a>`).join("")}</div>` : ""}
-      ${doorsHtml(issue)}
+      ${doorsHtml(issue, { links: true })}
       <div class="fieldrow">
         <span class="fchip2">labels <b>${esc(issue.labels.join(", ") || "none")}</b></span>
         <span class="fchip2">deps <b>${issue.dependencyCount}</b></span>
@@ -1522,7 +1644,8 @@
         ${saved}
       </div>`;
     $("modalOverlay").classList.add("show");
-    $("modalClose").addEventListener("click", closeModal);
+    $("modalClose").addEventListener("click", () => closeModal());
+    wireActionLinks($("taskModal"));
     $("mTitle").addEventListener("change", () => saveIssue({ title: $("mTitle").value }));
     $("mDesc").addEventListener("change", () => saveIssue({ description: $("mDesc").value }));
     document.querySelectorAll("#taskModal [data-status]").forEach((el) => {
@@ -1555,7 +1678,16 @@
     $("taskModal").querySelectorAll(".atchip[data-view]").forEach((chip) =>
       chip.addEventListener("click", () => openViewer(issue, chip.dataset.view)));
   };
-  const closeModal = () => { $("modalOverlay").classList.remove("show"); modalIssue = null; };
+  const closeModal = ({ fromRoute = false } = {}) => {
+    const shown = $("modalOverlay").classList.contains("show");
+    $("modalOverlay").classList.remove("show");
+    modalIssue = null;
+    if (fromRoute || !shown || !new URLSearchParams(location.search).has("task")) return;
+    // Our own pushed entry: pop it (popstate re-applies the route, modal already closed). A direct
+    // landing on ?task= has nothing to pop: drop the param in place.
+    if (history.state?.modal === true) history.back();
+    else { const url = new URL(location.href); url.searchParams.delete("task"); history.replaceState(history.state, "", url); }
+  };
 
   const saveIssue = async (patch) => {
     await run(() => api(`/api/issue/${encodeURIComponent(modalIssue.id)}`, patch));
@@ -1612,13 +1744,16 @@
   const commands = () => {
     const issue = state.issues.find((i) => i.id === state.selected);
     const rows = [
-      ...["list", "board", "graph", "insights"].map((v, ix) => ({ glyph: ["≡", "▦", "⟐", "◎"][ix], label: `go to ${v[0].toUpperCase() + v.slice(1)}`, group: "view", run: () => switchView(v) })),
+      ...["list", "board", "graph", "insights", "review"].map((v, ix) => ({ glyph: ["≡", "▦", "⟐", "◎", "±"][ix], label: `go to ${v[0].toUpperCase() + v.slice(1)}`, group: "view", run: () => switchView(v) })),
+      { glyph: "☰", label: `${navVisible() ? "hide" : "show"} sidebar`, group: "view", run: () => toggleNav() },
       { glyph: "+", label: "new issue", group: "global", run: () => openNew() },
       { glyph: "/", label: "search issues", group: "global", run: () => $("searchInput").focus() },
     ];
     // D-03: work on a ready-to-review task has begun — offer its diff, never start-work.
     const rtr = issue?.status === "ready-to-review";
     if (issue) rows.push(
+      { glyph: "❐", label: `open task ${issue.id}`, group: "task", run: () => navigate(taskUrl(issue.id)) },
+      ...(reviewable(issue) && !rtr ? [{ glyph: "±", label: `review ${issue.id}`, group: "task", run: () => navigate(diffUrl(issue.id)) }] : []),
       rtr ? { glyph: "◧", label: `open diff ${issue.id}`, group: "task", run: () => navigate(diffUrl(issue.id)) } : { glyph: "⚡", label: `start ${issue.id}`, group: "status", run: () => moveIssue(issue.id, "in_progress") },
       { glyph: "👀", label: `send ${issue.id} to review`, group: "status", run: () => moveIssue(issue.id, "ready-to-review") },
       { glyph: "☑", label: `reopen ${issue.id}`, group: "status", run: () => moveIssue(issue.id, "open") },
@@ -1685,10 +1820,12 @@
       return;
     }
     if (e.key === ":" || (e.key === "k" && (e.metaKey || e.ctrlKey))) { e.preventDefault(); openPalette(); }
+    else if (e.key === "\\" || (e.key === "b" && (e.metaKey || e.ctrlKey))) { e.preventDefault(); toggleNav(); }
     else if (e.key === "1") switchView("list");
     else if (e.key === "2") switchView("board");
     else if (e.key === "3") switchView("graph");
     else if (e.key === "4") switchView("insights");
+    else if (e.key === "5") switchView("review");
     else if (e.key === "n") { e.preventDefault(); openNew(); }
     else if (e.key === "/") { e.preventDefault(); $("searchInput").focus(); }
     else if (e.key === "Enter" && state.selected) openModal(state.selected);
@@ -1707,7 +1844,7 @@
         // First load: the record's web door /tasks/:id lands on the task view; /tasks/:id/diff on the diff.
         routed = true;
         const route = routeFromLocation();
-        if (route.view !== null) applyRoute(route);
+        if (route.view !== null || route.top !== null || route.task !== null) applyRoute(route);
       }
       $("actorName").textContent = state.actor;
       if (modalIssue && $("modalOverlay").classList.contains("show")) {

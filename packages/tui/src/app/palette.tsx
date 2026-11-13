@@ -42,14 +42,12 @@ export const CommandPalette = () => {
       { key: "2", view: "board", glyph: "▦", label: "go to Board" },
       { key: "3", view: "graph", glyph: "⟐", label: "go to Graph" },
       { key: "4", view: "insights", glyph: "◎", label: "go to Insights" },
-      { key: "5", view: "task", glyph: "❐", label: "go to Task" },
-      { key: "6", view: "artifact", glyph: "▤", label: "go to Artifacts" },
-      { key: "7", view: "diff", glyph: "±", label: "go to Diff" },
     ] as const).map((entry) => ({
       glyph: entry.glyph, label: entry.label, group: "view", keycap: entry.key,
       run: (): void => actions.setView(entry.view),
     }));
     const globals: Command[] = [
+      { glyph: "⇤", label: state.navHidden ? "show nav rail" : "hide nav rail", group: "view", keycap: "\\", run: (): void => actions.toggleNav() },
       { glyph: "✎", label: "new issue", group: "global", keycap: "n", run: (): void => actions.openComposer("create") },
       { glyph: "⌕", label: "search issues", group: "global", keycap: "/", run: (): void => actions.openComposer("search", null, state.search) },
       { glyph: "⎇", label: "key reference", group: "global", keycap: "?", run: (): void => actions.toggleHelp() },
@@ -58,6 +56,7 @@ export const CommandPalette = () => {
     return [
       ...views,
       ...globals,
+      { glyph: "❐", label: `open task ${issue.id}`, group: "review", keycap: "t", run: (): void => actions.openTask(issue.id) },
       // D-03: a ready-to-review task offers its diff, never start-work.
       issue.status === "ready-to-review"
         ? { glyph: "◧", label: "open diff", group: "review", keycap: "v", run: (): void => actions.openReview(issue.id) }

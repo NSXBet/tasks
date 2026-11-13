@@ -4,7 +4,8 @@ import { colors } from "../theme.js";
 
 const sections: readonly { readonly title: string; readonly lines: readonly string[] }[] = [
   { title: "navigate", lines: [
-    "nav rail (left): click views or use 1/2/3/4 · b/g/i shortcuts too",
+    "nav rail (left): click views or use 1/2/3/4 · b/g/i shortcuts too · \\ hides / shows the rail",
+    "a task's pages — t task view · v diff · o artifact — open from the list, board or detail; esc returns",
     ": command palette — every command with its key, type to filter",
     "/ search · n new issue · ? this help · ctrl+c/ctrl+q quit",
   ] },
@@ -15,8 +16,8 @@ const sections: readonly { readonly title: string; readonly lines: readonly stri
     "! sprint toggle (active sprint ⇄ backlog) · icebox tab = archived",
     "E description · c comment · @ assignee · , labels · D/X dependencies",
   ] },
-  { title: "list", lines: ["j/k move · enter detail · tab filters", "v open the highlighted task's diff · s on a ready-to-review task only toasts (no start-work)"] },
-  { title: "task view (5 · tk://task)", lines: [
+  { title: "list", lines: ["j/k move · enter detail · tab filters", "t open the highlighted task's task view · v its diff (click the doors line too) · s on a ready-to-review task only toasts (no start-work)"] },
+  { title: "task view (t on a task · tk://task)", lines: [
     "◧ v open diff · V diff modal · c comment · q quit — no start-work key",
     "tab / shift+tab rail tabs: SESSIONS │ CHANGES │ WORKSPC │ MINIMAP · j/k rail rows · ↵ diff modal (CHANGES / MINIMAP)",
     "V diff modal · v full diff",
@@ -29,7 +30,7 @@ const sections: readonly { readonly title: string; readonly lines: readonly stri
     "the task stays behind · j/k hunk · c comment on the hunk's line · C comment on the whole file",
     "f ⤢ full view on the same file and hunk · esc close (back to the task, rail kept)",
   ] },
-  { title: "artifact view (o on an artifact · 6 · tk://artifact)", lines: [
+  { title: "artifact view (o on an artifact · tk://artifact)", lines: [
     "CODE: numbered lines · DOC (.md): shaped blocks · EVIDENCE: the image + its ▣ evidence:<id> row",
     "j/k line (code) or block (doc) · g/G first/last",
     "c comment on the line / block (path:line, path:a-b) · C comment on the whole file",
@@ -38,7 +39,7 @@ const sections: readonly { readonly title: string; readonly lines: readonly stri
   { title: "board", lines: ["h/l column · j/k card · enter modal · x jump to top blocker"] },
   { title: "graph", lines: ["j/k walk nodes · enter center (enter again → detail)"] },
   { title: "insights", lines: ["tab next panel · j/k row · enter detail"] },
-  { title: "review (tk review <id> · 7)", lines: [
+  { title: "review (tk review <id> · v on a task)", lines: [
     "keys are hunk's own: ] [ hunk · . , file · 1 2 unified/split · g G first/last hunk · q quit",
     "c note · R reply · E edit note · J K next/prev thread",
     "x ✓ done · D ✕ remove (again: reopen) · S send open comments to the agent (one batch)",

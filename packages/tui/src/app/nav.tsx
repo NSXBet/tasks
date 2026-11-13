@@ -7,6 +7,10 @@ import type { ViewKind } from "./context.js";
  * named with glyph, label, and live count so the 1-4 accelerators are always
  * visible (Mobbin kanban pattern: labeled rails + counts + active highlight).
  * Rail items are mouse-clickable; keyboard accelerators stay 1/b/g/i.
+ *
+ * Only the four board views live here. The task view, the artifact view and
+ * the diff are pages of one task: the list's `t` / `v` keys (or a click on
+ * the doors line) open them, `esc` returns. `\` hides the rail (App.tsx).
  */
 interface ViewEntry {
   readonly key: string;
@@ -20,25 +24,19 @@ const viewEntries: readonly ViewEntry[] = [
   { key: "2", view: "board", glyph: "▦", label: "Board" },
   { key: "3", view: "graph", glyph: "⟐", label: "Graph" },
   { key: "4", view: "insights", glyph: "◎", label: "Insights" },
-  { key: "5", view: "task", glyph: "❐", label: "Task" },
-  { key: "6", view: "artifact", glyph: "▤", label: "Artifacts" },
-  { key: "7", view: "diff", glyph: "±", label: "Diff" },
 ];
 
 export const NavRail = () => {
   const { state, actions } = useApp();
   const boardCount = state.board.counts.open + state.board.counts.inProgress + state.board.counts.readyToReview;
   const depCount = state.board.issues.filter((issue) => issue.dependencies.length > 0).length;
-  const counts: Record<ViewKind, string> = {
+  const counts: Partial<Record<ViewKind, string>> = {
     list: String(state.board.issues.length),
     board: String(boardCount),
     graph: String(depCount),
     insights: "",
-    task: "",
-    artifact: "3",
-    diff: "1",
   };
-  const count = (view: ViewKind): string => counts[view];
+  const count = (view: ViewKind): string => counts[view] ?? "";
 
   return (
     <box style={{ width: 18, flexDirection: "column", backgroundColor: colors.panel, borderStyle: "single", borderColor: colors.border }}>
@@ -74,6 +72,9 @@ export const NavRail = () => {
       </box>
       <box onMouseDown={() => actions.toggleHelp()} style={{ flexDirection: "row" }}>
         <text><span fg={colors.dim}>{" ? "}</span><span fg={colors.text}>{"⎇ keys"}</span></text>
+      </box>
+      <box onMouseDown={() => actions.toggleNav()} style={{ flexDirection: "row" }}>
+        <text><span fg={colors.dim}>{" \\ "}</span><span fg={colors.text}>{"⇤ hide rail"}</span></text>
       </box>
       <box style={{ flexGrow: 1 }} />
       <text fg={colors.dim} content={`${state.actor}`} />

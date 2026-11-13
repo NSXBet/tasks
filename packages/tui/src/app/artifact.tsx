@@ -3,7 +3,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { reviewLocationLabel, reviewThreadCounts, type ReviewThread } from "@tasks/review";
 import { commentStatusBadge, reviewHeaderLabel } from "@tasks/review/lifecycle";
 import { docBlocks, isDocPath, threadLocation, type DocBlock } from "@tasks/review/taskview";
-import { useApp, type ArtifactTarget, type ReviewState } from "./context.js";
+import { navWidth, useApp, type ArtifactTarget, type ReviewState } from "./context.js";
 import type { RouteEntry } from "./routes.js";
 import { colors } from "../theme.js";
 import { truncate } from "../format.js";
@@ -34,8 +34,6 @@ import { MdLineView } from "./markdown-view.js";
 
 type Mode = "CODE" | "DOC" | "EVIDENCE";
 
-/** The shell's left nav rail width (nav.tsx). */
-const SHELL_NAV_WIDTH = 18;
 
 /** Rows the page chrome takes around the body: header, spacer, key bar, composer, status bar. */
 const CHROME_ROWS = 8;
@@ -193,7 +191,7 @@ const ArtifactPage = ({ target, review }: { readonly target: ArtifactTarget; rea
     }
   });
 
-  const available = Math.max(40, termWidth - SHELL_NAV_WIDTH);
+  const available = Math.max(40, termWidth - navWidth(state));
   const panelWidth = Math.max(24, Math.floor(available * 0.32));
   const bodyWidth = Math.max(16, available - panelWidth - 2);
   const bodyRows = Math.max(4, termHeight - CHROME_ROWS - (state.composer.mode === "closed" ? 0 : 3));
