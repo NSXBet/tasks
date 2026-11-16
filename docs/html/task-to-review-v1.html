@@ -46,12 +46,13 @@
 
   <!-- ================= HERO ================= -->
   <section class="pt-14 pb-10">
-    <div class="text-[11px] tracking-[.25em] text-[#7c8b99]">SPEC vs LIVE · <span id="meta-date"></span> · NSXBet/tasks</div>
+    <div class="text-[11px] tracking-[.25em] text-[#7c8b99]">SPEC vs LIVE · <span id="meta-date"></span> · <span id="meta-commit"></span> · NSXBet/tasks</div>
     <h1 class="mt-4 text-4xl font-bold tracking-tight">Task <span class="text-[#3ddc97]">→</span> review <span class="text-[#7c8b99]">— v1 against the mocks</span></h1>
     <p class="mt-4 max-w-[780px] text-[13px] leading-6 text-[#9fb0bf]">
       Every mock in <a href="task-to-review.html">task-to-review.html</a> checked against the running implementation.
       Each print below is captured verbatim from a live TUI session and a live web server —
       not restaged, not mocked. The spec mock stays the reference; the print is the delivered behavior.
+      Captured against a scratch repo driven through the real CLI: <span class="text-[#d7e1ea]" id="meta-script"></span>.
     </p>
     <div class="mt-5 flex flex-wrap gap-2 text-[10px]" id="meta-pills"></div>
   </section>
@@ -59,7 +60,7 @@
   <!-- ================= VERDICT MATRIX ================= -->
   <section id="verdicts" class="mb-14">
     <div class="section-num">§1 · VERDICT MATRIX</div>
-    <h2 class="mt-2 text-xl font-bold">7 surfaces, 7 prints, 3 designed divergences</h2>
+    <h2 class="mt-2 text-xl font-bold" id="verdict-heading"></h2>
     <div class="panel rounded-xl mt-4 overflow-x-auto">
       <table class="w-full text-[11.5px] leading-5">
         <thead>
@@ -87,23 +88,31 @@
       The web island consumes one JSON shape: frozen <span class="text-[#d7e1ea]">branch / worktree / base / head</span>,
       derived <span class="text-[#d7e1ea]">commits / files / counts / patch</span>, and a typed
       <span class="text-[#d7e1ea]">patchError</span> instead of an HTTP error when derivation cannot run.
-      Two real responses, captured from the live server:
+      Real responses, captured from the live server, plus screenshots of the web surfaces they feed:
     </p>
     <div id="api-list" class="mt-5 space-y-8"></div>
+    <div id="shot-list" class="mt-2 space-y-8"></div>
   </section>
 
   <!-- ================= DIVERGENCES ================= -->
   <section id="divergences" class="mb-14">
     <div class="section-num">§4 · DIVERGENCES — WHERE LIVE DIFFERS FROM THE MOCK</div>
-    <h2 class="mt-2 text-xl font-bold">Three, all deliberate or designed-for</h2>
+    <h2 class="mt-2 text-xl font-bold" id="div-heading"></h2>
     <div id="div-list" class="mt-4 space-y-3"></div>
+    <h3 class="mt-8 text-[13px] font-bold text-[#d7e1ea]" id="gap-heading"></h3>
+    <div id="gap-list" class="mt-3 space-y-3"></div>
+    <h3 class="mt-8 text-[13px] font-bold text-[#d7e1ea]" id="res-heading"></h3>
+    <div id="res-list" class="mt-3 space-y-3"></div>
   </section>
 
   <!-- ================= FOOTER ================= -->
   <footer class="panel rounded-xl p-4 border-[#273445] text-[11px] leading-6 text-[#7c8b99]">
     <span class="text-[#d7e1ea]">Sources.</span>
-    Prints: <code class="text-[#3ddc97]" id="meta-prints"></code> · TUI: <code class="text-[#3ddc97]">packages/tui/src</code> ·
-    web: <code class="text-[#3ddc97]">packages/web/src/review.ts</code> (reviewPayloadFor) ·
+    Prints: <code class="text-[#3ddc97]" id="meta-prints"></code> · CLI: <code class="text-[#3ddc97]" id="meta-cli"></code> ·
+    TUI: <code class="text-[#3ddc97]">packages/tui/src</code> (review/source.ts frozen snapshot) ·
+    web: <code class="text-[#3ddc97]">packages/web/src/review.ts</code> (reviewPayloadFor, taskViewFor) ·
+    screenshots: <code class="text-[#3ddc97]" id="meta-shots"></code> ·
+    audit: <code class="text-[#3ddc97]">.planning/milestones/v1-MILESTONE-AUDIT.md</code> ·
     spec: <a href="task-to-review.html">task-to-review.html</a> · references: <a href="task-to-review-references.html">task-to-review-references.html</a>
   </footer>
 
@@ -111,33 +120,45 @@
 
 <script>
   const D = window.DATA.taskAsPrV1;
-  const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const VERDICT = {
+    match:    `<span class="pill pill-done">MATCH</span>`,
+    partial:  `<span class="pill pill-amber">PARTIAL</span>`,
+    diverges: `<span class="pill pill-amber">DIVERGES</span>`,
+  };
+  const verdictPill = v => VERDICT[v] ?? `<span class="pill pill-idle">${esc(String(v).toUpperCase())}</span>`;
+  const KIND = { deliberate: "pill-amber", deferred: "pill-idle", gap: "pill-amber", finding: "pill-idle" };
+  const mockLine = (spec, refs) => spec ? `<div class="text-[10px] text-[#7c8b99] mt-0.5">mock: ${esc(spec)}${refs ? ` <span class="text-[#41505f]">${esc(refs)}</span>` : ""}</div>` : "";
 
-  // hero
+  // hero + footer
   document.getElementById("meta-date").textContent = D.meta.date;
+  document.getElementById("meta-commit").textContent = D.meta.commit;
+  document.getElementById("meta-script").textContent = D.meta.script;
   document.getElementById("meta-prints").textContent = D.meta.prints;
+  document.getElementById("meta-cli").textContent = D.meta.cli;
+  document.getElementById("meta-shots").textContent = D.meta.screenshots;
   document.getElementById("meta-pills").innerHTML = [
     `<span class="pill">tui · ${esc(D.meta.tui)}</span>`,
     `<span class="pill">web · ${esc(D.meta.web)}</span>`,
     `<span class="pill pill-idle">${esc(D.meta.workspace)}</span>`,
   ].join("");
 
-  // verdict matrix
-  document.getElementById("verdict-rows").innerHTML = D.prints.map((p,i) => `
+  // verdict matrix — every row comes from data (prints + extra web rows)
+  const rows = [
+    ...D.prints.map((p, i) => ({ n: i + 1, surface: p.surface, spec: p.spec, refs: p.refs, href: `#print-${p.id}`, text: p.file, verdict: p.verdict, note: p.note })),
+    ...D.matrixExtra.map(m => ({ n: m.n, surface: m.surface, spec: m.spec, refs: m.refs, href: m.link, text: m.linkText, verdict: m.verdict, note: m.note })),
+  ];
+  const matches = rows.filter(r => r.verdict === "match").length;
+  document.getElementById("verdict-heading").textContent =
+    `${rows.length} surfaces, ${matches} match · ${D.divergences.length} deliberate divergences · ${D.gaps.length} open gaps · ${D.resolved.length} resolved since 2026-10-19`;
+  document.getElementById("verdict-rows").innerHTML = rows.map(r => `
     <tr class="border-t border-[#1d2833] align-top">
-      <td class="p-2.5 text-[#3ddc97] font-bold">${i+1}</td>
-      <td class="p-2.5 text-[#c3d0dc]">${esc(p.surface)}${p.spec ? `<div class="text-[10px] text-[#7c8b99] mt-0.5">mock: ${esc(p.spec)}${p.refs ? ` <span class="text-[#41505f]">${esc(p.refs)}</span>` : ""}</div>` : ""}</td>
-      <td class="p-2.5"><a href="#print-${esc(p.id)}" class="text-[#58a6ff]">${esc(p.file)}</a></td>
-      <td class="p-2.5"><span class="pill pill-done">MATCH</span></td>
-      <td class="p-2.5 text-[#9fb0bf] max-w-[420px]">${esc(p.note)}</td>
-    </tr>`).join("") + `
-    <tr class="border-t border-[#1d2833] align-top">
-      <td class="p-2.5 text-[#3ddc97] font-bold">8</td>
-      <td class="p-2.5 text-[#c3d0dc]">Web diff island<span class="text-[10px] text-[#7c8b99] mt-0.5">mock: full-page web diff · location-tagged comments <span class="text-[#41505f]">R72 R73 R74</span></span></td>
-      <td class="p-2.5"><a href="#api" class="text-[#58a6ff]">§3 api</a></td>
-      <td class="p-2.5"><span class="pill pill-amber">DIVERGES</span></td>
-      <td class="p-2.5 text-[#9fb0bf] max-w-[420px]">Changeset contract is branch-scoped — see §4·1. Island renders threads + resolve + reply on top of it.</td>
-    </tr>`;
+      <td class="p-2.5 text-[#3ddc97] font-bold">${esc(r.n)}</td>
+      <td class="p-2.5 text-[#c3d0dc]">${esc(r.surface)}${mockLine(r.spec, r.refs)}</td>
+      <td class="p-2.5"><a href="${esc(r.href)}" class="text-[#58a6ff]">${esc(r.text)}</a></td>
+      <td class="p-2.5">${verdictPill(r.verdict)}</td>
+      <td class="p-2.5 text-[#9fb0bf] max-w-[420px]">${esc(r.note)}</td>
+    </tr>`).join("");
 
   // prints — spec caption above, verbatim capture below
   document.getElementById("print-list").innerHTML = D.prints.map(p => `
@@ -146,7 +167,7 @@
         <span class="text-[#3ddc97]">SPEC</span> · ${esc(p.spec)}${p.refs ? ` <span class="text-[#41505f]">${esc(p.refs)}</span>` : ""}
         <span class="mx-2 text-[#41505f]">→</span>
         <span class="text-[#3ddc97]">ACTUAL</span> · ${esc(p.file)} · ${esc(p.where)}
-        <span class="pill pill-done ml-2">MATCH</span>
+        <span class="ml-2">${verdictPill(p.verdict)}</span>
         <div class="mt-1 tracking-normal text-[11px] text-[#9fb0bf]">${esc(p.note)}</div>
       </figcaption>
       <div class="term max-w-full">
@@ -156,7 +177,7 @@
     </figure>`).join("");
 
   // web api payloads
-  document.getElementById("api-list").innerHTML = [D.api.etqk, D.api.t71yd].map(a => `
+  document.getElementById("api-list").innerHTML = D.api.map(a => `
     <figure>
       <figcaption>${esc(a.label)}</figcaption>
       <div class="term max-w-[880px]">
@@ -164,16 +185,27 @@
         <pre class="json">${esc(JSON.stringify(a.value, null, 2))}</pre>
       </div>
     </figure>`).join("");
+  document.getElementById("shot-list").innerHTML = (D.shots ?? []).map(s => `
+    <figure>
+      <figcaption>${esc(s.label)}</figcaption>
+      <a href="${esc(s.src)}"><img src="${esc(s.src)}" alt="${esc(s.label)}" class="rounded-xl border border-[#1d2833] max-w-full" loading="lazy"></a>
+    </figure>`).join("");
 
-  // divergences
-  document.getElementById("div-list").innerHTML = D.divergences.map(d => `
+  // divergences, gaps, resolved
+  const card = (tag, cls, title, text) => `
     <div class="panel rounded-xl p-4 border-[#273445] flex items-start gap-4">
-      <span class="pill pill-amber mt-0.5 shrink-0">${d.n}</span>
+      <span class="pill ${cls} mt-0.5 shrink-0">${esc(tag)}</span>
       <div>
-        <div class="text-[12.5px] font-bold text-[#d7e1ea]">${esc(d.title)}</div>
-        <p class="mt-1.5 text-[11.5px] leading-6 text-[#9fb0bf]">${esc(d.text)}</p>
+        <div class="text-[12.5px] font-bold text-[#d7e1ea]">${esc(title)}</div>
+        <p class="mt-1.5 text-[11.5px] leading-6 text-[#9fb0bf]">${esc(text)}</p>
       </div>
-    </div>`).join("");
+    </div>`;
+  document.getElementById("div-heading").textContent = `${D.divergences.length}, all deliberate or deferred by decision`;
+  document.getElementById("div-list").innerHTML = D.divergences.map(d => card(`${d.n} · ${d.kind}`, KIND[d.kind] ?? "pill-idle", d.title, d.text)).join("");
+  document.getElementById("gap-heading").textContent = `Open gaps and capture findings (${D.gaps.length}) — not deliberate`;
+  document.getElementById("gap-list").innerHTML = D.gaps.map(g => card(`${g.n} · ${g.kind}`, KIND[g.kind] ?? "pill-idle", g.title, g.text)).join("");
+  document.getElementById("res-heading").textContent = `Resolved since 2026-10-19 (${D.resolved.length}) — no longer divergences`;
+  document.getElementById("res-list").innerHTML = D.resolved.map(r => card(r.was, "pill-done", r.title, r.text)).join("");
 </script>
 </body>
 </html>
