@@ -4,13 +4,13 @@ order: 8
 ---
 # Codebase Concerns
 
-**Analysis Date:** 2026-10-17
+**Analysis Date:** 2026-11-12
 
 ## Tech Debt
 
 **Monolithic CLI dispatcher:**
-- Issue: `packages/cli/src/tk.ts` is a single 1,148-line file holding arg parsing helpers, workspace discovery, backend config, and the entire command dispatch tree (`tk.ts:1006-1072` shows the nested if/else style). Every new subcommand grows this file. It also imports from nearly every package, making it the de-facto god module.
-- Files: `packages/cli/src/tk.ts` (1,148 lines), `packages/cli/src/presentation.ts` (839 lines, every formatter for every command)
+- Issue: `packages/cli/src/tk.ts` is a single ~1,770-line file holding arg parsing helpers, workspace discovery, backend config, and the entire command dispatch tree (a long nested if/else chain on `command`). Every new subcommand grows this file. It also imports from nearly every package, making it the de-facto god module.
+- Files: `packages/cli/src/tk.ts` (~1,770 lines), `packages/cli/src/presentation.ts` (~910 lines, every formatter for every command)
 - Impact: High merge-conflict surface; hard to locate command logic; presentation and dispatch are interleaved (`value = issueWire(issue); human = () => confirmation(...)` patterns repeat per command).
 - Fix approach: Split dispatch into per-command modules (e.g. `commands/issue.ts`, `commands/run.ts`) exporting a table of `{ name, isWriter, json, human, run }` handlers that `tk.ts` iterates; move formatter pairs alongside their commands.
 
@@ -21,28 +21,33 @@ order: 8
 - Fix approach: Reformat to the `file` adapter's style (one statement per line, doc comments on ports) without changing logic; consider a shared migration-history implementation (`validate_history` logic is copy-pasted in both adapters at `sqlite/src/index.ts:53` and `postgres/src/index.ts:46`).
 
 **Duplicated board/blocked/ready logic between TUI and watch:**
-- Issue: "What is blocked/ready/counts" is implemented twice: pure helpers in `packages/tui/src/store.ts` (`isBlocked`, `unblockGains`, `detectCycles`, counts via `loadBoard`) and independently in `packages/surface/src/watch/core.ts:98-110` (`blockedIds`, `readyIds`, `WatchCounts`). Both now refresh from the event log (`.tasks/events.jsonl`): the TUI tails it with `tailEvents` and reloads the board per event burst; `runWatchLoop` reads it too.
+- Issue: "What is blocked/ready/counts" is implemented twice: pure helpers in `packages/tui/src/store.ts` (`isBlocked`, `unblockGains`, `detectCycles`, counts via `loadBoard`) and independently in `packages/surface/src/watch/core.ts` (`boardCounts`: `blockedIds`, `WatchCounts`). Both now refresh from the event log (`.tasks/events.jsonl`): the TUI tails it with `tailEvents` and reloads the board per event burst; `runWatchLoop` reads it too.
 - Files: `packages/tui/src/store.ts`, `packages/surface/src/watch/core.ts`
-- Impact: The two counters can drift when a status rule changes (e.g. adding a terminal status other than `closed` — watch hardcodes `TERMINAL_STATUSES = ['closed']` at `core.ts:15` while TUI uses `board.counts` from its own rules).
+- Impact: The two counters can drift when a status rule changes (e.g. adding a terminal status other than `closed` — watch hardcodes `TERMINAL_STATUSES = ['closed']` in `core.ts`, although `approved` is also a done-class status, while TUI uses `board.counts` from its own rules).
 - Fix approach: Move blocked/ready/counts computation into one shared pure module (e.g. `packages/application` or `packages/surface/src/board.ts`) consumed by both.
 
 **Duplicated workspace discovery:**
-- Issue: Upward `.tasks/` discovery with git-worktree fallback exists in both `packages/cli/src/tk.ts:131-138` (`rootFrom`) and `packages/surface/src/discover.ts:15-19` (`discover`).
+- Issue: Upward `.tasks/` discovery with git-worktree fallback exists in both `packages/cli/src/tk.ts` (`rootFrom`) and `packages/surface/src/discover.ts` (`rootFrom`).
 - Files: `packages/cli/src/tk.ts`, `packages/surface/src/discover.ts`
 - Impact: If worktree discovery semantics change in one place, the CLI and TUI/web disagree about which workspace is active.
 - Fix approach: Have the CLI import `discover` from `@tasks/surface` and delete `rootFrom`.
 
-**Dead vitest configuration:**
-- Issue: `vitest.config.ts` at repo root plus `vitest` in devDependencies exists, but all tests run on `bun test` (`packages/*/test/*.test.ts`, bun-native APIs in tests); nothing references vitest at runtime.
-- Files: `vitest.config.ts`, `package.json`
-- Impact: Two test runners advertised; contributors may run vitest against bun-only tests and get confusing failures.
-- Fix approach: Delete `vitest.config.ts` and the vitest devDependency; document `bun test` in AGENTS.md.
+**Two test runners:**
+- Issue: CI and the root `test` script run everything on `bun test`, but `vitest.config.ts` and the `vitest` devDependency remain, and the `test` scripts of `@tasks/file`, `@tasks/postgres` (and `@tasks/review`'s `test:integration`) still invoke `vitest run`.
+- Files: `vitest.config.ts`, `package.json`, `packages/{file,postgres,review}/package.json`
+- Impact: Two runners advertised; contributors may run vitest against bun-only tests (`bun:test` imports, OpenTUI test-utils) and get confusing failures.
+- Fix approach: Move the remaining package scripts to `bun test`, then delete `vitest.config.ts` and the vitest devDependency (test files may keep importing the `vitest` API, which `bun test` resolves).
 
-**WIP stubs reachable from user commands:**
-- Issue: `tk work` / `tk review` mock flows are explicit WIP stubs (`packages/cli/src/presentation.ts:221-232` — env setup and edit/comment actions not implemented); TUI fixture mock actions call `notify("WIP")` (`packages/tui/src/fixture.ts:349-360`); web board has `data-wip` buttons that do nothing.
-- Files: `packages/cli/src/presentation.ts`, `packages/tui/src/fixture.ts`, `packages/web/src/app.html`
-- Impact: Users hitting `tk work` get a mock summary, not an implementation; acceptable while the task→review plan (`.agents/plans/2026-10-08-task-to-review.md`) is in flight, but these seams must be replaced, not forgotten.
-- Fix approach: Track them as tk issues under the task-to-review label; remove `data-wip` and `notify("WIP")` when the real flows land.
+**`tk finish` missing from `tk help`:**
+- Issue: `tk finish` — the only path into `ready-to-review` — has no line in the main help text (it appears only in the `TK_SESSION` env note), and `tk agent`, `tk runs`/`run`, `tk lease`, `tk sprint`, `tk archive` are also absent; `tk daemon`'s help still says "per-workspace daemon" although `tkd` is one per user.
+- Files: `packages/cli/src/tk.ts` (help text)
+- Fix approach: Add the missing lines next to `work` / `review`; `tk finish --help` currently falls back to the full help.
+
+**Unbounded event log:**
+- Issue: `.tasks/events.jsonl` is append-only with no retention or trimming, and cursors are keyed by host for a future multi-host merge that does not exist yet.
+- Files: `packages/surface/src/events/log.ts`, `packages/surface/src/events/cursors.ts`
+- Impact: The log grows forever; `--drain` for a fresh subscriber and `GET /api/events?after=0` page through the whole history.
+- Fix approach: Rotation with a persisted base seq, keeping per-subscriber cursors valid.
 
 ## Known Bugs
 
@@ -69,14 +74,14 @@ No `TODO`/`FIXME`/`HACK`/`XXX` markers exist in `packages/` (verified by grep), 
 
 ## Performance Bottlenecks
 
-**Full-issue-page read per poll tick:**
-- Problem: Every watcher tick lists the entire issue page — TUI every 1s (`packages/tui/src/store.ts` watch loop), watch core default 2000ms with `limit: 100_000` (`packages/surface/src/watch/core.ts:49-50`).
+**Full-board reload per event burst:**
+- Problem: Change detection is now cheap (readers tail `.tasks/events.jsonl`), but reacting is not: the TUI reloads the whole board (`loadBoard()` → `surface.all()`) once per 100 ms event burst, and `runWatchLoop` lists the entire issue page (`limit: 100_000`) on every tick that delivers events, to attach board `counts`.
 - Files: `packages/tui/src/store.ts`, `packages/surface/src/watch/core.ts`
-- Cause: Watermark-diff design requires seeing every issue's `updatedAt` each tick; the file backend re-reads and JSON-parses every issue file on each `list()`.
-- Improvement path: Per-backend watermark readers (already anticipated in the `core.ts` comment) or a persisted last-modified index; for `file`, an mtime-sorted directory scan can short-circuit unchanged ticks.
+- Cause: Counts and the board model are recomputed from a full page; the file backend re-reads and JSON-parses every issue file on each `list()`.
+- Improvement path: Apply the event's `task` id incrementally (re-read one issue), or compute counts lazily only for subscribers that read them.
 
 **O(N²) blocked computation in watch diff:**
-- Problem: `diffOnce` builds `blockedIds` with `all.some(...)` nested inside `all.filter(...)` per issue (`packages/surface/src/watch/core.ts:98`), re-scanning the full page for each issue every tick.
+- Problem: `boardCounts` builds `blockedIds` with `all.some(...)` nested inside `all.filter(...)` per issue (`packages/surface/src/watch/core.ts`), re-scanning the full page for each issue on every delivering tick (the CLI's `tk stats` repeats the same pattern).
 - Files: `packages/surface/src/watch/core.ts`
 - Cause: Naive dependency resolution; fine at hundreds of issues, quadratic at tens of thousands.
 - Improvement path: Build a `Map<targetId, boolean(open)>` of blockers once per tick, then one pass over dependency edges (same pattern as `isBlocked` in `packages/tui/src/store.ts`).
@@ -95,11 +100,11 @@ No `TODO`/`FIXME`/`HACK`/`XXX` markers exist in `packages/` (verified by grep), 
 - Safe modification: Before force-release, read `<lock>/pid` and `kill(pid, 0)` to confirm the holder is dead; replace the busy-wait with `Bun.sleepSync(10)`.
 - Test coverage: `packages/file/test/file.test.ts` covers happy paths; no concurrent-process lock contention test.
 
-**TUI watch loop swallows all errors:**
-- Files: `packages/tui/src/store.ts` (poll loop catch: "Keep polling through transient storage failures")
-- Why fragile: Storage corruption or adapter errors are invisible; the board just goes stale with only the stale-mark hint.
-- Safe modification: Surface consecutive-failure counts into the status bar before deciding to keep polling.
-- Test coverage: None — the poll loop has no dedicated test (`packages/tui/test/` covers views/fixtures, not the store loop).
+**TUI event tail swallows consumer errors:**
+- Files: `packages/tui/src/store.ts` (`TuiStore.watch` → `tailEvents`; "a consumer error must not kill the tail")
+- Why fragile: An exception while handling a log line is dropped silently; only a failed `loadBoard()` refresh surfaces (stale flag + toast).
+- Safe modification: Count consecutive handler failures and surface them in the status bar.
+- Test coverage: `packages/tui/test/events.test.ts` covers toast mapping; the tail-and-reload loop is exercised only through render tests.
 
 **SQLite adapter serializes everything through one shared connection:**
 - Files: `packages/sqlite/src/index.ts:55-56` (`withinTransaction` promise chain; comment: "concurrent transactions would nest BEGIN on it and wedge the handle")
@@ -113,15 +118,15 @@ No `TODO`/`FIXME`/`HACK`/`XXX` markers exist in `packages/` (verified by grep), 
 
 **Test artifacts committed into the repo:**
 - Files: `.agents/tests/tui-test-*/` (PNG/GIF screenshots, currently dirty in the worktree)
-- Why fragile: Binary verification artifacts churn with every TUI change and bloat diffs; `graft/` at repo root is an empty stray directory.
-- Safe modification: Move screenshots out of git or gitignore the directories; remove the empty `graft/` dir.
+- Why fragile: Binary verification artifacts churn with every TUI change and bloat diffs.
+- Safe modification: Move screenshots out of git or gitignore the directories.
 
 ## Scaling Limits
 
-**Watch/poll architecture is O(total issues) per tick:**
-- Current capacity: Comfortable to low thousands of issues (file backend: per-file reads each tick; watch caps at `limit: 100_000`, `packages/surface/src/watch/core.ts:49`).
-- Limit: File backend degrades when tick read time exceeds the poll interval; 100k issue cap silently truncates events beyond it.
-- Scaling path: Per-backend incremental watermarks (mtimes for file, `updated_at > watermark` for SQL) — the event contract in `packages/surface/src/watch/protocol.ts` already supports it.
+**Board reloads are O(total issues):**
+- Current capacity: Comfortable to low thousands of issues (file backend: per-file reads on each reload; watch counts cap at `limit: 100_000`).
+- Limit: Bursty writers (many agents) trigger a full reload per burst in every open TUI and watcher; the 100k cap silently truncates counts beyond it.
+- Scaling path: Incremental board updates keyed by the event's `task`; the event wire already names the touched task and kind.
 
 **SQLite single-connection throughput:**
 - Current capacity: One writer at a time (promise-chain serialization).
@@ -160,30 +165,30 @@ No `TODO`/`FIXME`/`HACK`/`XXX` markers exist in `packages/` (verified by grep), 
 - Risk: Blob attachments silently break (or corrupt sidecar/data pairs) with no signal until used in production.
 - Priority: High
 
-**pi-extention — 43 test lines for 600+ source lines:**
-- What's not tested: Tool registration contracts (`index.ts` 405 lines), `WatchManager` lifecycle/child cleanup (`watch-manager.ts` 196 lines) beyond `entry.test.ts`.
+**pi-extention — tool contracts thinly tested:**
+- What's not tested: The inbox is covered (`inbox.test.ts`, ~340 lines), but tool registration contracts (`index.ts`, ~520 lines) and `WatchManager` lifecycle and daemon fallback (`watch-manager.ts`, ~320 lines) only through `entry.test.ts` (~90 lines).
 - Files: `packages/pi-extention/src/index.ts`, `packages/pi-extention/src/watch-manager.ts`, `packages/pi-extention/test/entry.test.ts`
-- Risk: Watch child processes leaking on stop; tool schema drift against omp.
+- Risk: Watchers outliving their session; tool schema drift against omp.
 - Priority: High
 
 **Web server and client shell:**
-- What's not tested: 1,464-line inline SPA in `packages/web/src/app.html` has no tests at all (comment/attachment/board interactions only manually verified); `server.test.ts` (137 lines) covers a fraction of routes.
+- What's not tested: the ~1,830-line inline SPA in `packages/web/src/app.html` has no browser tests (board, modal and task-view interactions are verified manually); the server side is covered by `server`, `taskview`, `review`, `live`, `events` and `edit-loop` suites.
 - Files: `packages/web/src/app.html`, `packages/web/src/server.ts`, `packages/web/test/server.test.ts`
 - Risk: Regressions in the browser UI ship unnoticed (only mitigated by manual screenshots under `.agents/tests/`).
 - Priority: High
 
 **TUI store logic:**
-- What's not tested: `packages/tui/src/store.ts` (437 lines) — board derivation and `detectCycles` — has no `store.test.ts`; `app.test.tsx` tests views with mocked stores, `smoke.ts` runs against real fixtures.
+- What's not tested: `packages/tui/src/store.ts` (~440 lines) — board derivation and `detectCycles` — has no `store.test.ts`; the render tests exercise it only through views.
 - Files: `packages/tui/src/store.ts`, `packages/tui/test/`
 - Risk: Counter/blocking drift (see duplicated-logic debt) lands without test failure.
 - Priority: Medium
 
 **Domain and application cores are thinly direct-tested:**
-- What's not tested: `packages/domain/test/issue.test.ts` is 30 lines and `packages/application/test/ports.test.ts` is 12 for the two pure-core packages (schemas, wire codecs, run side effects). Both are exercised transitively via adapter tests.
+- What's not tested: `packages/domain/test/issue.test.ts` is 30 lines and `packages/application/test/ports.test.ts` is 12 for the core entity schemas, wire codecs and run side effects (the review-record, stat-card and PR-record helpers have their own suites). Both are exercised transitively via adapter tests.
 - Files: `packages/domain/test/issue.test.ts`, `packages/application/test/ports.test.ts`
 - Risk: Wire-format round-trip regressions surface as confusing adapter failures instead of domain failures.
 - Priority: Medium
 
 ---
 
-*Concerns audit: 2026-10-17*
+*Concerns audit: 2026-11-12*

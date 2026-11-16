@@ -4,8 +4,7 @@ order: 5
 ---
 # Coding Conventions
 
-**Analysis Date:** 2026-10-17
-<!-- refreshed: 2026-10-17 -->
+**Analysis Date:** 2026-11-12
 
 ## Naming Patterns
 
@@ -54,14 +53,14 @@ order: 5
 | Domain | `packages/domain/src/` | Zod schemas + branded types + pure codecs (`xFromBdWire`/`xToBdWire`). No I/O, no `Result` |
 | Application | `packages/application/src/` | `Result<T, E = AppError>` carrier (`result.ts`), ports in `src/ports/` (interfaces only: `IssueUnitOfWork`, `BlobStore`, `Clock`, `IdGenerator`, `TransactionManager`), use-case interfaces in `src/use-cases/issue-use-cases.ts`. Zero runtime deps besides domain |
 | Adapters | `packages/{sqlite,postgres,file,s3,beads}/src/` | Implement application ports. Constructor takes injected ports (`{ dir, now }`, `{ client, now }`) |
-| Surface | `packages/surface/src/` | Facade over application use-cases. `createSurface()` (`surface.ts`), operations split by verb: `operations/{create,query,mutate,deps,comments,attachments,views}.ts`, watch layer in `watch/` |
-| Presentation | `packages/cli/src/tk.ts`, `packages/tui/src/`, `packages/web/src/server.ts` | Parse/serialize only; map failures to the CLI JSON envelope `{ error: { kind, message } }` via `packages/surface/src/errors.ts` |
+| Surface | `packages/surface/src/` | Facade over application use-cases. `createSurface()` (`surface.ts`), operations split by area: `operations/{create,query,mutate,deps,comments,attachments,views,finish,changeset,changes,review-comments,commit,pr,prune,…}.ts`, the event wire in `events/`, watch layer in `watch/` |
+| Presentation | `packages/cli/src/tk.ts`, `packages/tui/src/`, `packages/web/src/server.ts`, `packages/pi-extention/src/` | Parse/serialize only; map failures to the CLI JSON envelope `{ error: { kind, message } }` via `packages/surface/src/errors.ts` |
 
 - Never import an adapter (`@tasks/sqlite` etc.) from domain/application; composition happens in `packages/application/src/ports/composition-root.ts` and the CLI entry.
 - New cross-cutting capability = new port interface in `packages/application/src/ports/` + adapter implementation + wiring in the composition root.
 - Unit of work pattern: `UnitOfWork.withinTransaction(work)` hands work a transaction-bound repo (`packages/application/src/ports/issue-repository.ts`). Deprecated aliases get explicit doc comments: `/** Compatibility alias; do not use outside migration path. */ export type IssueRepository = IssueUnitOfWork;` — follow that style when deprecating.
 
-## Error Handling
+## Error Handling Patterns
 
 **Patterns:**
 - Expected failures are values, not exceptions: `export type Result<T, E = AppError> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: E };` with `ok`/`err` constructors (`packages/application/src/result.ts`). Public application/surface APIs return `Result`; never throw adapter errors upward.
@@ -81,6 +80,11 @@ order: 5
 
 **Path aliases:** none in tsconfig. Cross-package imports resolve via the root `package.json` `exports` map (`"@tasks/domain"` → source under `bun`, `dist` for Node) plus per-package `exports` fields (`"bun": "./src/index.ts", "default": "./dist/index.js"`). When adding a package: add its `exports` block in its own `package.json` AND wire `"./<pkg>"` in the root `package.json` exports map.
 
+## Git and gh access
+
+- Never spawn `git` outside `@tasks/git`: add an enumerated command to `packages/git/src/commands.ts` (or `sync.ts` for hook context) that takes an injectable runner and an argv array — never a shell string. `gh` calls live only in `packages/surface/src/gh.ts`.
+- Chat-facing output (`tk finish`, `tk changes`, pi messages) carries counts only — the stat card — never a diff or file list.
+
 ## Logging
 
 **Framework:** none. The CLI prints directly to stdout/stderr; the web server logs via `console`. Do not introduce a logging library; keep diagnostics as `Result` errors or explicit `console.error` in entry points only.
@@ -95,7 +99,7 @@ order: 5
 
 ## Function Design
 
-**Size:** use-case functions stay small and delegate; the CLI entry (`packages/cli/src/tk.ts`, ~1150 lines) is the one sanctioned long file — put new CLI behavior in small named helpers above `main`, not inline in the command switch.
+**Size:** use-case functions stay small and delegate; the CLI entry (`packages/cli/src/tk.ts`, ~1770 lines) is the one sanctioned long file — put new CLI behavior in small named helpers above `main`, not inline in the command switch.
 
 **Parameters:** single object parameter with `readonly` fields for anything with >2 args (`CreateIssueInput`, `ChangeIssueStatusInput` in `packages/application/src/use-cases/issue-use-cases.ts`); input types reuse domain branded types.
 
@@ -114,9 +118,9 @@ order: 5
 ```bash
 bun run check      # tsc --noEmit per package, in dependency order
 bun run build      # tsc per package; adapter tests import dist output, so build before adapter tests
-bun test packages/*/test/*.test.ts   # full suite (see TESTING.md)
+bun test packages/*/test/*.test.ts   # full suite (see Testing)
 ```
 
 ---
 
-*Convention analysis: 2026-10-17*
+*Convention analysis: 2026-11-12*

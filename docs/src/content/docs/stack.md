@@ -4,12 +4,13 @@ order: 4
 ---
 # Technology Stack
 
-**Analysis Date:** 2026-10-17
+**Analysis Date:** 2026-11-12
 
 ## Languages
 
 **Primary:**
-- TypeScript 5.9.3 — 100% of source across 14 packages in `packages/*`; compiled per-package with `tsc -p tsconfig.json` to `dist/` (no bundler). TSX only in `packages/tui/src/app/*.tsx` (TUI components).
+- TypeScript 5.9.3 — source of 18 of the 19 packages in `packages/*`; compiled per-package with `tsc -p tsconfig.json` to `dist/`. TSX in the TUI (`packages/tui/src/app/*.tsx`), the vendored review component (`packages/review`) and the web review island (`packages/web/src/client/review-island.tsx`, bundled by Bun for the browser).
+- Luau — `packages/lua` (hand-written tk RPC client, tested with lune).
 - POSIX Shell — `install.sh` (release installer).
 
 **Secondary:**
@@ -30,13 +31,14 @@ order: 4
 
 **Core:**
 - OpenTUI 0.5.11 (`@opentui/core`, `@opentui/react`) — terminal UI framework for `packages/tui`; renderer, `useKeyboard`, `NativeImage`, `TextareaRenderable` all come from OpenTUI.
-- React ^19.2.0 — component model inside the OpenTUI TUI (`createRoot`, hooks; `packages/tui/src/app/App.tsx`).
+- React ^19.2.0 — component model inside the OpenTUI TUI (`createRoot`, hooks; `packages/tui/src/app/App.tsx`) and the review component; `react-dom` 19.2.8 for the web review island.
+- `@pierre/diffs` 1.3.5 — diff and file rendering (and the inline editor) for the web review views and the vendored review component.
 - No HTTP framework — `packages/web/src/server.ts` uses Bun's native HTTP server (`Bun.serve` in tests, `Response`-based handlers).
 - No web framework on the CLI — hand-rolled arg parsing in `packages/cli/src/args.ts`.
 
 **Testing:**
-- vitest ^4.0.16 — runner for `packages/{domain,application,file,postgres,workspace,beads,cli,surface,pi-extention}` (`vitest run packages/<p>/test`).
-- `bun test` — runner for `packages/{sqlite,workspace,beads,cli,tui}` tests (OpenTUI test-utils require it: `@opentui/react/test-utils` in `packages/tui/test/app.test.tsx`). Both runners coexist; match the package's `test` script.
+- `bun test` — the main runner: the root `test` script and CI (`bun test packages/*/test/*.test.ts`) run every suite with it, and OpenTUI test-utils require it (`@opentui/react/test-utils` in `packages/tui/test/app.test.tsx`). Most suites import their API from `'vitest'`, which `bun test` resolves.
+- vitest ^4.0.16 — still the runner in the `test` scripts of `@tasks/file`, `@tasks/postgres` and `@tasks/review`'s `test:integration`. Match the package's `test` script.
 
 **Build/Dev:**
 - `tsc` (TypeScript ^5.9.3) — per-package ESM build to `dist/` with `.d.ts` + source maps; packages build their workspace deps first via chained `bun run --filter` calls.
@@ -52,15 +54,15 @@ order: 4
 - `@opentui/core` / `@opentui/react` 0.5.11 — the entire TUI rendering layer; version-locked pair.
 
 **Infrastructure:**
-- `@tasks/*` workspace packages — hexagonal layering: `domain` → `application` (ports/use-cases) → adapters (`sqlite`, `postgres`, `file`, `s3`) → `workspace` (config/storage composition) → `surface` (typed API + watch) → `cli`/`tui`/`web`/`pi-extention`.
+- `@tasks/*` workspace packages — hexagonal layering: `domain` → `application` (ports/use-cases) → adapters (`sqlite`, `postgres`, `file`, `s3`) → `workspace` (config/storage composition) → `surface` (typed API + event log + watch, over `git`) → `rpc`/`daemon` → `cli`/`tui`/`web`/`pi-extention`; `review` is the diff/review component used by `tui` and `web`.
 - `ws` ^8.18.0 — declared in `packages/tui` devDependencies; no import found in `packages/tui` source (likely vestigial).
 - `@types/node` ^22, `@types/react` ^19.2.0, `@types/pg` — type-only.
 
 ## Configuration
 
 **Environment:**
-- Workspace config lives in `.tasks/config.json` (per-project), validated by zod in `packages/workspace/src/config.ts`. Keys: `prefix`, `storage` (`{backend: file|sqlite|postgres, filename?, url?, urlEnv?}`), `attachments` (`{store: fs|s3|postgres, s3?, postgres?, lfs?}`), `webPort`.
-- Env vars: `TASKS_DATABASE_URL` (postgres connection string, env-indirected on purpose so credentials never land in committed config — `packages/workspace/src/storage.ts`), `TK_WEB_PORT` (web server port override, `packages/web/src/main.ts`), `TK_BUILD_REF` (compile-time `--define` baked by CI, `.github/workflows/build-binaries.yml`).
+- Workspace config lives in `.tasks/config.json` (per-project), validated by zod in `packages/workspace/src/config.ts`. Keys: `prefix`, `storage` (`{backend: file|sqlite|postgres, filename?, url?, urlEnv?}`), `attachments` (`{store: fs|s3|postgres, s3?, postgres?, lfs?}`), `webPort`, `worktree` (`{dir?, post_start?, post_checkout?, pre_end?, install?}` — see [Task worktrees](#task-worktrees)), `tuiImage` (`{width, height}`).
+- Env vars: `TASKS_DATABASE_URL` (postgres connection string, env-indirected on purpose so credentials never land in committed config — `packages/workspace/src/storage.ts`), `TK_WEB_PORT` (web server port override, `packages/web/src/main.ts`), `TK_BUILD_REF` (compile-time `--define` baked by CI, `.github/workflows/build-binaries.yml`); the task → review loop adds optional `TK_SESSION`, `TK_HARNESS`, `TK_GH`, `TK_INBOX`, `TK_EVENTS` (see [Integrations](#environment-configuration)).
 - No `.env` files present in the repo (checked; none exist). No `bunfig.toml`. No inline secrets.
 - `skills-lock.json` — lockfile for agent skills pulled from GitHub/local sources (hashes recorded).
 - Root `package.json` `pi` and `omp` fields register the agent extension entry (`./packages/pi-extention/src/index.ts`) and skill globs for both agent hosts.
@@ -72,7 +74,7 @@ order: 4
 ## Platform Requirements
 
 **Development:**
-- Bun 1.3+; macOS or Linux. TUI pty E2E (`packages/tui/test/smoke.ts`) additionally needs `tmux` (OpenTUI's Zig renderer stalls on a bare pty). AWS CLI only needed to test S3 profile credential lookup.
+- Bun 1.3+; macOS or Linux; `git` (worktrees, changesets); `gh` only for `tk pr`. TUI pty E2E (`packages/tui/test/smoke.ts`) additionally needs `tmux` (OpenTUI's Zig renderer stalls on a bare pty). AWS CLI only needed to test S3 profile credential lookup.
 
 **Production:**
 - Self-contained single-binary `tk` (no Bun required at runtime) for linux/darwin on arm64/x64, published as GitHub Release assets with `checksums.txt` (sha256). Consumers install via `install.sh` (curl/wget + shasum) or Homebrew (`nsxbet/tap/tasks`); `tk update` (in `packages/cli/src/update.ts`) self-updates from GitHub Releases or shells out to `brew upgrade`.
@@ -80,4 +82,4 @@ order: 4
 
 ---
 
-*Stack analysis: 2026-10-17*
+*Stack analysis: 2026-11-12*

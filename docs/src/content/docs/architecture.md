@@ -4,7 +4,7 @@ order: 2
 ---
 # Architecture
 
-**Analysis Date:** 2026-10-17
+**Analysis Date:** 2026-11-12
 
 ## System Overview
 
@@ -63,6 +63,9 @@ Side actors:
 
 - **Blobs/attachments** flow through `BlobStore` ports: fs (`packages/workspace/src/attachments.ts` `FsBlobStore`), S3 (`packages/s3/src/index.ts`), or in-postgres (`packages/postgres/src/blob.ts`).
 - **beads interop** (`packages/beads/src/index.ts`) migrates legacy beads `.beads/*.jsonl` workspaces into tasks storage (`migrateBeadsJsonl`) and powers workspace discovery (`searchPath`).
+- **git** is reached only through `@tasks/git` (`packages/git`): worktrees, the derived changeset and diff, the merge predicate, commit and push. `gh` is reached only through `packages/surface/src/gh.ts` (the PR sidecar).
+- **RPC + daemon**: `@tasks/rpc` holds the one verb table every transport dispatches through; `@tasks/daemon` (`tkd`) serves it over a unix socket and hosts `tk web`. See [RPC API](#rpc).
+- **Review component**: `@tasks/review` (vendored from Hunk) renders the diff in the TUI and supplies the git-free models (comment lifecycle, task-view rail) the web island shares.
 
 ## Component Responsibilities
 
@@ -80,7 +83,11 @@ Side actors:
 | `@tasks/cli` | `tk` command-line entry, arg parsing, output presentation, hooks (agent hooks, JSON hooks), review door (`tk review` -> TUI diff), updater | `packages/cli/src/tk.ts`, `packages/cli/src/presentation.ts`, `packages/cli/src/hooks.ts` |
 | `@tasks/tui` | `tk-tui` terminal UI on OpenTUI/React 19; pure board model + graph algorithms in `store.ts`; panels in `app/` | `packages/tui/src/main.tsx`, `packages/tui/src/store.ts`, `packages/tui/src/app/App.tsx` |
 | `@tasks/web` | `tk web` local web UI: Bun HTTP server, JSON API over the same surface, SPA shell, single-instance guard | `packages/web/src/main.ts`, `packages/web/src/server.ts`, `packages/web/src/app.html` |
-| `pi-extention` | pi AND omp host extension: registers `tasks` tool, `tasks_ready`, watch tools, `/tasks` command, watch widget | `packages/pi-extention/src/index.ts` |
+| `pi-extention` | pi AND omp host extension: registers `tasks` tool, `tasks_ready`, `tasks_wait`, watch tools, `/tasks` command, watch widget, and the automatic review inbox | `packages/pi-extention/src/index.ts`, `packages/pi-extention/src/inbox.ts`, `packages/pi-extention/src/watch-manager.ts` |
+| `@tasks/git` | Typed git adapter — the only git spawner: runners, enumerated commands, porcelain parsing, worktree resolver, lifecycle hooks + dependency install, merge-aware prune, `gitDiffPatch` | `packages/git/src/commands.ts`, `packages/git/src/resolver.ts`, `packages/git/src/prune.ts`, `packages/git/src/hooks.ts` |
+| `@tasks/review` | tk's review component (vendored Hunk slice): headless changeset/patch model, watch controller, OpenTUI diff view, comment lifecycle (`/lifecycle`) and task-view model (`/taskview`), task-store comment adapter | `packages/review/src/headless.ts`, `packages/review/src/watch.ts`, `packages/review/src/core/taskview/model.ts` |
+| `@tasks/rpc` | Wire protocol (`PROTOCOL_VERSION`, `VERBS_VERSION`), the verb table and the transport-agnostic dispatcher | `packages/rpc/src/protocol.ts`, `packages/rpc/src/verbs.ts`, `packages/rpc/src/dispatch.ts` |
+| `@tasks/daemon` | `tkd` per-workspace unix-socket daemon: RPC, `events.subscribe`, hosted web | `packages/daemon/src/server.ts`, `packages/daemon/src/client.ts` |
 | `@tasks/terminal-image` | Terminal image helper: CLI escapes (`terminalImageEscape`) and the TUI paint decision (`inlineImageMode` → `kitty` / `blocks` / `null` = `evidence:<id>` row; the TUI's `EvidenceImage` gates every evidence paint on it — detail pane, diff-view EVIDENCE entries and the artifact view's EVIDENCE mode) | `packages/terminal-image/src/index.ts`, `packages/tui/src/app/evidence-image.tsx` |
 
 ## Pattern Overview
@@ -98,7 +105,7 @@ Side actors:
 **Domain (innermost):**
 - Purpose: entity schemas, branded ID types, wire codecs, status-transition policy.
 - Location: `packages/domain/src/`
-- Contains: `issue.ts` (single ~90-line module defining everything), barrel `index.ts`.
+- Contains: `issue.ts` (the entity model), `review-record.ts` (harness registry, review doors, agent/comments lines), `changes-card.ts` (stat card), `pr-record.ts` (PR mirror), barrel `index.ts`.
 - Depends on: `zod` only.
 - Used by: `application`, all adapters, `surface`.
 
@@ -130,7 +137,7 @@ Side actors:
 
 ### Primary Request Path (CLI mutation)
 
-1. `tk status tk-abc in-progress` — shebang entry, arg parsing, command dispatch (`packages/cli/src/tk.ts:1`).
+1. `tk update tk-abc --status in_progress` — shebang entry, arg parsing, command dispatch (`packages/cli/src/tk.ts:1`).
 2. `rootFrom(cwd)` — upward walk for `.tasks/`, falling back to the main git worktree (`packages/surface/src/discover.ts:11`).
 3. `createSurface({ root })` → `openSurfaceStore` reads `.tasks/config.json`, resolves backend config, calls `openStorage()` (`packages/surface/src/store.ts:70`, `packages/workspace/src/storage.ts:66`).
 4. Operation runs inside `SurfaceStoreImpl.transact()` → `adapter.withinTransaction(uow => ...)`; thrown errors are classified into `SurfaceError` kinds (`packages/surface/src/store.ts:38-64`, `packages/surface/src/errors.ts` `classifyMessage`).
@@ -140,7 +147,7 @@ Side actors:
 
 ### Event wire (`events.jsonl`)
 
-Every committed write appends its events to one append-only log per workspace, `<root>/.tasks/events.jsonl`, written in-process by the command that made the change (no daemon, no broker; spec §10).
+Every committed write appends its events to one append-only log per workspace, `<root>/.tasks/events.jsonl`, written in-process by the command that made the change (no daemon, no broker).
 
 - Envelope, one JSON object per line: `{ seq, host, ts, task?, type, actor, session?, data }`. `session` is present only when `TK_SESSION` is set. `seq` is strictly increasing and gap-free across concurrent writer processes on one host: appends take an in-process chain plus a cross-process `mkdir` lock (`.tasks/events.lock`, 5s acquire deadline, 10s stale takeover) and read the last seq under it (`packages/surface/src/events/log.ts`: `appendEvents`, `readEvents`, `lastEventSeq`).
 - Emission: `withEventLog` decorates the `StorageAdapter`. Each mutator (`save`, `addComment`, `addDependency`/`removeDependency`, `delete`, `claimReady`, `saveRun`) snapshots the touched issue or run first; when the work returns ok, the after-state is read inside the transaction, and events are appended only after commit. A failed or rolled-back transaction appends nothing; an append failure is swallowed and never fails the committed write. `tk init`, `tk migrate`, `tk import`, `tk switch-backend` and the ephemeral scratch store are not wrapped, so bulk copies never flood the log.
@@ -148,10 +155,10 @@ Every committed write appends its events to one append-only log per workspace, `
 
 ### TUI Board Path
 
-1. `tk-tui` — parse `--image-size`/workspace args, `rootFrom(cwd)`, `openTuiStore(root)` → `createSurface` (`packages/tui/src/main.tsx:26-45`).
+1. `tk-tui` — parse `--image-size`/workspace args, `rootFrom(cwd)`, `openTuiStore(root)` → `createSurface` (`packages/tui/src/main.tsx`).
 2. `loadBoard()` — `surface.all()` full page + `surface.sprintList()` → `buildBoard()` derives counts/ready/blocked once per refresh (`packages/tui/src/store.ts:30`, `packages/tui/src/store.ts:389`).
 3. Live refresh: `TuiStore.watch(onEvent)` tails `.tasks/events.jsonl` with `tailEvents` from the log's current end (no replay) and hands each line to `onEvent` as a `WatchEvent` (`toWatchEvent`: the log's own `seq`, `kind`, `data`), so a write from any process — CLI, web, agents, the TUI itself — reaches the board within about a second (`packages/tui/src/store.ts`). `App` coalesces a burst into one `loadBoard()` per 100 ms trailing window and shows a status-bar toast from `eventToast` (`packages/tui/src/events.ts`): `<id> ready for review` / `approved` / `rejected` on those `task.status` targets, `<id> · <author>: <body>` for a note comment (body cut to 60 cells), `<id> · review comment at <file>:<line>` when a review comment opens and `<id> · review comment sent` on send. Several toasts in one window collapse to the last plus ` (+N)`. Author, body and file pass through `sanitize` (ANSI CSI/OSC sequences and C0/C1 controls stripped) before they reach the terminal.
-4. `App` receives the event → `refresh()` → `setBoard()`; all panels re-render from context (`packages/tui/src/app/App.tsx:84-91`).
+4. `App` receives the event → `refresh()` → `setBoard()`; all panels re-render from context (`packages/tui/src/app/App.tsx`).
 
 ### TUI Review Path
 
@@ -190,6 +197,23 @@ The event wire has one writer path and one reader path; there is no daemon broke
    Review comments: one store per task (`metadata.reviewThreads`); each comment carries its location as data (`file`, `line`/`endLine`, or an evidence target `evidence:<id>`) and a status `open | sent | resolved | dismissed`. `GET /api/review/:id/threads` returns threads plus `counts` (`N open · K ✓`) and `allResolved`; `POST .../threads/:tid/status {status}` resolves, dismisses, or reopens; `POST /api/review/:id/comments/send` is the explicit batched send (open → sent, returned as `{location, author, body}` cards). Every transition is appended to `metadata.reviewCommentLog` and surfaces as a `task.comment` watch event. Lifecycle rules live in `@tasks/surface` `review-comments.ts` (transitions, batched send, log → `task.comment`), and the views' control/header rules in `@tasks/review/lifecycle` (type-only, shared by the TUI and the web bundle — the island's per-card `✓ done` / `✕ remove` / `↺ reopen` buttons post to `.../threads/:tid/status`, its header reads `counts` / `allResolved`, and `send to agent (N)` posts `.../comments/send`); the `@tasks/review` task-store adapter delegates to the surface rules.
 3. Dev mode (`--dev`) keeps a foreground child and adds SSE live-reload of the shell.
 
+**Web routes** (`packages/web/src/server.ts`; review routes resolve against the served workspace):
+
+| Route | Purpose |
+|---|---|
+| `GET /`, `GET /tasks/:id`, `/tasks/:id/diff[?file=<path>]`, `/tasks/:id/file?path=<p>\|?evidence=<id>` | SPA shell: board, task view, full diff view, artifact view |
+| `GET /events` | SSE: `event: task` per log line, `event: review` on worktree/branch change, `data: reload` (dev, repoint) |
+| `POST /api/rpc`, `GET /api/events?after=&kinds=` | RPC dispatcher and paged event-log reads — see [RPC API](#web-http-endpoints) |
+| `GET /api/board`, `GET /api/status`, `POST /api/open`, `POST /api/stop` | board payload, instance status, repoint to a workspace, stop |
+| `POST /api/issue`, `POST /api/issue/:id[/comment\|/claim\|/archive\|/unarchive\|/sprint-add\|/sprint-remove\|/detach-blob]`, `POST /api/sprint/start\|close` | board mutations (all through the verb table) |
+| `GET /api/issue/:id/blob/:ref` | evidence bytes |
+| `GET /api/review/:id` | branch-scoped review payload (patch, files, evidence) — live, or from the frozen snapshot |
+| `GET /api/review/:id/taskview` | the task view's one payload (changes, minimap, artifacts, sessions, workspace, comments) |
+| `GET\|PUT /api/review/:id/file?path=<p>[&side=base][&render=doc]` | read a worktree / base file (DOC blocks with `render=doc`); write a worktree file |
+| `GET\|POST /api/review/:id/threads`, `POST …/threads/:tid` (reply), `POST …/threads/:tid/status`, `PUT …/threads/:tid/:commentId` (edit) | review comment threads and their lifecycle |
+| `POST /api/review/:id/comments/send` | the explicit batched send (`{ ids? }`) |
+| `POST /api/review/:id/commit`, `POST /api/review/:id/pr` | WORKSPC `commit` (`{ message }`) and `open pr` (`tk pr create`) |
+
 **State Management:**
 - Server-side state lives entirely in the storage backend; the process holds no entity caches beyond one open `SurfaceStore`.
 - TUI state: single React `App` component owns all `useState` (board, view, selection, modal, composer, toast) and exposes it via `AppContext`/`useApp()` (`packages/tui/src/app/context.ts`); no external state library, no panel touches the store directly.
@@ -218,7 +242,7 @@ The event wire has one writer path and one reader path; there is no daemon broke
 **`TasksSurface` facade:**
 - Purpose: the complete typed API (~50 methods: create/show/list/ready/blocked/search/query/stale/orphans/children/epic/update/status/defer/claim/assign/priority/label*/note/duplicate/supersede/closeMany/rename/delete/dep*/sprint*/attach/detach).
 - Examples: `packages/surface/src/surface.ts:68-112`; operation implementations in `packages/surface/src/operations/`.
-- Task-view reads with no RPC verb (called in-process by the TUI and web server): `taskSessions(id)` — the SESSIONS rail rows `{ id, state, label, updatedAt }`, newest first, from stored runs plus the `tk finish` session record (`packages/surface/src/operations/sessions.ts`); `gitDirtyCount(cwd)` in `@tasks/git` gives the WORKSPC tab's dirty-entry count. WORKSPC actions (11-05), also no RPC verb: `commitWorktree(deps {cwd, transact, runner?}, id, message)` (`packages/surface/src/operations/commit.ts`) normalises the message (controls stripped, trimmed, capped at 4000 chars), checks the recorded worktree (exists, is not the main checkout, is on `issue.branch`), runs `gitCommitTracked(worktree, message)` in `@tasks/git` (`git commit --all --message=<msg>` as one argv token; never `--no-verify`, `--amend`, `--allow-empty` or a push) outside the DB transaction, then restamps `metadata.report` in one short transaction; `storeTransact(store)` (`operations/pr.ts`) adapts `SurfaceStore.transact` to the throwing `transact` dep that `commitWorktree` and `prCreate` take, so the web routes and the TUI `C` / `P` keys build `{cwd: store.root, transact: storeTransact(store)}`.
+- Task-view reads with no RPC verb (called in-process by the TUI and web server): `taskSessions(id)` — the SESSIONS rail rows `{ id, state, label, updatedAt }`, newest first, from stored runs plus the `tk finish` session record (`packages/surface/src/operations/sessions.ts`); `gitDirtyCount(cwd)` in `@tasks/git` gives the WORKSPC tab's dirty-entry count. WORKSPC actions, also no RPC verb: `commitWorktree(deps {cwd, transact, runner?}, id, message)` (`packages/surface/src/operations/commit.ts`) normalises the message (controls stripped, trimmed, capped at 4000 chars), checks the recorded worktree (exists, is not the main checkout, is on `issue.branch`), runs `gitCommitTracked(worktree, message)` in `@tasks/git` (`git commit --all --message=<msg>` as one argv token; never `--no-verify`, `--amend`, `--allow-empty` or a push) outside the DB transaction, then restamps `metadata.report` in one short transaction; `storeTransact(store)` (`operations/pr.ts`) adapts `SurfaceStore.transact` to the throwing `transact` dep that `commitWorktree` and `prCreate` take, so the web routes and the TUI `C` / `P` keys build `{cwd: store.root, transact: storeTransact(store)}`.
 
 **Checksummed migrations:**
 - Purpose: adapters declare immutable `MigrationStep`s (id, order, sha256 checksum of SQL); SQL runs only inside the adapter's migration transaction.
@@ -244,7 +268,7 @@ The event wire has one writer path and one reader path; there is no daemon broke
 **pi/omp extension:**
 - Location: `packages/pi-extention/src/index.ts` (referenced by root `package.json` `pi.extensions` and `omp.extensions`).
 - Triggers: host agent startup (pi or omp).
-- Responsibilities: register the `tasks` mega-tool (typebox schemas), `tasks_ready`, watch start/stop/status tools, `/tasks` command, above-editor watch widget.
+- Responsibilities: register the `tasks` mega-tool (typebox schemas), `tasks_ready`, `tasks_wait`, watch start/stop/status tools, `/tasks` command, above-editor watch widget; start the session inbox on `session_start`.
 
 ## Architectural Constraints
 
@@ -259,7 +283,7 @@ The event wire has one writer path and one reader path; there is no daemon broke
 
 ### Giant dispatch file in the CLI
 
-**What happens:** All ~1148 lines of command parsing, validation, and dispatch live in `packages/cli/src/tk.ts`; formatters in `packages/cli/src/presentation.ts` (839 lines).
+**What happens:** All ~1770 lines of command parsing, validation, and dispatch live in `packages/cli/src/tk.ts`; formatters in `packages/cli/src/presentation.ts` (~910 lines).
 **Why it's wrong:** Every new subcommand grows the same file; merge conflicts and regression risk concentrate on the hottest file in the repo.
 **Do this instead:** When adding a command, keep the `tk.ts` switch arm minimal (parse args → call one surface method → call one presentation formatter) and push any logic into `args.ts`/`presentation.ts` or the surface operations — follow the existing split rather than inlining logic in `tk.ts`.
 
@@ -289,7 +313,7 @@ The event wire has one writer path and one reader path; there is no daemon broke
 - Typed error unions: `SurfaceError` kinds in `packages/surface/src/errors.ts`; `appErrorMessage()` renders user-facing text.
 - Validation happens at the domain boundary: zod schemas (`packages/domain/src/issue.ts`) throw `ValidationError` before persistence.
 - Status transitions go through `StatusTransitionPolicy` (`packages/domain/src/issue.ts`) yielding `StatusTransitionResult`, so lifecycle violations are domain errors, not adapter ones.
-- TUI resilience: the event-log tail retries transient read failures on its next wake (`tailEvents`), and a consumer error never stops it (`packages/tui/src/store.ts`); `refresh()` failures set `stale` + toast (`packages/tui/src/app/App.tsx:76-83`).
+- TUI resilience: the event-log tail retries transient read failures on its next wake (`tailEvents`), and a consumer error never stops it (`packages/tui/src/store.ts`); `refresh()` failures set `stale` + toast (`packages/tui/src/app/App.tsx`).
 
 ## Cross-Cutting Concerns
 
@@ -303,4 +327,4 @@ The event wire has one writer path and one reader path; there is no daemon broke
 
 ---
 
-*Architecture analysis: 2026-10-17*
+*Architecture analysis: 2026-11-12*

@@ -4,20 +4,20 @@ order: 6
 ---
 # Testing Patterns
 
-**Analysis Date:** 2026-10-17
-<!-- refreshed: 2026-10-17 -->
+**Analysis Date:** 2026-11-12
 
 ## Test Framework
 
 **Runner:**
 - Bun's test runner (`bun test`, Bun ≥ 1.3 via `packageManager: "bun@1.3.x"` in `package.json`). There is no `bunfig.toml` and no `vitest.config.*`.
-- Test imports are split: most packages import `{ describe, expect, it, afterEach }` **from `'vitest'`** (vitest ^4.0.16 is a devDependency in the root `package.json`; the API is resolved by `bun test`), while TUI tests import **from `'bun:test'`** (`packages/tui/test/app.test.tsx`, `fixture.test.tsx`). Match the existing imports of the file you extend.
+- Test imports are split: most packages import `{ describe, expect, it, afterEach }` **from `'vitest'`** (vitest ^4.0.16 is a devDependency in the root `package.json`; the API is resolved by `bun test`), while TUI tests (and `packages/web/test/review.test.ts`) import **from `'bun:test'`** (`packages/tui/test/app.test.tsx`, `taskview.test.tsx`). Match the existing imports of the file you extend.
 - TypeScript `^5.9.3`, `bun-types` for runtime types.
 
 **Run Commands (root `package.json`):**
 
 ```bash
-bun test packages/*/test/*.test.ts          # full suite — also the CI command (.github/workflows/build-binaries.yml)
+bun test packages/*/test/*.test.ts          # full suite — the CI command (.github/workflows/build-binaries.yml)
+bun run test                                 # root script: bun test --timeout 15000 (every *.test.* under the repo)
 bun run test:sqlite                          # bun run --filter @tasks/sqlite test
 bun run test:cli                             # bun run --filter @tasks/cli test
 bun run test:tui                             # bun run --filter @tasks/tui test (adds --timeout 15000)
@@ -30,7 +30,7 @@ bun run check                                # tsc --noEmit per package, depende
 
 **Location:** separate `test/` directory per package, not co-located: `packages/<pkg>/test/<unit>.test.ts`. TUI tests use `.tsx` (`packages/tui/test/app.test.tsx`).
 
-**Inventory:** `domain/test/issue.test.ts`, `application/test/ports.test.ts`, `sqlite/test/sqlite.test.ts` (+ `claim-worker.mjs` helper), `postgres/test/postgres.test.ts`, `file/test/file.test.ts`, `workspace/test/workspace.test.ts`, `surface/test/{surface,runtime,watch,status-runs,sessions}.test.ts`, `cli/test/{tk,presentation,update,runtime-inbox,agents,hooks}.test.ts`, `tui/test/{app,fixture,image-size,review,review-edit,review-selection,taskview}.test.tsx|ts` (+ shared `fixtures.ts`) + `smoke.ts` / `review-smoke.ts` / `taskview-smoke.ts` (pty E2E), `web/test/{server,taskview}.test.ts`, `beads/test/beads.test.ts`, `pi-extention/test/{entry,inbox}.test.ts`, `terminal-image/test/terminal-image.test.ts`.
+**Inventory:** `domain/test/{issue,review-record,changes-card,pr-record}.test.ts`, `application/test/ports.test.ts`, `sqlite/test/sqlite.test.ts` (+ `claim-worker.mjs` helper), `postgres/test/postgres.test.ts`, `file/test/file.test.ts`, `workspace/test/workspace.test.ts`, `git/test/{adapter,changeset,concurrency,hooks,porcelain,prune,resolver,runner,sync}.test.ts`, `surface/test/{surface,runtime,watch,status-runs,sessions,finish,changeset,changeset-freeze,changes,commit,pr,prune,review-comments,leases,events-derive,events-log,events-read}.test.ts`, `cli/test/{tk,presentation,update,runtime-inbox,agents,hooks,work,finish,changes,comments,pr,watch,events,doors,show-changeset,review-record-verify,onboard,contract,daemon,leases}.test.ts` (+ `fixtures/gh`), `daemon/test/daemon.test.ts`, `review/test/{headless-smoke,review-comment-store,show-review}.test.ts` (+ `helpers/`), `tui/test/{app,boot,image-size,events,routes,frozen-source,review,review-edit,review-selection,taskview}.test.tsx|ts` (+ shared `fixtures.ts`, `wait.ts`) + `smoke.ts` / `review-smoke.ts` / `taskview-smoke.ts` (pty E2E), `web/test/{server,taskview,review,live,events,edit-loop}.test.ts`, `beads/test/beads.test.ts`, `pi-extention/test/{entry,inbox}.test.ts`, `terminal-image/test/terminal-image.test.ts`; `packages/lua` runs its own lune suite (`bun run --filter @tasks/lua test`).
 
 ## Test Structure
 
@@ -108,7 +108,7 @@ class MockClient { calls: Call[] = []; queue: Reply[] = []; /* records queries, 
 
 ## TUI Testing (three tiers)
 
-1. **Headless render tests** (`packages/tui/test/app.test.tsx`, `fixture.test.tsx`): `testRender` from `@opentui/react/test-utils` + `mockInput.pressKey()` + `await setup.waitForFrame((value) => value.includes("blocked by"), { maxPasses: 40 })`, asserting `expect(frame).toContain(...)`. `app.test.tsx` boots a real store over a temp workspace (`openTuiStore`, `attachEvidenceUow` from `@tasks/surface`); `fixture.test.tsx` uses `openFixtureStore` from `packages/tui/src/fixture.ts` as a scripted scenario. Run via `bun run test:tui` (15s timeout).
+1. **Headless render tests** (`packages/tui/test/app.test.tsx`, `boot.test.tsx`, `taskview.test.tsx`, `review.test.tsx`): `testRender` from `@opentui/react/test-utils` + `mockInput.pressKey()` + `await setup.waitForFrame((value) => value.includes("blocked by"), { maxPasses: 40 })`, asserting `expect(frame).toContain(...)`. Tests boot a real store over a temp workspace (`openTuiStore`, `attachEvidenceUow` from `@tasks/surface`); there is no fixture board — the review and task-view tests seed scratch git repos (shared helpers in `packages/tui/test/fixtures.ts`). Run via `bun run test:tui` (15s timeout).
 2. **Unit tests** for pure helpers: `packages/tui/test/image-size.test.ts`.
 3. **Real-pty smoke** (`packages/tui/test/smoke.ts`): tmux-driven E2E — seeds an issue through the real CLI, drives the real TUI with keys, `capture-pane` assertions. See the team skill `.agents/skills/tui-testing/SKILL.md`: interactive verification happens in a Herdr pane, VHS tape runs (`run.tape`) produce print evidence saved to `.agents/tests/tui-test-<issue-id>/`. Do not mock the renderer; the frame is the product.
 
@@ -137,7 +137,8 @@ Without `--head` the working tree is diffed (uncommitted work counts); without `
 **Unit:** domain schemas/codecs (`packages/domain`), workspace config (`packages/workspace`), pure helpers.
 **Contract:** application port shapes + `expectTypeOf` type-level assertions (`packages/application/test/ports.test.ts`).
 **Integration:** adapters over real SQLite file / temp dir (`packages/sqlite/test/sqlite.test.ts`, `packages/file/test/file.test.ts`), including migration history and checksum-mismatch rollback (`packages/postgres/test/postgres.test.ts` against `MockClient`).
-**Subprocess E2E:** CLI via `Bun.spawnSync` against the real `tk.ts` (`packages/cli/test/tk.test.ts`, 826 lines).
+**Subprocess E2E:** CLI via `Bun.spawnSync` against the real `tk.ts` (`packages/cli/test/tk.test.ts`, and the task → review suites `work`, `finish`, `changes`, `comments`, `pr`, `watch` over scratch git repos).
+**Contract drift guard:** `packages/cli/test/contract.test.ts` checks the workflow contract across `tk onboard`, `tk prime` and every SKILL.md copy (see [Agent injection](#agent-injection--the-workflow-contract)).
 **E2E smoke:** TUI via tmux (`packages/tui/test/smoke.ts`).
 
 ### Tests that spawn `tk watch` or tail the log
@@ -175,4 +176,4 @@ await expect(readWorkspaceConfig(dir)).rejects.toThrow();
 
 ---
 
-*Testing analysis: 2026-10-17*
+*Testing analysis: 2026-11-12*

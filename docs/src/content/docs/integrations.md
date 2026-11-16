@@ -4,41 +4,41 @@ order: 7
 ---
 # External Integrations
 
-**Analysis Date:** 2026-10-17
+**Analysis Date:** 2026-11-12
 
 ## APIs & External Services
 
-**GitHub Releases API (self-update):**
+### GitHub Releases API (self-update)
 - Used for `tk update` / `tk update --latest`: lists releases, resolves stable vs rolling `nightly` channel, downloads the binary asset, verifies sha256 against the release's `checksums.txt`, then atomically swaps the executable.
   - Client: plain `fetch` with `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28` headers — `packages/cli/src/update.ts` (`RELEASES_API = https://api.github.com/repos/NSXBet/tasks/releases`).
   - Auth: unauthenticated (public repo).
   - Homebrew installs route around this: shells out to `brew upgrade nsxbet/tap/tasks` (legacy tap rejected with migration instructions).
 
-**S3-compatible object storage (attachments):**
+### S3-compatible object storage (attachments)
 - Blob backend for issue attachments; any S3-compatible endpoint explicitly supported (e.g. Cloudflare R2 `<account-id>.r2.cloudflarestorage.com`).
   - Client: `Bun.S3Client` (Bun built-in — no AWS SDK dependency). Implementation: `packages/s3/src/index.ts`.
   - Auth: explicit keys/endpoint/sessionToken via `.tasks/config.json` `attachments.s3`, OR shared-credentials profile via the **AWS CLI**: `aws configure get <key> --profile <p>` spawned synchronously (`Bun.spawnSync`). No env-var credentials in code.
   - Object prefix defaults to `tk-attachments` (`packages/s3/src/index.ts`).
 
-**beads task tracker (migration source):**
+### beads task tracker (migration source)
 - One-time import from beads workspaces. The `bd` CLI is spawned (`Bun.spawn` with piped stdout/stderr) or its `issues.jsonl` is read directly from disk; output is converted to tk issues via wire converters in `packages/domain/src/issue.ts` (`issueFromBdWire`, `agentFromBdWire`, `runFromBdWire`).
   - Implementation: `packages/beads/src/export.ts` (`ProcessRunner` interface injected for testability); JSONL resolution + CLI fallback in `packages/beads/src/workspace.ts`; invoked from CLI via `resolveBeadsJsonl` in `packages/cli/src/tk.ts`.
 
-**GitHub CLI (`gh`, PR sidecar):**
-- Used only by the explicit `tk pr create|sync|close|merge` verbs (Phase 11): `gh pr create --head <branch> --base <default> --title=… --body=…`, `gh pr list --head <branch> --state open --json number,url,state --limit 1`, `gh pr view <n|url> --json number,url,state`, `gh pr close <n>` and `gh pr merge <n> --merge|--squash|--rebase` (never `--admin`, never `--delete-branch`). No background or timed calls; `tk finish`, `tk changes` and `tk pr <id>` read the recorded mirror only. gh is the remote truth: tk records what `gh pr view` returns.
+### GitHub CLI (`gh`, PR sidecar)
+- Used only by the explicit `tk pr create|sync|close|merge` verbs: `gh pr create --head <branch> --base <default> --title=… --body=…`, `gh pr list --head <branch> --state open --json number,url,state --limit 1`, `gh pr view <n|url> --json number,url,state`, `gh pr close <n>` and `gh pr merge <n> --merge|--squash|--rebase` (never `--admin`, never `--delete-branch`). No background or timed calls; `tk finish`, `tk changes` and `tk pr <id>` read the recorded mirror only. gh is the remote truth: tk records what `gh pr view` returns.
   - Implementation: `packages/surface/src/gh.ts` is the single gh module, over the `@tasks/git` `ProcessRunner` (argv arrays, never a shell). `TK_GH` overrides the binary (default `gh` on PATH).
   - Auth: run `gh auth login` once; tk uses gh's own login and never reads `GH_TOKEN`/`GITHUB_TOKEN`.
   - Errors: a missing binary (exit 127, or a `TK_GH` path that does not exist) prints `gh not found — install GitHub CLI (https://cli.github.com) or set TK_GH`; a non-zero exit prints `gh <subcommand> failed: <first stderr line>` (control characters stripped); an unparseable or invalid payload prints `gh returned an unexpected PR payload`. Nothing is written on failure.
 
-**git CLI:**
-- Used for worktree-based issue workspaces, changeset derivation, branch detection, and git hooks: `git worktree add/remove/list`, `merge-base`, `diff`/`log`, `config` (get/set/unset), `check-ignore`, `ls-files`, `add`.
+### git CLI
+- Used for task worktrees (`tk work`, `tk worktree`), changeset derivation, the merge predicate behind every prune, the web/TUI commit action, `tk pr create`'s push, and git hooks: `git worktree add/remove/list`, `branch`, `rev-parse`/`rev-list`/`symbolic-ref`, `merge-base`, `diff`/`log`, `cherry`, `cat-file`, `status`/`stash`, `commit`, `push`, `config` (get/set/unset), `check-ignore`, `ls-files`, `add`.
   - Implementation: all git access goes through `@tasks/git` (`packages/git`). `packages/git/src/runner.ts` is the single spawn module: the async `bunRunner` (Bun.spawn under Bun; falls back to `nodeRunner`/`child_process` under node, so workspace discovery works in the pi host) and the synchronous `spawnSyncRunner` used by git hooks. `commands.ts` (async) and `sync.ts` (hook-context sync) hold the enumerated git commands; `porcelain.ts` parses git output; `resolver.ts` decides worktree placement. Every command takes an injectable runner and passes argv arrays (never a shell).
   - Auth: inherited from ambient git credentials; tk never handles them.
 
-**Homebrew:**
+### Homebrew
 - Update/install channel when the binary lives under a `Cellar/` path. `brewFormulaFromExecPath` extracts the formula; `brewUpgradeCommand` builds `brew upgrade <formula>` — `packages/cli/src/update.ts`.
 
-**Agent hosts (pi / omp) — extension embedding:**
+### Agent hosts (pi / omp)
 - `tk` ships as an agent extension loaded by two hosts: pi (`@earendil-works/pi-coding-agent`, types imported as a virtual host-provided module — not an npm dep) and omp (Bun). Registered via `pi.extensions` / `omp.extensions` in root and `packages/pi-extention/package.json`.
   - Implementation: `packages/pi-extention/src/index.ts` exposes the full tk surface as typed LLM tools (schemas via `typebox`), plus a workspace watcher that notifies the live session (`packages/pi-extention/src/watch-manager.ts`) and a status widget (`packages/pi-extention/src/widget.ts`).
 - **The extension reads the event log.** Everything below tails `.tasks/events.jsonl` in-process; no daemon is required. `TK_EVENTS=daemon` remains an optional transport for `tasks_watch_start` only (the daemon tails the same log). The extension never appends to the log; it only writes its own cursor in `.tasks/cursors.json`.
@@ -64,8 +64,8 @@ order: 7
 - **`tasks_watch_start`** tails the log for arbitrary kinds (`task.created`, `task.status`, `task.comment`, `task.owner`, `task.update`, `task.evidence`, `task.worktree`, `task.pr`, `task.report`, `task.deleted`, `run.changed`; legacy `issue.*` / `ready.changed` / `counts.changed` names are accepted as aliases) and posts one formatted line per event. `task.pr` posts `🔀 tasks: PR #<n> for <id> — <state> (<url>)`; `task.report` posts the stat card `📊 tasks: Changes · <id>  N commits · +A −D · F files  → <web>/tasks/<id>/diff · tk review <id>`, built from the event data alone (no git, no store read; the web base is resolved once at `session_start`).
 - **`tasks` tool `changes` op** — `changes(id)` returns the counts-only `ChangesView` (`{id, source, stale, at, stat{commits,files,additions,deletions}, links{tui,web}}`, or null when no changes are recorded) via `TasksSurface.changes` — never a diff.
 
-**Harness detection at `tk finish`:**
-- `tk finish` records which agent harness finished the task as `metadata.agent_harness`. Precedence: `--harness` > `TK_HARNESS` > detected from the session env below > `omp` (registry default). Detection is data: each entry in `HARNESS_REGISTRY` (`packages/domain/src/review-record.ts`) lists its env vars, and `detectHarness` checks them in registry order (a non-default match beats omp in nested shells; empty values do not count).
+### Harness registry and detection
+- `tk finish <id> --session <sid> [--harness <id>]` records which agent harness finished the task as `metadata.agent_harness`; `tk show` renders it as `agent <harness> · session <id> finished <time>` (see [The review record](#the-review-record)). The harness list is data, not code: adding a harness and its detection is one `HARNESS_REGISTRY` entry `{ id, status, note, env }`. Precedence: `--harness` > `TK_HARNESS` > detected from the session env below > `omp` (registry default). Detection is data: each entry in `HARNESS_REGISTRY` (`packages/domain/src/review-record.ts`) lists its env vars, and `detectHarness` checks them in registry order (a non-default match beats omp in nested shells; empty values do not count).
 
 | harness | detected by env var(s) |
 |---|---|
@@ -73,7 +73,7 @@ order: 7
 | codex | `CODEX_THREAD_ID` |
 | cursor | `CURSOR_CONVERSATION_ID` / `CURSOR_AGENT` |
 
-**tmux (test-only):**
+### tmux (test-only)
 - pty E2E harness for the TUI: `packages/tui/test/smoke.ts` launches the real `tk-tui` binary inside a tmux session (tmux answers OpenTUI's terminal-capability queries that a bare pty would not).
 
 **MCP clients (Claude Code / Cursor / Codex):**
@@ -104,7 +104,7 @@ order: 7
   - `postgres` — lazy `import('@tasks/postgres/blob')`, shares the storage database.
 
 **Caching:**
-- None. Watch polling is diff-based per tick, not cached (`packages/surface/src/watch/core.ts`, `DEFAULT_POLL_INTERVAL_MS = 2000`).
+- None. Watchers tail `.tasks/events.jsonl` and wake on `fs.watch` (`waitForAppend`); the 2000 ms tick (`DEFAULT_POLL_INTERVAL_MS`, 250 ms floor) is only the fallback. The one cache is `metadata.report`, the counts-only stat card that `tk finish` stamps for hosts that cannot reach the branch.
 
 ## Authentication & Identity
 
@@ -136,6 +136,13 @@ order: 7
 - `TASKS_DATABASE_URL` — only for postgres backend (env-indirected; set per workspace via `storage.urlEnv` override). Never required for the default file backend.
 - `TK_WEB_PORT` — optional web port override (`packages/web/src/main.ts`; precedence: `--port` flag > `TK_WEB_PORT` > `config.json` `webPort` > `WEB_DEFAULT_PORT`).
 - `TK_BUILD_REF` — not set by users; baked at compile time by CI.
+
+**Optional env vars (task → review loop):**
+- `TK_SESSION` — the agent session id for `tk finish` (instead of `--session`); also names the default `tk watch` subscriber (`session:$TK_SESSION`) and is stamped as `session` on every event-log line the process writes.
+- `TK_HARNESS` — the harness id `tk finish` records (beats env detection; `--harness` beats it).
+- `TK_GH` — the gh binary `tk pr` runs (default `gh` on PATH; tests point it at a fake).
+- `TK_INBOX=off` — disables the pi/omp extension inbox; `TK_EVENTS=daemon` routes `tasks_watch_start` through the daemon.
+- `TK_BIN_DIR` — install directory for `install.sh` (default `~/.local/bin`).
 
 **Secrets location:**
 - No committed secrets. Postgres URL stays in the environment (config indirection is deliberate — `tk init` has no `--url` flag by design). S3 credentials come from `attachments.s3` config keys or `aws configure` profiles. No `.env` files exist in the repo.
@@ -176,8 +183,8 @@ If you change the contract text, update the template, `PRIME` in `packages/cli/s
 - None.
 
 **Outgoing:**
-- None. Change notification is pull-based: `tk watch` emits `WatchEvent`s over NDJSON stdout (poll loop with per-watcher monotonic `seq`, 250 ms floor), and due `defer_until` issues fire queued agent runs inside the watch tick (`processWakeups` in `packages/surface/src/watch/wakeups.ts`).
+- None. Change notification is pull-based: every committed write appends to `.tasks/events.jsonl`, and readers tail it — `tk watch` (`--until` / `--drain` / `--follow`, or NDJSON `WatchEvent` frames carrying the log `seq`), the daemon's `events.subscribe`, web `GET /events`, the TUI and the pi/omp extension. Due `defer_until` issues fire queued agent runs inside the watch tick (`processWakeups` in `packages/surface/src/watch/wakeups.ts`). See [Event wire](#event-wire-eventsjsonl).
 
 ---
 
-*Integration audit: 2026-10-17*
+*Integration audit: 2026-11-12*

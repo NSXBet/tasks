@@ -5,21 +5,21 @@ order: 9
 
 # RPC API
 
-Every tk client — the CLI, the web UI, the pi extension — talks to the same typed surface through **one dispatch table**. `@tasks/rpc` owns the wire protocol, the verb table, and a transport-agnostic dispatcher; `@tasks/daemon` owns the unix-socket transport (`tkd`). A method is addable in exactly one place: the verb table.
+Every tk client — the CLI, the web UI, the pi extension, the Luau client — talks to the same typed surface through **one dispatch table**. `@tasks/rpc` owns the wire protocol, the verb table, and a transport-agnostic dispatcher; `@tasks/daemon` owns the unix-socket transport (`tkd`). A method is addable in exactly one place: the verb table.
 
 ## Transports
 
 | Transport | Used by | Lifetime |
 |---|---|---|
-| `tkd` unix-socket daemon | CLI (`tk web`, watchers), pi extension, MCP clients (see [MCP on the daemon](#mcp-on-the-daemon)) | One daemon per workspace; spawned on first connect, idles out after 10 min with zero connections and nothing hosted (`idleMs: 0` disables) |
+| `tkd` unix-socket daemon | CLI (`tk web`, `tk daemon`), pi extension with `TK_EVENTS=daemon`, MCP clients (see [MCP on the daemon](#mcp-on-the-daemon)) | One daemon per user, serving any workspace (each frame names its `root`; one cached surface per root); spawned on first connect, idles out after 10 min with zero connections and nothing hosted (`idleMs: 0` disables) |
 | In-process dispatcher | web server routes | Web server owns a memoized surface lease per workspace |
 | Web HTTP (`POST /api/rpc`, `GET /api/events`) | `@tasks/lua` Luau client (`packages/lua/luau/tk`) — lune scripts and Tern plugins such as `examples/tern/tk-board` | Talks to whatever `tk web` hosts; discovery reads the hosted-web row from `<root>/.tasks/runtime.json` |
 
-The socket lives under the OS temp directory with a content-derived name (macOS binds unix sockets at ~104 chars, so a socket inside a deep repo path would routinely overflow). `tk web` bootstraps the daemon automatically; `tk daemon status` and `tk daemon stop` (plus `start` / `restart`) inspect or manage it without the web server.
+The socket is `tkd.sock` in the OS temp directory (`TKD_SOCKET` overrides it) — never inside the repo, since macOS caps unix socket paths at ~104 chars. `tk web` bootstraps the daemon automatically; `tk daemon status` and `tk daemon stop` (plus `start` / `restart`) inspect or manage it without the web server.
 
 ## Web HTTP endpoints
 
-`tk web` exposes the dispatcher over plain HTTP at `POST /api/rpc` — the same envelope and error kinds as above, with two transport differences:
+`tk web` exposes the dispatcher over plain HTTP at `POST /api/rpc` — the same [envelope](#envelope) and [error kinds](#errors) as the socket, with two transport differences:
 
 - `root` is **not** accepted from the client. The server injects the workspace it serves into every request; any client-supplied `root` is ignored. This keeps a browser page from pointing RPC calls at another workspace.
 - Bodies are single JSON objects (not NDJSON lines), capped at 1 MiB (`413` above the cap); malformed JSON is `400`.
@@ -55,7 +55,7 @@ One JSON object per line (NDJSON). Requests and responses both carry `v: 2` (`PR
 ```
 
 - `id` is optional; the response echoes it when present. Transports assign one when the client omits it.
-- `root` is required on every frame except `hello`: dispatch rejects a missing or empty one with `root_invalid`. On the socket transport the daemon resolves it to its own pinned workspace; the in-process web dispatcher resolves it to the served workspace.
+- `root` is required on every frame except `hello`: dispatch rejects a missing or empty one with `root_invalid`. On the socket transport the daemon opens (and caches) a surface for that workspace, rejecting a path that is not a tasks workspace; the in-process web dispatcher resolves it to the served workspace.
 - Result values are the surface's `Result` type verbatim: `{ ok: true, value }` nests inside the envelope's `value`, and `SurfaceError` kinds surface as wire errors unchanged.
 
 ## Handshake
@@ -63,7 +63,7 @@ One JSON object per line (NDJSON). Requests and responses both carry `v: 2` (`PR
 Call `hello` first. It returns the contract versions and the full method list:
 
 ```jsonc
-{ "tk": "tk", "protocol": 2, "verbs": 5, "methods": ["board.get", "deps.add", …] }
+{ "tk": "tk", "protocol": 2, "verbs": 6, "methods": ["board.get", "comments.list", …] }
 ```
 
 Clients must fail loudly on drift — `expectContract()` throws `ContractMismatch` when either version differs. `protocol` bumps on envelope changes (fields, error kinds); `verbs` bumps when methods, params, or result shapes change.
@@ -100,6 +100,7 @@ The daemon intercepts these frames itself; everything else falls through to the 
 ```jsonc
 {
   "subscription": "my-tag",        // required, non-empty; re-subscribing replaces the old loop
+  "root": "/path/to/repo",         // required: the workspace whose event log to tail
   "kinds": ["task.status"],        // optional filter: log types, or legacy aliases (below)
   "ids": ["tasks-1"],              // optional filter, issue ids
   "label": "session-x",            // optional, issues carrying this label
@@ -270,4 +271,4 @@ try {
 }
 ```
 
-`connectOrSpawn` connects to a running daemon or spawns one, self-healing from a stale socket file or dead pid. `probeDaemon(root, timeoutMs)` inspects a running daemon without ever spawning one (returns `null` when none is alive). The pi extension opts into this transport with `TK_EVENTS=daemon`; otherwise it runs the in-process watch loop.
+`connectOrSpawn` connects to a running daemon or spawns one, self-healing from a stale socket file or dead pid. `probeDaemon(timeoutMs)` inspects the running daemon without ever spawning one (returns `null` when none is alive). The pi extension opts into this transport with `TK_EVENTS=daemon`; otherwise it runs the in-process watch loop.

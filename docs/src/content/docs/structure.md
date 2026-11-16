@@ -4,45 +4,49 @@ order: 3
 ---
 # Codebase Structure
 
-**Analysis Date:** 2026-10-17
+**Analysis Date:** 2026-11-12
 
 ## Directory Layout
 
 ```text
 tasks/
 ├── package.json               # Bun workspaces root; pi/omp extension wiring; exports map
-├── tsconfig.json              # Composite project references to 12 packages
+├── tsconfig.json              # Composite project references (15 packages)
 ├── bun.lock                   # Bun lockfile
-├── AGENTS.md                  # Agent-facing repo guidance
-├── install.sh                 # Installer for tk / tk-tui bins
+├── AGENTS.md                  # Agent-facing repo guidance (holds the managed tk block)
+├── CHANGELOG.md               # Release notes (release.yml refuses to publish without a section)
+├── install.sh                 # Installer for the tk binary
 ├── skills-lock.json           # Skill lockfile
-├── packages/                  # All source — 14 workspace packages
-│   ├── domain/                # @tasks/domain — zod model, wire codecs
+├── packages/                  # All source — 19 workspace packages
+│   ├── domain/                # @tasks/domain — zod model, wire codecs, review-record / stat-card / PR-record helpers
 │   ├── application/           # @tasks/application — ports, Result, run codes
 │   ├── workspace/             # @tasks/workspace — config, backend resolution, blobs
-│   ├── file/                  # @tasks/file — JSONL adapter
+│   ├── file/                  # @tasks/file — JSON-per-issue adapter
 │   ├── sqlite/                # @tasks/sqlite — SQLite adapter
 │   ├── postgres/              # @tasks/postgres — Postgres adapter + blob store
 │   ├── s3/                    # @tasks/s3 — S3 blob adapter
 │   ├── beads/                 # @tasks/beads — beads JSONL interop
 │   ├── git/                   # @tasks/git — typed git adapter (the only git spawner)
-│   ├── surface/               # @tasks/surface — TasksSurface facade, watch, discovery
-│   ├── cli/                   # @tasks/cli — tk CLI (bin: tk)
+│   ├── surface/               # @tasks/surface — TasksSurface facade, event log, watch, discovery, gh
+│   ├── rpc/                   # @tasks/rpc — wire protocol + the verb table + dispatcher
+│   ├── daemon/                # @tasks/daemon — tkd unix-socket daemon (RPC, events, hosted web)
+│   ├── review/                # @tasks/review — vendored Hunk review component (diff, comments, task-view model)
+│   ├── cli/                   # @tasks/cli — tk CLI (bin: tk), skill + onboard templates
 │   ├── tui/                   # @tasks/tui — tk-tui OpenTUI app (bin: tk-tui)
-│   ├── web/                   # @tasks/web — tk web server + SPA shell
+│   ├── web/                   # @tasks/web — tk web server + SPA shell + review island
 │   ├── pi-extention/          # pi/omp agent-host extension (sic — misspelled, do not rename)
 │   ├── terminal-image/        # @tasks/terminal-image — TUI image helper
 │   └── lua/                   # @tasks/lua — hand-written Luau tk client (json/transport/wire/client/events), lune-tested
-├── tests/
-│   └── tui-test-tasks-5aof/   # Manual TUI verification artifacts (screenshots, tapes)
+├── examples/tern/tk-board/    # Tern plugin: live tk board over the Luau client
 ├── docs/
-│   └── html/                  # Exported HTML (e.g. task-to-review.html)
-├── data/                      # Local scratch data (untracked)
-├── .claude/
-│   └── skills/tui-testing/    # TUI testing skill
+│   ├── src/content/docs/      # This docs site (Astro): overview, architecture, … rpc
+│   └── html/                  # Standalone HTML documents (e.g. task-to-review-v1.html)
+├── .agents/                   # Agent plans, project skills (.agents/skills/tasks/SKILL.md), TUI test evidence
+├── .claude/skills/            # Claude Code skills
 ├── .github/workflows/         # build-binaries.yml, release.yml, nightly.yml
+├── .trail/                    # Repo context graph + learnings
 ├── .vibe-wise/                # Learning-mode notes
-└── .planning/                 # GSD planning docs (this directory)
+└── .planning/                 # GSD planning docs and milestone archives
 ```
 
 Per-package skeleton (used by every package):
@@ -72,22 +76,28 @@ packages/<name>/
 
 **`packages/surface`:**
 - Purpose: the single service facade and shared runtime services.
-- Key files: `packages/surface/src/surface.ts` (facade + `createSurface`), `packages/surface/src/store.ts` (SurfaceStore, transaction wrapper), `packages/surface/src/discover.ts` (`rootFrom`), `packages/surface/src/errors.ts`, `packages/surface/src/envelope.ts`, `packages/surface/src/tree.ts`; `operations/` (create, query, mutate, deps, comments, sprint, attachments, views); `watch/` (child-entry.ts, core.ts, protocol.ts, wakeups.ts); `runtime.ts` (registry).
+- Key files: `packages/surface/src/surface.ts` (facade + `createSurface`), `packages/surface/src/store.ts` (SurfaceStore, transaction wrapper), `packages/surface/src/discover.ts` (`rootFrom`), `packages/surface/src/errors.ts`, `packages/surface/src/envelope.ts`, `packages/surface/src/tree.ts`, `packages/surface/src/gh.ts` (the only gh caller), `packages/surface/src/leases.ts`; `operations/` (create, query, mutate, deps, comments, sprint, attachments, views, finish, changeset, changes, review-comments, sessions, commit, pr, prune, leases); `events/` (log, recorder, derive, query, tail, cursors, watch — the `.tasks/events.jsonl` wire); `watch/` (child-entry.ts, core.ts, protocol.ts, wakeups.ts); `runtime.ts` (registry).
 
 **`packages/git`:**
 - Purpose: typed git adapter — the only place tk spawns git. `runner.ts` = process runners (async `bunRunner`/`nodeRunner`, sync `spawnSyncRunner`); `commands.ts` = enumerated async git commands; `sync.ts` = enumerated sync commands for git hooks; `porcelain.ts` = output parsing; `resolver.ts` = worktree placement; `hooks.ts` = worktree setup hooks / package-manager setup; `prune.ts` = worktree pruning.
 
 **`packages/cli`:**
-- Purpose: CLI frontends. `tk.ts` = dispatch; `args.ts` = parser; `presentation.ts` = all output formatting; `hooks.ts`/`hooks-json.ts`/`agent-hooks.ts` = hook integrations; `tree.ts` = tree view; `update.ts` = self-update; `skill.ts` = skill install. Git access goes through `@tasks/git`.
+- Purpose: CLI frontends. `tk.ts` = dispatch; `args.ts` = parser; `presentation.ts` = all output formatting (and the `PRIME` context); `hooks.ts`/`hooks-json.ts`/`agent-hooks.ts` = hook integrations; `onboard.ts` = the managed AGENTS.md block; `tree.ts` = tree view; `update.ts` = self-update; `skill.ts` = skill install. `skills/tasks/SKILL.md` is the shipped skill and `templates/agents/tk-section.md` the onboard block body. Git access goes through `@tasks/git`.
 
 **`packages/tui`:**
-- Purpose: terminal UI. `src/main.tsx` = entry/renderer lifecycle; `src/store.ts` = pure board model + graph algorithms (dependency trees, Tarjan cycles, critical chain, kanban grouping); `src/app/` = one file per panel; `src/theme.ts`, `src/format.ts` = styling/format helpers; `src/fixture.ts` = fixture board for tests.
+- Purpose: terminal UI. `src/main.tsx` = entry/renderer lifecycle; `src/store.ts` = pure board model + graph algorithms (dependency trees, Tarjan cycles, critical chain, kanban grouping) + the event-log tail; `src/app/` = one file per panel (`task.tsx` task view, `tasklist.tsx` TASKS column, `diff.tsx` review, `artifact.tsx` artifact view, `hunkEdit.tsx` inline edit); `src/review/` = review source, live watch, guarded edits, selection; `src/theme.ts`, `src/format.ts` = styling/format helpers.
 
 **`packages/web`:**
-- Purpose: local web UI. `src/main.ts` = entry (flags, port resolution, daemonize), `src/server.ts` = Bun HTTP server + JSON API, `src/app.html` = single-page shell.
+- Purpose: local web UI. `src/main.ts` = entry (flags, port resolution, daemonize), `src/server.ts` = Bun HTTP server + JSON API + SSE, `src/review.ts` = review/task-view payloads and guarded file I/O, `src/client/review-island.tsx` = the `@pierre/diffs` review island (served as `/assets/review-island.js`), `src/app.html` = single-page shell.
 
 **`packages/pi-extention`:**
-- Purpose: register tasks tools/commands/watch widget inside pi and omp hosts. `src/index.ts` = extension factory, `src/watch-manager.ts` = widget state; `skills/` ships agent skills (glob-registered from root `package.json`).
+- Purpose: register tasks tools/commands/watch widget inside pi and omp hosts. `src/index.ts` = extension factory, `src/inbox.ts` = automatic review inbox, `src/watch-manager.ts` = watch lifecycle + widget state; `skills/` ships agent skills (glob-registered from root `package.json`).
+
+**`packages/rpc`, `packages/daemon`:**
+- Purpose: `rpc/src/verbs.ts` is the single verb table, `protocol.ts` the versions and error codes, `dispatch.ts` the transport-agnostic dispatcher; `daemon/src/server.ts` serves it on the `tkd` socket, `client.ts` connects or spawns, `events.ts` hosts `events.subscribe`, `web.ts` hosts `tk web`.
+
+**`packages/review`:**
+- Purpose: tk's review component, vendored from Hunk. Git-free entries: `@tasks/review/headless` (patch → changeset/diff stats), `@tasks/review/watch` (debounced watch controller), `@tasks/review/lifecycle` and `@tasks/review/taskview` (type-import-only models shared with the web), `@tasks/review/opentui` (the diff view).
 
 **`packages/beads`:**
 - Purpose: read/convert legacy beads JSONL workspaces — `export.ts` (resolve), `migrate.ts`, `plan.ts`, `records.ts`, `workspace.ts`, `search-path.ts`.
@@ -109,8 +119,8 @@ packages/<name>/
 
 **Configuration:**
 - `package.json` (root): workspaces `packages/*`, scripts (`build`, `check`, `test`, `tk`, `tk:tui`), exports map `./domain`, `./workspace`, `./application` (bun→src, default→dist), `./cli`.
-- `tsconfig.json` (root): composite references — `domain, application, sqlite, postgres, file, workspace, s3, surface, cli, beads, tui, web` (note: `terminal-image` and `pi-extention` are NOT in references).
-- `packages/workspace/src/config.ts`: schema for `.tasks/config.json` (backend, filename, urlEnv, tuiImage, webPort).
+- `tsconfig.json` (root): composite references — `git, domain, application, sqlite, postgres, file, workspace, s3, surface, cli, beads, tui, web, rpc, daemon` (note: `review`, `terminal-image`, `lua` and `pi-extention` are NOT in references).
+- `packages/workspace/src/config.ts`: schema for `.tasks/config.json` (`prefix`, `storage` {backend, filename, url, urlEnv}, `attachments`, `webPort`, `worktree` {dir, post_start, post_checkout, pre_end, install}, `tuiImage`).
 - `.github/workflows/*.yml`: build/release/nightly CI.
 - `install.sh`: installs bins from GitHub releases.
 
@@ -120,7 +130,7 @@ packages/<name>/
 - `packages/tui/src/store.ts`: board derivation + dependency graph algorithms (pure functions).
 
 **Testing:**
-- `packages/*/test/*.test.ts`: bun test suites (e.g. `packages/sqlite/test/sqlite.test.ts`, `packages/tui/test/app.test.tsx`, `packages/file/test/file.test.ts`, `packages/beads/test/*`, `packages/application/test/ports.test.ts`, `packages/tui/test/image-size.test.ts`, `packages/tui/test/fixture.test.tsx`, `packages/tui/test/smoke.ts`).
+- `packages/*/test/*.test.ts`: bun test suites (inventory in [Testing](#testing)); `packages/tui/test/{smoke,review-smoke,taskview-smoke}.ts` are tmux pty probes run by hand.
 - Run: `bun test packages/*/test/*.test.ts` (root script `test`); per-package `test:sqlite`, `test:cli`, `test:tui`.
 
 ## Naming Conventions
@@ -173,7 +183,7 @@ packages/<name>/
 - Component: `packages/tui/src/app/<name>.tsx` (one component per file).
 - Register the view kind in `packages/tui/src/app/context.ts` (`ViewKind`), mount + key-route it in `packages/tui/src/app/App.tsx`.
 - Pure logic (filters, grouping, graph metrics) goes in `packages/tui/src/store.ts` as pure exported functions — panels must stay thin and read state only via `useApp()`.
-- Tests: `packages/tui/test/` (render-level tests use `@opentui` fixtures; see `app.test.tsx`, `fixture.test.tsx`).
+- Tests: `packages/tui/test/` (render-level tests use `@opentui` fixtures; see `app.test.tsx`, `taskview.test.tsx`, `review.test.tsx`).
 
 **New web API route:**
 - Handler in `packages/web/src/server.ts` next to existing JSON routes; always go through the `TasksSurface` instance, return via the shared `json()` helper.
@@ -197,23 +207,16 @@ packages/<name>/
 - Generated: Yes. Committed: No for `.js`/`.js.map` (`*.js`, `*.js.map` in `.gitignore`); `.d.ts` files in `src/` are NOT ignored — verify they are not hand-edited before committing.
 
 **`.tasks/` (runtime, per user workspace — not in this repo):**
-- Purpose: workspace data: `config.json`, `issues/` JSONL (file backend), `blobs/`, runtime registry. Created by `tk init`; never committed.
+- Purpose: workspace data: `config.json`, `issues/` + `history/` (file backend) or `tasks.db` (sqlite), `attachments/`, `sprints/`, `agents/`, `runs/`, the event log `events.jsonl` (+ `events.lock`), per-subscriber `cursors.json`, the runtime registry `runtime.json`, `leases.json`. Created by `tk init`.
 
-**`tests/tui-test-tasks-5aof/`:**
-- Purpose: manual TUI verification artifacts (before/after screenshots, `run.tape`, gifs).
-- Generated: Yes (test output). Committed: Yes. Do not treat as automated tests; automated tests live in `packages/*/test/`.
-
-**`docs/html/`:**
-- Purpose: exported standalone HTML documents (e.g. `task-to-review.html`).
-- Generated: semi (scripted export). Committed: Yes.
+**`docs/`:**
+- Purpose: this Astro docs site (`docs/src/content/docs/*.md`, built with `cd docs && bun run build`) and standalone HTML documents under `docs/html/` (e.g. `task-to-review-v1.html`).
+- Generated: No (hand-written Markdown; some HTML exports are scripted). Committed: Yes.
 
 **`.vibe-wise/`, `.planning/`, `.claude/skills/`:**
 - Purpose: agent workflow metadata (learning notes, GSD planning docs, project skill).
 - Generated: tooling-owned. Committed: Yes (`.planning/` per repo convention).
 
-**`data/`:**
-- Purpose: local scratch; currently empty. Committed: No (gitignored).
-
 ---
 
-*Structure analysis: 2026-10-17*
+*Structure analysis: 2026-11-12*
